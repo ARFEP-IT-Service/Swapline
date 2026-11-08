@@ -132,7 +132,8 @@ button.link:hover { color: var(--accent); }
 #chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); position: relative; }
 .empty { margin: auto; text-align: center; }
 .empty h1 { font: 600 30px var(--font-display); margin: 6px 0 4px; }
-.empty-logo { font-size: 54px; color: var(--accent); line-height: 1; }
+.empty-logo { width: 72px; height: 72px; display: block; margin: 0 auto; }
+.acc .info.warn { color: var(--danger); }
 .empty .primary { margin-top: 18px; }
 #chat-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 

@@ -463,7 +463,6 @@ ipcMain.handle('projects:reorder', (_e, ids) => updateStore(s => {
 }));
 
 ipcMain.handle('history:list', (_e, profileId) => { const p = profileById(profileId); return p ? listHistory(p) : []; });
-ipcMain.handle('history:load', (_e, file) => loadTranscript(file));
 ipcMain.handle('history:loadSession', (_e, { profileId, sessionId, cwd } = {}) => {
   const p = profileById(profileId);
   if (!p) return [];
@@ -580,8 +579,10 @@ function createWindow() {
   win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'notifications'));
 }
 
+// Test-Hooks (Testprofil, Screenshot, Test-Skript) wirken nur im ungepackten Entwicklungsstand – nie in der ausgelieferten App.
+const DEV = !app.isPackaged;
 // Testprofil: CONSOLEAI_PROFILE=<name> nutzt einen eigenen Datenordner (echte Einstellungen bleiben unberührt)
-if (process.env.CONSOLEAI_PROFILE) app.setPath('userData', path.join(app.getPath('appData'), 'ConsoleAI-' + process.env.CONSOLEAI_PROFILE));
+if (DEV && process.env.CONSOLEAI_PROFILE) app.setPath('userData', path.join(app.getPath('appData'), 'ConsoleAI-' + process.env.CONSOLEAI_PROFILE));
 
 // Früher (bis Auftrag 2) zeigte die App die Anmeldeseite eingebettet an und legte dabei Browser-Daten
 // unter userData/Partitions/login-* sowie ein Hilfsskript login-browser.cmd ab. Beides wird beim Start
@@ -603,11 +604,11 @@ app.whenReady().then(() => {
   STORE_FILE = path.join(app.getPath('userData'), 'consoleai.json');
   createWindow();
   // CONSOLEAI_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
-  const shot = process.env.CONSOLEAI_SCREENSHOT;
+  const shot = DEV && process.env.CONSOLEAI_SCREENSHOT;
   if (shot) {
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
       try {
-        if (process.env.CONSOLEAI_TEST_JS) await win.webContents.executeJavaScript(fs.readFileSync(process.env.CONSOLEAI_TEST_JS, 'utf8'));
+        if (DEV && process.env.CONSOLEAI_TEST_JS) await win.webContents.executeJavaScript(fs.readFileSync(process.env.CONSOLEAI_TEST_JS, 'utf8'));
         win.show(); win.focus();
         let img;
         try { img = await win.webContents.capturePage(); } catch {

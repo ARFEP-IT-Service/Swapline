@@ -128,7 +128,7 @@ function renderRail() {
   // Konto-Knopf unten: Avatar des aktiven Kontos mit Status-Punkt
   const p = activeProfile(), st = status[p.id];
   $('#btn-account').replaceChildren(avatar(p), el('span', { class: 'badge ' + (st ? (st.loggedIn ? 'on' : 'off') : '') }));
-  $('#btn-account').title = `Konto: ${p.name}${st?.email ? '\n' + st.email : ''}${st && !st.loggedIn ? '\n(nicht angemeldet)' : ''}\nKlicken zum Wechseln`;
+  $('#btn-account').title = `Konto: ${p.name}${st?.email ? '\n' + st.email : ''}${st && !st.loggedIn ? '\n(' + stateText(st) + ')' : ''}\nKlicken zum Wechseln`;
   renderProjectHead();
 }
 
@@ -216,7 +216,7 @@ function openAccountMenu() {
       const st = status[p.id];
       return el('button', { class: 'pm-item' + (p.id === store.activeProfileId ? ' sel' : ''), onclick: () => { closeMenus(); switchProfile(p.id); } },
         el('span', { class: 'pm-av' }, avatar(p, 'sm'), el('span', { class: 'badge ' + (st ? (st.loggedIn ? 'on' : 'off') : '') })),
-        el('span', { class: 'pm-text' }, el('b', {}, p.name), el('small', {}, !st ? 'wird geprüft …' : st.loggedIn ? [st.email, planLabel(st)].filter(Boolean).join(' · ') : 'nicht angemeldet')),
+        el('span', { class: 'pm-text' }, el('b', {}, p.name), el('small', {}, stateText(st))),
         p.id === store.activeProfileId ? el('span', { class: 'pm-check' }, '✓') : null);
     }),
     el('div', { class: 'pm-sep' }),
@@ -243,6 +243,15 @@ function openChatMenu(e, t) {
   if (r.bottom > window.innerHeight - 8) menu.style.top = Math.max(8, window.innerHeight - r.height - 8) + 'px';
 }
 
+// Statuszeile eines Kontos – unterscheidet „Claude Code fehlt“ von „nicht angemeldet“
+const CLAUDE_MISSING_TEXT = 'Claude Code nicht gefunden';
+function stateText(st, long = false) {
+  if (!st) return 'wird geprüft …';
+  if (st.claudeMissing) return CLAUDE_MISSING_TEXT;
+  if (st.loggedIn) return [st.email, planLabel(st), long ? st.orgName : null].filter(Boolean).join(' · ');
+  return 'Nicht angemeldet';
+}
+const badgeClass = st => 'badge ' + (st ? (st.loggedIn ? 'on' : 'off') : '');
 function planLabel(st) {
   const map = { max: 'Max', pro: 'Pro', team: 'Team', enterprise: 'Enterprise', free: 'Free' };
   return st.subscriptionType ? (map[st.subscriptionType] || st.subscriptionType) : (st.authMethod === 'console' ? 'API' : '');
@@ -251,6 +260,7 @@ function planLabel(st) {
 async function refreshStatus(id) {
   const ids = id ? [id] : store.profiles.map(p => p.id);
   await Promise.all(ids.map(async pid => { status[pid] = await api.profiles.status(pid); }));
+  if (Object.values(status).some(s => s?.claudeMissing)) toast(CLAUDE_MISSING_TEXT + ' – siehe Einstellungen');
   renderRail();
   if ($('.modal.accounts')) renderAccountsList();
 }
@@ -264,7 +274,7 @@ async function switchProfile(id) {
   if (t && t.profileId !== id) {
     // Übertragung abgelehnt -> aktives Konto bleibt das des Chats
     if ((await moveTabToProfile(t, id)) === false) store = await api.profiles.setActive(t.profileId);
-  } else if (st && !st.loggedIn) toast(`„${profile(id).name}“ ist nicht angemeldet`);
+  } else if (st && !st.loggedIn) toast(st.claudeMissing ? CLAUDE_MISSING_TEXT : `„${profile(id).name}“ ist nicht angemeldet`);
   else toast(`Konto: ${profile(id).name}`);
   renderRail(); renderList(); renderUsage();
 }
@@ -368,7 +378,7 @@ function openChatSettingsMenu() {
       renderRail(); renderList(); renderUsage();
     } },
       el('span', { class: 'pm-av' }, avatar(p, 'sm'), el('span', { class: 'badge ' + (st ? (st.loggedIn ? 'on' : 'off') : '') })),
-      el('span', { class: 'pm-text' }, el('b', {}, p.name), el('small', {}, st?.email || (st && !st.loggedIn ? 'nicht angemeldet' : ''))),
+      el('span', { class: 'pm-text' }, el('b', {}, p.name), el('small', {}, stateText(st))),
       check(p.id === t.profileId)));
   }
 
@@ -932,6 +942,7 @@ async function sendMessage() {
   if (!text) return;
   const st = status[t.profileId];
   if (st && !st.loggedIn) {
+    if (st.claudeMissing) { toast(CLAUDE_MISSING_TEXT + ' – bitte installieren oder Pfad in den Einstellungen angeben'); return openSettings(); }
     toast('Dieses Konto ist nicht angemeldet');
     return openAccounts();
   }
@@ -1012,7 +1023,7 @@ function renderAccountsList() {
       avatar(p),
       el('div', { class: 'meta' },
         name,
-        el('div', { class: 'info' }, !st ? 'wird geprüft …' : st.loggedIn ? [st.email, planLabel(st), st.orgName].filter(Boolean).join(' · ') : 'Nicht angemeldet'),
+        el('div', { class: 'info' + (st?.claudeMissing ? ' warn' : '') }, stateText(st, true)),
         el('div', { class: 'info mono', title: p.configDir }, p.configDir)),
       el('div', { class: 'btns' },
         st?.loggedIn

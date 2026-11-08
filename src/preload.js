@@ -33,7 +33,6 @@ contextBridge.exposeInMainWorld('api', {
   pickClaude: () => invoke('settings:pickClaude'),
   history: {
     list: profileId => invoke('history:list', profileId),
-    load: file => invoke('history:load', file),
     loadSession: data => invoke('history:loadSession', data),
   },
   session: {
