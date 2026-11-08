@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
   pickFolder: () => invoke('dialog:pickFolder'),
   setSettings: patch => invoke('settings:set', patch),
   pickClaude: () => invoke('settings:pickClaude'),
+  resetBypassWarning: () => invoke('settings:resetBypassWarning'),
   history: {
     list: profileId => invoke('history:list', profileId),
     loadSession: data => invoke('history:loadSession', data),

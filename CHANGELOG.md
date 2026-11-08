@@ -5,6 +5,21 @@ Alle nennenswerten Änderungen an Swapline. Versionen folgen [Semantic Versionin
 Major = nicht rückwärtskompatible Änderungen. Die Versionsnummer steht nur in `package.json` und gilt für
 exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
+## [0.3.0] – 2026-11-08
+
+### Neu
+- Uhrzeit auch bei Claudes Antworten; bei Chats aus dem Verlauf mit den echten Zeitstempeln (heute nur HH:MM, sonst mit Datum).
+
+### Geändert
+- „Alles erlauben“ fragt nur noch beim allerersten Einschalten nach; die Zustimmung wird gespeichert.
+  In den Einstellungen lässt sich die Warnung mit „Wieder anzeigen“ zurückholen.
+- Mehr Abstand zwischen Nachrichten, Werkzeugkarten und Antwortrunden; Trennlinie nach jeder Runde.
+
+### Behoben
+- Kosten-Gegenwert war viel zu hoch: Claude Code meldet den Kostenstand der ganzen Sitzung, Swapline hat diese
+  Zwischenstände addiert. Jetzt zählt nur der Zuwachs pro Antwort; die Zeile unter einer Antwort zeigt deren
+  eigene Kosten. Die bisher falschen Summen werden beim ersten Start einmalig zurückgesetzt (Limits bleiben).
+
 ## [0.2.0] – 2026-11-08
 
 ### Neu

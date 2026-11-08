@@ -37,6 +37,8 @@ function getStore() {
     saveStore(s);
   }
   s.usage ||= {};
+  // bis 0.2.x wurden kumulierte Sitzungskosten mehrfach addiert – die falschen Summen einmalig zurücksetzen
+  if (!s.costFixV1) { for (const u of Object.values(s.usage)) { delete u.costUsd; delete u.days; } s.costFixV1 = true; }
   s.projects ||= [];
   s.activeProjectId ||= 'all';
   s.settings ||= { model: '', permissionMode: 'default', claudePath: '' };
@@ -59,18 +61,19 @@ const isUnc = p => typeof p === 'string' && /^(\\\\|\/\/)/.test(p);
 const isDir = p => typeof p === 'string' && p !== '' && !isUnc(p) && path.isAbsolute(p) && fs.existsSync(p) && fs.statSync(p).isDirectory();
 const cleanName = (v, fallback) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f"<>|&^%]/g, '').trim().slice(0, 40) : '') || fallback;
 const cleanColor = (v, fallback) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback);
-// "Alles erlauben" muss im Hauptprozess bestätigt werden (nativer Dialog) – die Oberfläche allein reicht nicht.
-const bypassApproved = new Set(); // tabIds bzw. 'default-setting'
-function confirmBypass(key) {
-  if (bypassApproved.has(key)) return true;
+// "Alles erlauben" muss einmal im Hauptprozess bestätigt werden (nativer Dialog) – die Oberfläche allein reicht
+// nicht. Die Zustimmung wird dauerhaft gespeichert (bypassAcknowledged, nur hier gesetzt); in den Einstellungen
+// lässt sich die Warnung wieder einschalten.
+function confirmBypass() {
+  if (getStore().bypassAcknowledged) return true;
   const r = dialog.showMessageBoxSync(win, {
     type: 'warning', buttons: ['Abbrechen', 'Alles erlauben'], defaultId: 0, cancelId: 0, noLink: true,
     title: 'Alles erlauben',
     message: 'Claude ohne Rückfragen arbeiten lassen?',
-    detail: 'Claude Code wird mit --dangerously-skip-permissions gestartet. Claude führt dann Befehle aus, ändert und löscht Dateien und greift auf das Netz zu, ohne vorher zu fragen.\n\nNur in Ordnern verwenden, denen du vertraust – am besten in einer Testumgebung.',
+    detail: 'Claude Code wird mit --dangerously-skip-permissions gestartet. Claude führt dann Befehle aus, ändert und löscht Dateien und greift auf das Netz zu, ohne vorher zu fragen.\n\nNur in Ordnern verwenden, denen du vertraust – am besten in einer Testumgebung.\n\nDiese Warnung erscheint nur einmal. In den Einstellungen kannst du sie wieder einschalten.',
   });
   if (r !== 1) return false;
-  bypassApproved.add(key);
+  updateStore(s => { s.bypassAcknowledged = true; });
   return true;
 }
 
@@ -188,7 +191,7 @@ function startSession(tab) {
   if (tab.effort) args.push('--effort', tab.effort);
 
   const proc = spawnClaude(args, profile, { cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
-  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map() }; // pending: offene Berechtigungsanfragen der CLI
+  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: 0 }; // pending: offene Berechtigungsanfragen der CLI; lastCost: letzter Sitzungsstand der Kosten
   sessions.set(tab.id, s);
 
   readline.createInterface({ input: proc.stdout }).on('line', line => {
@@ -199,7 +202,13 @@ function startSession(tab) {
       s.pending.set(m.request_id, { toolName: m.request.tool_name, input: m.request.input, suggestions: m.request.permission_suggestions || null });
     }
     if (m.type === 'rate_limit_event') recordLimits(tab.profileId, m.rate_limit_info);
-    if (m.type === 'result' && typeof m.total_cost_usd === 'number') recordCost(tab.profileId, m.total_cost_usd);
+    // total_cost_usd ist der Stand der ganzen laufenden Sitzung (kumuliert) – gezählt wird nur der Zuwachs seit dem letzten Ergebnis
+    if (m.type === 'result' && typeof m.total_cost_usd === 'number') {
+      const delta = m.total_cost_usd >= s.lastCost ? m.total_cost_usd - s.lastCost : m.total_cost_usd;
+      s.lastCost = m.total_cost_usd;
+      m.swapline_cost_delta = delta;
+      recordCost(tab.profileId, delta);
+    }
     send(tab.id, m);
   });
   proc.stderr.on('data', d => { s.stderr = (s.stderr + d).slice(-4000); });
@@ -311,7 +320,7 @@ function loadTranscript(file) {
     if (!line.startsWith('{')) continue;
     let o; try { o = JSON.parse(line); } catch { continue; }
     if ((o.type === 'user' || o.type === 'assistant') && o.message && !o.isSidechain && !o.isMeta) {
-      out.push({ type: o.type, message: o.message, fromHistory: true });
+      out.push({ type: o.type, message: o.message, timestamp: o.timestamp, fromHistory: true });
     }
   }
   return out;
@@ -454,8 +463,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else if (k === 'notify' && NOTIFY.includes(v)) ok.notify = v;
     else if (k === 'sound' && SOUND.includes(v)) ok.sound = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
-      if (v === 'bypassPermissions' && !confirmBypass('default-setting')) return reject('Bypass nicht bestätigt');
-      if (v !== 'bypassPermissions') bypassApproved.delete('default-setting');
+      if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
       ok.permissionMode = v;
     } else if (k === 'claudePath' && v === '') { ok.claudePath = ''; resolvedClaude = undefined; } // setzen nur über settings:pickClaude
     else return reject(`Schlüssel/Wert nicht erlaubt: ${String(k).slice(0, 40)}`);
@@ -552,7 +560,9 @@ function validTab(t) {
   if (t.cwd && !isAllowedCwd(t.cwd)) return null;
   return { id: t.id, profileId: t.profileId, cwd: t.cwd || '', sessionId: t.sessionId || null, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode || 'default' };
 }
-ipcMain.handle('session:confirmBypass', (_e, tabId) => typeof tabId === 'string' && confirmBypass(tabId));
+ipcMain.handle('session:confirmBypass', () => confirmBypass());
+// Warnung zu „Alles erlauben“ wieder einschalten (nur in diese sichere Richtung von der Oberfläche aus möglich)
+ipcMain.handle('settings:resetBypassWarning', () => updateStore(s => { delete s.bypassAcknowledged; }));
 ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
   const tab = validTab(rawTab);
   if (!tab || typeof content !== 'string') {
@@ -560,7 +570,7 @@ ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
     if (rawTab?.cwd && typeof rawTab.id === 'string') send(rawTab.id, { type: 'app_error', message: 'Dieser Arbeitsordner ist nicht freigegeben. Bitte den Ordner über „Neuer Chat“ oder ein Projekt neu wählen.' });
     return false;
   }
-  if (tab.permissionMode === 'bypassPermissions' && !confirmBypass(tab.id)) {
+  if (tab.permissionMode === 'bypassPermissions' && !confirmBypass()) {
     send(tab.id, { type: 'app_error', message: '„Alles erlauben“ wurde nicht bestätigt – Nachricht nicht gesendet.' });
     return false;
   }
@@ -608,7 +618,7 @@ ipcMain.handle('session:interrupt', (_e, tabId) => {
 });
 // Einstellungen ändern -> Prozess beenden; die nächste Nachricht startet mit --resume neu
 ipcMain.handle('session:restart', (_e, tabId) => { stopSession(tabId); return true; });
-ipcMain.handle('session:close', (_e, tabId) => { stopSession(tabId); bypassApproved.delete(tabId); return true; });
+ipcMain.handle('session:close', (_e, tabId) => { stopSession(tabId); return true; });
 // Übertragung eines Chats in ein anderes Konto – nur nach ausdrücklicher Bestätigung im Hauptprozess
 ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId } = {}) => {
   const from = profileById(fromProfileId), to = profileById(toProfileId);

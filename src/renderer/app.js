@@ -90,6 +90,12 @@ const avatar = (p, cls = '') => p?.icon
   : el('div', { class: 'avatar ' + cls, style: `background:${p?.color || '#64748B'}` }, initials(p?.name));
 const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p || 'Home';
 
+// Uhrzeit an Nachrichten: heute nur HH:MM, sonst mit Datum
+function msgTime(ts) {
+  const d = new Date(ts);
+  const hm = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? hm : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' ' + hm;
+}
 function fmtTime(ts) {
   if (!ts) return '';
   const d = new Date(ts), now = new Date();
@@ -708,11 +714,11 @@ function setTyping(t) {
 function renderItem(t, it) {
   switch (it.kind) {
     case 'me': return el('div', {}, el('div', { class: 'msg me' }, el('div', { class: 'bubble' }, it.text)),
-      it.time ? el('div', { class: 'msg-time' }, fmtTime(it.time)) : null);
+      it.time ? el('div', { class: 'msg-time' }, msgTime(it.time)) : null);
     case 'ai': {
       const b = el('div', { class: 'bubble md' + (it.streaming ? ' streaming' : ''), html: md(it.streaming ? streamingMarkdown(it.text) : it.text) });
       if (!it.streaming) enhanceCode(b);
-      return el('div', { class: 'msg ai' }, b);
+      return el('div', { class: 'ai-block' }, el('div', { class: 'msg ai' }, b), it.time ? el('div', { class: 'msg-time left' }, msgTime(it.time)) : null);
     }
     case 'tool': return renderTool(it);
     case 'perm': return renderPerm(t, it);
@@ -857,7 +863,7 @@ function ingest(t, m, fromHistory = false) {
       const ev = m.event;
       if (m.parent_tool_use_id) break; // Text von Unter-Agenten nicht in den Hauptchat
       if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
-        if (!t.streamItem) { t.streamItem = { kind: 'ai', text: '', streaming: true }; appendItem(t, t.streamItem); setTyping(t); }
+        if (!t.streamItem) { t.streamItem = { kind: 'ai', text: '', streaming: true, time: Date.now() }; appendItem(t, t.streamItem); setTyping(t); }
         t.streamItem.text += ev.delta.text;
         scheduleStreamRender(t);
       }
@@ -869,7 +875,7 @@ function ingest(t, m, fromHistory = false) {
       for (const block of m.message?.content || []) {
         if (block.type === 'text' && block.text?.trim()) {
           if (t.streamItem) { t.streamItem.text = block.text; t.streamItem.streaming = false; refreshItem(t, t.streamItem); t.streamItem = null; }
-          else add({ kind: 'ai', text: block.text });
+          else add({ kind: 'ai', text: block.text, time: fromHistory ? Date.parse(m.timestamp) || null : Date.now() });
           t.preview = block.text.replace(/\s+/g, ' ').slice(0, 90);
         } else if (block.type === 'tool_use') {
           if (block.name === 'AskUserQuestion') continue; // erscheint als Frage-Karte
@@ -882,7 +888,7 @@ function ingest(t, m, fromHistory = false) {
 
     case 'user': {
       const c = m.message?.content;
-      if (typeof c === 'string') { if (!hiddenUserText(c)) add({ kind: 'me', text: c }); break; }
+      if (typeof c === 'string') { if (!hiddenUserText(c)) add({ kind: 'me', text: c, time: Date.parse(m.timestamp) || null }); break; }
       if (!Array.isArray(c)) break;
       for (const block of c) {
         if (block.type === 'tool_result') {
@@ -893,7 +899,7 @@ function ingest(t, m, fromHistory = false) {
             if (!fromHistory) refreshItem(t, tool);
           }
         } else if (block.type === 'text' && fromHistory && !hiddenUserText(block.text)) {
-          add({ kind: 'me', text: block.text });
+          add({ kind: 'me', text: block.text, time: Date.parse(m.timestamp) || null });
         }
       }
       break;
@@ -912,7 +918,9 @@ function ingest(t, m, fromHistory = false) {
       t.running = false;
       if (t.streamItem) { t.streamItem.streaming = false; t.streamItem = null; }
       const secs = ((m.duration_ms || 0) / 1000).toFixed(1);
-      const cost = typeof m.total_cost_usd === 'number' ? ` · $${m.total_cost_usd.toFixed(3)}` : '';
+      // Kosten dieser Antwort (Zuwachs, vom Hauptprozess berechnet) – total_cost_usd ist der Stand der ganzen Sitzung
+      const c1 = typeof m.swapline_cost_delta === 'number' ? m.swapline_cost_delta : null;
+      const cost = c1 != null ? ` · $${c1.toFixed(3)}` : '';
       if (m.is_error || (m.subtype && m.subtype !== 'success')) {
         add({ kind: 'sys', error: true, text: m.result || errorLabel(m.subtype) });
       }
@@ -1223,6 +1231,9 @@ function openSettings() {
     el('label', { class: 'field' }, el('span', {}, 'Aufwand für neue Chats'), sel('effort', [['', `Standard${defEff ? ' · ' + (EFFORT_LABEL[defEff] || defEff) : ' (laut Konto)'}`], ...Object.entries(EFFORT_LABEL)])),
     el('p', { class: 'hint' }, '„Standard“ richtet sich nach dem Konto: Modell laut Claude-Empfehlung, Aufwand laut effortLevel in den Claude-Einstellungen des Kontos.'),
     el('label', { class: 'field' }, el('span', {}, 'Berechtigungen für neue Chats'), sel('permissionMode', [['default', 'Nachfragen'], ['acceptEdits', 'Änderungen erlauben'], ['plan', 'Nur planen'], ['bypassPermissions', 'Alles erlauben (--dangerously-skip-permissions)']])),
+    store.bypassAcknowledged ? el('div', { class: 'row' },
+      el('span', { class: 'hint', style: 'flex:1' }, 'Die Warnung zu „Alles erlauben“ wurde bestätigt und erscheint nicht mehr.'),
+      el('button', { class: 'ghost', onclick: async e => { store = await api.resetBypassWarning(); e.target.closest('.row').remove(); toast('Warnung erscheint beim nächsten Mal wieder'); } }, 'Wieder anzeigen')) : null,
     el('label', { class: 'field' }, el('span', {}, 'Benachrichtigung bei fertiger Antwort'), sel('notify', [['background', 'Wenn der Chat nicht im Blick ist (Standard)'], ['always', 'Immer'], ['off', 'Aus']])),
     el('div', { class: 'row' },
       el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Ton'), sel('sound', [['off', 'Kein Ton'], ['on', 'Hinweiston abspielen']])),

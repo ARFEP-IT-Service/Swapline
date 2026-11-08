@@ -356,3 +356,19 @@ button.link:hover { color: var(--accent); }
 .rail-profile:hover .avatar.img, .rail-profile.active .avatar.img { border-radius: 14px; }
 .pm-item.risk { color: var(--risk); }
 .pm-item.risk.sel { background: color-mix(in srgb, var(--risk) 16%, transparent); }
+
+/* Mehr Luft zwischen den Nachrichten (ab 0.3.0) */
+.msg-wrap > div { margin-top: 0; }
+.ai-block { margin: 12px 0; }
+.ai-block .msg { margin: 0; }
+.ai-block .msg-time { margin: 4px 6px 0; }
+.msg-wrap > div:has(> .msg.me) { margin: 16px 0 10px; }
+.msg-wrap > div:has(> .msg.me) .msg { margin: 0; }
+.msg-wrap > div:has(> .msg.me) .msg-time { margin: 4px 6px 0; }
+.tool { margin: 6px 0; }
+.ai-block + .tool, .tool + .ai-block { margin-top: 10px; }
+.result-line { margin: 8px 4px 26px; padding-bottom: 14px; border-bottom: 1px dashed var(--line); }
+.bubble { line-height: 1.6; }
+.md p { margin: .55em 0; }
+.md ul, .md ol { margin: .5em 0; }
+.md li + li { margin-top: .2em; }
