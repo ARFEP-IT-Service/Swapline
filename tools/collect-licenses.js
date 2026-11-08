@@ -38,7 +38,13 @@ const missing = [];
 for (const [name, version] of pkgs) {
   const dir = path.join(root, 'node_modules', name);
   const files = fs.readdirSync(dir).filter(f => /^(licen[cs]e|copying|notice)/i.test(f));
-  if (!files.length) { missing.push(name); continue; }
+  if (!files.length) {
+    // Pakete ohne eigene Lizenzdatei: hinterlegter Text in tools/licenses/npm/<name>.txt (Lizenz laut package.json)
+    const fallback = path.join(__dirname, 'licenses', 'npm', name.replace('/', '__') + '.txt');
+    if (fs.existsSync(fallback)) written.push(copy(fallback, `${name.replace(/[@/]/g, (c) => (c === '/' ? '__' : ''))}-${version}.txt`));
+    else missing.push(name);
+    continue;
+  }
   for (const f of files) {
     const suffix = files.length > 1 ? '-' + f.replace(/\.[a-z]+$/i, '') : '';
     written.push(copy(path.join(dir, f), `${name.replace(/[@/]/g, (c) => (c === '/' ? '__' : ''))}-${version}${suffix}.txt`));

@@ -28,6 +28,8 @@
   check('settings:set fremder Schlüssel abgelehnt', !!(await api.setSettings({ evil: 1 })).rejected);
   check('settings:set claudePath nur per Dialog', !!(await api.setSettings({ claudePath: win })).rejected);
   check('settings:set bypassAcknowledged nicht setzbar', !!(await api.setSettings({ bypassAcknowledged: true })).rejected);
+  check('settings:set autoUpdate nur true/false', !!(await api.setSettings({ autoUpdate: 'yes' })).rejected);
+  check('Update installieren ohne fertiges Update abgelehnt', (await api.update.install()) === false);
   check('settings:set gültiger Wert übernommen (Gegenprobe)', !(await api.setSettings({ theme: 'dark' })).rejected);
 
   // Sitzungen und Pfade

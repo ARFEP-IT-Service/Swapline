@@ -64,4 +64,10 @@ contextBridge.exposeInMainWorld('api', {
     action: (profileId, action, id) => invoke('ext:action', { profileId, action, id }),
   },
   onNotifyClick: cb => ipcRenderer.on('notify:click', (_e, tabId) => cb(tabId)),
+  update: {
+    state: () => ipcRenderer.invoke('update:state'),
+    check: () => ipcRenderer.invoke('update:check'),
+    install: () => ipcRenderer.invoke('update:install'),
+    onStatus: cb => ipcRenderer.on('update:status', (_e, st) => cb(st)),
+  },
 });

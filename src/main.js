@@ -542,13 +542,16 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else if (k === 'sound' && SOUND.includes(v)) ok.sound = v;
     else if (k === 'toolView' && TOOLVIEW.includes(v)) ok.toolView = v;
     else if (k === 'notifyStay' && NOTIFYSTAY.includes(v)) ok.notifyStay = v;
+    else if (k === 'autoUpdate' && typeof v === 'boolean') ok.autoUpdate = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
       ok.permissionMode = v;
     } else if (k === 'claudePath' && v === '') { ok.claudePath = ''; resolvedClaude = undefined; } // setzen nur über settings:pickClaude
     else return reject(`Schlüssel/Wert nicht erlaubt: ${String(k).slice(0, 40)}`);
   }
-  return updateStore(s => { Object.assign(s.settings, ok); });
+  const r = updateStore(s => { Object.assign(s.settings, ok); });
+  if (ok.autoUpdate === true) checkForUpdates();
+  return r;
 });
 // claudePath nur über einen Datei-Dialog im Hauptprozess
 ipcMain.handle('settings:pickClaude', async () => {
@@ -856,6 +859,52 @@ function openExternalSafe(url) {
   return true;
 }
 
+// ---------- Automatische Updates (nur die installierte App) ----------
+// Prüft beim Start und alle 6 Stunden die GitHub-Releases von ARFEP-IT-Service/Swapline (latest.yml),
+// lädt eine neue Version im Hintergrund und installiert sie beim Neustart. In den Einstellungen abschaltbar.
+// Das ist die einzige Netzverbindung, die Swapline selbst aufbaut (alles andere macht claude.exe).
+// Die ZIP-Variante und der Entwicklungsmodus aktualisieren sich nicht selbst.
+const UPDATE_SUPPORTED = app.isPackaged && process.platform === 'win32' && fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall Swapline.exe'));
+const UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
+let updater = null, updateState = { status: 'idle' };
+function setUpdateState(st) { updateState = st; if (win && !win.isDestroyed()) win.webContents.send('update:status', { ...st, supported: UPDATE_SUPPORTED }); }
+function initUpdater() {
+  if (!UPDATE_SUPPORTED) return null;
+  if (updater) return updater;
+  try { updater = require('electron-updater').autoUpdater; } catch (e) { logError('Updater: ' + e.message); return null; }
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  updater.allowPrerelease = false;
+  updater.allowDowngrade = false;
+  updater.logger = null;
+  updater.on('checking-for-update', () => { if (updateState.status !== 'ready') setUpdateState({ status: 'checking' }); });
+  updater.on('update-available', i => setUpdateState({ status: 'downloading', version: i.version, percent: 0 }));
+  updater.on('update-not-available', () => setUpdateState({ status: 'latest', checked: Date.now() }));
+  updater.on('download-progress', p => setUpdateState({ status: 'downloading', version: updateState.version, percent: Math.round(p.percent || 0) }));
+  updater.on('update-downloaded', i => setUpdateState({ status: 'ready', version: i.version }));
+  updater.on('error', e => {
+    logError('Updater: ' + (e?.stack || e));
+    if (updateState.status !== 'ready') setUpdateState({ status: 'error', error: String(e?.message || e).split('\n')[0].slice(0, 200) });
+  });
+  return updater;
+}
+function checkForUpdates(manual = false) {
+  if (!manual && getStore().settings.autoUpdate === false) return false;
+  if (updateState.status === 'ready' || updateState.status === 'downloading') return true;
+  const u = initUpdater();
+  if (!u) return false;
+  u.checkForUpdates().catch(() => {}); // Fehler kommen über das 'error'-Ereignis
+  return true;
+}
+ipcMain.handle('update:state', () => ({ ...updateState, supported: UPDATE_SUPPORTED }));
+ipcMain.handle('update:check', () => checkForUpdates(true));
+// Neu starten und installieren – läuft noch eine Antwort, fragt das Schließen-Fenster nach
+ipcMain.handle('update:install', () => {
+  if (updateState.status !== 'ready' || !updater) return false;
+  setImmediate(() => updater.quitAndInstall(true, true));
+  return true;
+});
+
 // ---------- Fehlerprotokoll (userData/swapline.log) ----------
 function logError(msg) {
   try {
@@ -988,6 +1037,7 @@ app.whenReady().then(() => {
   }, 1500);
   STORE_FILE = path.join(app.getPath('userData'), 'swapline.json');
   createWindow();
+  if (UPDATE_SUPPORTED) { setTimeout(checkForUpdates, 15000); setInterval(checkForUpdates, UPDATE_INTERVAL); }
   // SWAPLINE_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
   // Testlauf (nur unverpackt): SWAPLINE_TEST_JS wird in der Oberfläche ausgeführt, das Ergebnis landet in
   // SWAPLINE_TEST_OUT (JSON); SWAPLINE_SCREENSHOT speichert optional ein Bildschirmfoto. Danach beendet sich die App.

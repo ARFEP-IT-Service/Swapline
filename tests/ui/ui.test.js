@@ -76,6 +76,11 @@
   // Einstellungen und Erweiterungen öffnen
   openSettings();
   check('Einstellungen öffnen', !!$('.modal.settings'));
+  check('Updates: Hinweis im Entwicklungsmodus', /installierten App/.test($('#update-info')?.textContent || ''));
+  showUpdate({ status: 'ready', version: '9.9.9', supported: true });
+  check('Update bereit: Hinweis und Neustart-Knopf', /9.9.9/.test($('#update-banner')?.textContent || '') && !$('#update-restart').hidden);
+  $('#update-banner button.ghost').click();
+  check('Update-Hinweis lässt sich wegklicken', !$('#update-banner'));
   $('#modal-root').replaceChildren();
   return T;
 })()

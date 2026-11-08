@@ -1210,6 +1210,37 @@ api.onEvent(({ tabId, msg }) => {
   if (t) ingest(t, msg);
 });
 // Klick auf eine Windows-Benachrichtigung: passenden Chat öffnen
+// ---------- Updates ----------
+// Hinweis unten links, sobald eine neue Version geladen ist; Details und Schalter in den Einstellungen
+let updateInfo = { status: 'idle' }, updateDismissed = '';
+function updateText(st = updateInfo) {
+  if (!st.supported) return 'Automatische Updates gibt es nur in der installierten App (SWAP-Installer.exe).';
+  return {
+    idle: 'Noch nicht geprüft.', checking: 'Suche nach Updates …',
+    downloading: `Lade Version ${st.version || ''} … ${st.percent || 0} %`,
+    ready: `Version ${st.version} ist bereit – wird beim Neustart installiert.`,
+    latest: `Swapline ist aktuell (${VERSION}).`,
+    error: 'Update-Prüfung fehlgeschlagen: ' + (st.error || 'unbekannter Fehler'),
+  }[st.status] || '';
+}
+function showUpdate(st) {
+  updateInfo = st;
+  const info = $('#update-info'); if (info) info.textContent = updateText(st);
+  const btn = $('#update-restart'); if (btn) btn.hidden = st.status !== 'ready';
+  $('#update-banner')?.remove();
+  if (st.status !== 'ready' || updateDismissed === st.version) return;
+  document.body.append(el('div', { id: 'update-banner' },
+    el('span', {}, el('b', {}, `Swapline ${st.version}`), ' ist bereit'),
+    el('button', { class: 'primary', onclick: installUpdate }, 'Neu starten'),
+    el('button', { class: 'ghost', title: 'Später – wird beim nächsten Beenden installiert', onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); } }, icon(ICONS.x))));
+}
+async function installUpdate() {
+  if (tabs.some(t => t.running || bgRunning(t)) && !confirm('Claude arbeitet noch. Trotzdem neu starten und das Update installieren?')) return;
+  if (!(await api.update.install())) toast('Update ist nicht mehr verfügbar');
+}
+api.update.onStatus(showUpdate);
+api.update.state().then(showUpdate);
+
 api.onNotifyClick(tabId => { if (tabs.some(x => x.id === tabId)) { view = 'chats'; setSeg(); openTab(tabId); } });
 api.onUsage(u => { store.usage = u; renderUsage(); });
 
@@ -1646,6 +1677,16 @@ function openSettings() {
         playSound();
       } }, 'Testen')),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Pfad zu Claude Code (claude.exe)'), path),
+    el('div', { class: 'row' },
+      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Updates'), (() => {
+        const e = el('select', { disabled: !updateInfo.supported }, el('option', { value: 'on', selected: s.autoUpdate !== false }, 'Automatisch laden und beim Neustart installieren'), el('option', { value: 'off', selected: s.autoUpdate === false }, 'Aus'));
+        e.addEventListener('change', async () => { store = await api.setSettings({ autoUpdate: e.value === 'on' }); });
+        return e;
+      })()),
+      el('button', { class: 'ghost', style: 'align-self:flex-end', disabled: !updateInfo.supported, onclick: () => api.update.check() }, 'Jetzt prüfen'),
+      el('button', { id: 'update-restart', class: 'primary', style: 'align-self:flex-end', hidden: updateInfo.status !== 'ready', onclick: installUpdate }, 'Neu starten')),
+    el('p', { class: 'hint', id: 'update-info' }, updateText()),
+    el('p', { class: 'hint' }, 'Swapline fragt dazu nur bei GitHub (github.com/ARFEP-IT-Service/Swapline) nach neuen Versionen – ohne Konto- oder Nutzungsdaten.'),
     el('div', { class: 'about' },
       el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' }),
       el('div', {},
