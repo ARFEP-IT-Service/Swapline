@@ -69,7 +69,7 @@ SWAPLINE_PROFILE=test npm start
 
 ## Versionen
 
-Swapline folgt [Semantic Versioning](https://semver.org/lang/de/) (MAJOR.MINOR.PATCH). Die Nummer steht nur in `package.json`; Änderungen je Version in [CHANGELOG.md](CHANGELOG.md).
+Swapline folgt [Semantic Versioning](https://semver.org/lang/de/) (MAJOR.MINOR.PATCH). Die Nummer steht nur in `package.json`; Änderungen je Version in [CHANGELOG.md](CHANGELOG.md). Bis zur ersten Veröffentlichung bleibt die Version 0.1.0.
 
 ## Lizenz
 

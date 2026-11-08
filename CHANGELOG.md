@@ -5,68 +5,27 @@ Alle nennenswerten Änderungen an Swapline. Versionen folgen [Semantic Versionin
 Major = nicht rückwärtskompatible Änderungen. Die Versionsnummer steht nur in `package.json` und gilt für
 exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
-## [0.7.0] – 2026-11-08
+Bis zur ersten Veröffentlichung auf GitHub bleibt die Version **0.1.0**; danach wird vor jedem Push entschieden,
+ob eine neue Versionsnummer vergeben wird.
 
-### Neu
-- Chats umbenennen: Doppelklick auf den Titel oben (Enter speichert, Esc bricht ab) oder Rechtsklick auf den
-  Chat → „Umbenennen …“. Der Name gilt in Swapline; die Sitzungsdateien von Claude Code bleiben unverändert.
+## [0.1.0] – unveröffentlicht
 
-## [0.6.0] – 2026-11-08
+Erste Version.
 
-### Neu
-- Sicherheitsabfrage beim Schließen, solange Claude in einem Chat noch arbeitet („Claude arbeitet noch in 1 Chat –
-  trotzdem schließen?“). Ohne laufenden Chat schließt Swapline wie bisher ohne Rückfrage.
-
-### Geändert
-- Projektwechsel wechselt auch den Chat: Es öffnet sich der im Projekt zuletzt angesehene Chat (sonst der zuletzt
-  aktive); hat das Projekt keine Chats, erscheint die Startansicht. Der zuletzt geöffnete Chat je Projekt wird gespeichert.
-
-## [0.5.0] – 2026-11-08
-
-### Neu
-- Mehrere Hinweistöne zur Auswahl: Glocke, Ping, Tropfen, Aufsteigend, Dezent und Windows-Standard
-  (eigene Töne per Web Audio, ohne Tondateien). Vorschau beim Auswählen; „Hinweiston“ aus älteren Versionen
-  wird als Glocke übernommen.
-
-## [0.4.0] – 2026-11-08
-
-### Neu
-- Einstellung „Werkzeug-Aufrufe im Chat“: **Alle anzeigen** (wie bisher), **Kompakt** (aufeinanderfolgende
-  Befehle/Lese-/Bearbeitungsschritte als eine aufklappbare Zeile, z. B. „3 Schritte · Liest, Durchsucht, Befehl“)
-  oder **Ausblenden** (nur Nachrichten und Antworten). Rückfragen, Fragen von Claude und Fehler bleiben immer sichtbar.
-
-## [0.3.0] – 2026-11-08
-
-### Neu
-- Uhrzeit auch bei Claudes Antworten; bei Chats aus dem Verlauf mit den echten Zeitstempeln (heute nur HH:MM, sonst mit Datum).
-
-### Geändert
-- „Alles erlauben“ fragt nur noch beim allerersten Einschalten nach; die Zustimmung wird gespeichert.
-  In den Einstellungen lässt sich die Warnung mit „Wieder anzeigen“ zurückholen.
-- Mehr Abstand zwischen Nachrichten, Werkzeugkarten und Antwortrunden; Trennlinie nach jeder Runde.
-
-### Behoben
-- Kosten-Gegenwert war viel zu hoch: Claude Code meldet den Kostenstand der ganzen Sitzung, Swapline hat diese
-  Zwischenstände addiert. Jetzt zählt nur der Zuwachs pro Antwort; die Zeile unter einer Antwort zeigt deren
-  eigene Kosten. Die bisher falschen Summen werden beim ersten Start einmalig zurückgesetzt (Limits bleiben).
-
-## [0.2.0] – 2026-11-08
-
-### Neu
-- Eigenes Bild für Projekte (SVG, PNG, JPG, WebP, GIF, ICO bis 1 MB), gewählt über einen Datei-Dialog.
-- Windows-Benachrichtigung bei fertiger Antwort und bei Rückfragen, mit Chat-Titel und Anfang der Antwort;
-  Klick öffnet den Chat, Taskleiste blinkt im Hintergrund. Einstellbar: wenn der Chat nicht im Blick ist /
-  immer / aus, optional mit Hinweiston, mit Testknopf.
-
-### Geändert
-- „Alles erlauben“ ist rot statt magenta hervorgehoben.
-- Versionsnummer kommt nur noch aus `package.json` (vorher zusätzlich fest im Code).
-
-### Behoben
-- Bedingte Knöpfe erzeugten den Text „null“ (Projektordner, Einstellungen, Anmelde-Dialog).
-
-## [0.1.0] – 2026-11-08
-
-Erste installierbare Version (`SWAP-Installer.exe`, pro Benutzer nach `%LOCALAPPDATA%\Programs\swapline`).
-Chat-Oberfläche für Claude Code mit Projekten, Kontowechsel, Modell-/Aufwand-/Berechtigungsauswahl, Verlauf,
-Nutzungsanzeige; Anmeldung nur über `claude auth login`; Übernahme der Einstellungen aus ConsoleAI/Switchdesk.
+- Chat-Oberfläche für Claude Code im Messenger-Stil: Sprechblasen, Markdown, Live-Text, Uhrzeiten,
+  Rückfragen (Erlauben / Immer erlauben / Ablehnen, Fragen von Claude) als Karten.
+- Projekte in der Leiste links (eigenes Bild oder Initialen, optional mit Projektordner); Projektwechsel öffnet
+  den dort zuletzt angesehenen Chat. Chats umbenennen, verschieben, schließen.
+- Mehrere Claude-Konten mit eigenem Konfigurationsordner; Wechsel über das Profil links unten; Chat mit anderem
+  Konto fortsetzen (mit Rückfrage, weil der Verlauf kopiert wird).
+- Chat-Einstellungen in einem Menü: Konto, Modell (aus dem Konto, mit Standard), Aufwand, Berechtigungen;
+  „Alles erlauben“ (`--dangerously-skip-permissions`) rot hervorgehoben, einmalige Bestätigung.
+- Verlauf aller Claude-Code-Sitzungen des Kontos, fortsetzbar.
+- Nutzungsanzeige: 5-Stunden- und Wochenlimit, Kosten-Gegenwert (Zuwachs pro Antwort).
+- Windows-Benachrichtigung bei fertiger Antwort und Rückfragen, Hinweistöne zur Auswahl.
+- Werkzeug-Aufrufe im Chat: alle, kompakt oder ausgeblendet.
+- Hintergrund-Aufgaben (z. B. Befehle mit `run_in_background`) als Leiste über dem Eingabefeld, mit Status und Ausgabe.
+- Sicherheitsabfrage beim Schließen, solange Claude arbeitet.
+- Anmeldung nur über `claude auth login` (System-Browser); keine Zugangsdaten in Swapline.
+- Installer `SWAP-Installer.exe` (pro Benutzer, ohne Admin-Rechte) und ZIP; Übernahme der Einstellungen aus
+  ConsoleAI/Switchdesk.
