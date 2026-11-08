@@ -113,6 +113,7 @@ button.link:hover { color: var(--accent); }
 .item .close:hover { color: var(--danger); }
 .item .unread { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
 .item .busy { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); flex: none; animation: pulse 1s infinite; }
+.item .busy.bg { background: var(--accent); animation-duration: 2s; }
 .folder-ic { width: 38px; height: 38px; border-radius: 12px; background: var(--raised); display: grid; place-items: center; color: var(--accent); flex: none; }
 .list-empty { padding: 30px 16px; text-align: center; color: var(--muted); font-size: 13px; }
 .list-section { padding: 10px 10px 4px; font: 600 11px var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }

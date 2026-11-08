@@ -46,10 +46,10 @@ DOMPurify.addHook('afterSanitizeAttributes', node => {
   }
   if (node.tagName === 'IMG' && !/^data:image\//i.test(node.getAttribute('src') || '')) node.remove();
   for (const attr of ['src', 'srcset', 'action', 'formaction', 'xlink:href', 'poster', 'background']) {
-    if (node.tagName !== 'IMG' && node.hasAttribute(attr)) node.removeAttribute(attr);
+    if ((node.tagName !== 'IMG' || attr !== 'src') && node.hasAttribute(attr)) node.removeAttribute(attr);
   }
 });
-const md = text => DOMPurify.sanitize(marked.parse(text || ''), { FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe', 'object', 'embed', 'video', 'audio', 'source'] });
+const md = text => DOMPurify.sanitize(marked.parse(text || ''), { FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe', 'object', 'embed', 'video', 'audio', 'source', 'picture', 'link', 'meta', 'base'], FORBID_ATTR: ['srcset', 'style', 'background'] });
 
 // ---------- Zustand ----------
 let store = null;              // aus dem Hauptprozess
@@ -131,7 +131,7 @@ const GLOBE = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8
 function renderRail() {
   const pid = activeProjectId();
   $('#rail-all').classList.toggle('active', pid === 'all');
-  const busyIn = id => tabs.some(t => t.projectId === id && (t.unread || t.running));
+  const busyIn = id => tabs.some(t => t.projectId === id && (t.unread || t.running || bgRunning(t)));
   $('#rail-projects').replaceChildren(...(store.projects || []).map(pr => el('button', {
     class: 'rail-profile' + (pr.id === pid ? ' active' : ''),
     title: pr.name + (pr.cwd ? '\n' + pr.cwd : '') + '\nRechtsklick: bearbeiten',
@@ -211,7 +211,7 @@ function openProjectForm(pr = {}) {
     el('button', { class: 'ghost', onclick: async () => { const d = await api.pickFolder(); if (d) { cwd = d; if (!name.value.trim()) name.value = baseName(d); drawFolder(); } } }, 'Wählen …'),
     cwd ? el('button', { class: 'ghost', onclick: () => { cwd = ''; drawFolder(); } }, 'Entfernen') : null);
   drawFolder();
-  // Projektbild (SVG, PNG, JPG, WebP, GIF, ICO bis 1 MB) – gewählt über den Datei-Dialog des Hauptprozesses
+  // Projektbild (SVG, PNG, JPG, WebP, GIF, ICO bis 512 KB) – gewählt über den Datei-Dialog des Hauptprozesses
   let icon = pr.icon || null;
   const iconRow = el('div', { class: 'folder-row' });
   const drawIcon = () => fill(iconRow,
@@ -496,6 +496,7 @@ function highlight(text, q) {
   out.append(text.slice(i));
   return out;
 }
+let searchTimer = null;
 function renderList() {
   const q = $('#search').value.trim().toLowerCase();
   const list = $('#list');
@@ -517,7 +518,7 @@ function renderList() {
         el('div', { class: 'meta' },
           el('div', { class: 'row1' }, el('span', { class: 'title' }, t.title || 'Neuer Chat'), el('span', { class: 'time' }, fmtTime(t.updated))),
           el('div', { class: 'sub' }, t.preview || baseName(t.cwd))),
-        t.running ? el('span', { class: 'busy', title: 'arbeitet …' }) : t.unread ? el('span', { class: 'unread' }) : null,
+        t.running ? el('span', { class: 'busy', title: 'arbeitet …' }) : bgRunning(t) ? el('span', { class: 'busy bg', title: 'Hintergrund-Aufgabe läuft …' }) : t.unread ? el('span', { class: 'unread' }) : null,
         el('button', { class: 'close', title: 'Chat schließen', onclick: e => { e.stopPropagation(); closeTab(t.id); } }, icon(ICONS.x)));
     });
     if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, q ? 'Keine Treffer in offenen Chats.' : pid === 'all' ? 'Noch keine Chats. Klicke auf + für einen neuen Chat.' : 'Noch keine Chats in diesem Projekt. Klicke auf + oder ziehe einen Chat auf das Projekt links.')];
@@ -543,7 +544,8 @@ function renderList() {
       if (searchState.key !== key) {
         searchState = { key, loading: true, results: [] };
         const s0 = searchState;
-        setTimeout(async () => { const r = await api.history.search(pid, q); if (searchState === s0) { s0.results = r; s0.loading = false; if (view === 'history') renderList(); } }, 250);
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(async () => { const r = await api.history.search(pid, q); if (searchState === s0) { s0.results = r; s0.loading = false; if (view === 'history') renderList(); } }, 250);
       }
       if (searchState.loading) { list.replaceChildren(el('div', { class: 'list-empty' }, 'Durchsuche alle Sitzungen …')); return; }
       const hits = searchState.results.filter(inProject);
@@ -1078,6 +1080,8 @@ function ingest(t, m, fromHistory = false) {
 // ---------- Hintergrund-Aufgaben (z. B. Befehle mit run_in_background, Agenten im Hintergrund) ----------
 // Claude Code meldet task_started / task_updated / task_notification / background_tasks_changed.
 const TASK_TYPES = { local_bash: 'Befehl', local_agent: 'Agent', remote_agent: 'Agent (Cloud)' };
+// Chat gilt auch nach dem Ende der Antwort als aktiv, solange eine Hintergrund-Aufgabe läuft
+const bgRunning = t => Object.values(t.tasks || {}).some(x => x.status === 'running');
 function trackTask(t, m) {
   t.tasks ||= {};
   if (m.subtype === 'background_tasks_changed') {
@@ -1094,6 +1098,7 @@ function trackTask(t, m) {
     if (m.subtype === 'task_notification') { task.status = m.status || task.status; task.summary = m.summary; if (m.output_file) task.output = m.output_file; task.end ||= Date.now(); }
   }
   renderBgBar(t);
+  renderList(); renderRail();
 }
 const taskIcon = s => (s === 'running' ? el('span', { class: 'spinner sm' }) : el('span', { class: 'bg-ic ' + (s === 'completed' ? 'ok' : 'err') }, s === 'completed' ? '✓' : '✕'));
 function taskDuration(task) {

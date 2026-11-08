@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const readline = require('node:readline');
 const crypto = require('node:crypto');
-const { pathToFileURL } = require('node:url');
+const { pathToFileURL, fileURLToPath } = require('node:url');
 
 const HOME = os.homedir();
 const DEFAULT_CONFIG_DIR = path.join(HOME, '.claude');
@@ -68,13 +68,13 @@ const cleanColor = (v, fallback) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.
 // lässt sich die Warnung wieder einschalten.
 function confirmBypass() {
   if (getStore().bypassAcknowledged) return true;
-  const r = dialog.showMessageBoxSync(win, {
+  const ok = dialog.showMessageBoxSync(win, {
     type: 'warning', buttons: ['Abbrechen', 'Alles erlauben'], defaultId: 0, cancelId: 0, noLink: true,
     title: 'Alles erlauben',
     message: 'Claude ohne Rückfragen arbeiten lassen?',
     detail: 'Claude Code wird mit --dangerously-skip-permissions gestartet. Claude führt dann Befehle aus, ändert und löscht Dateien und greift auf das Netz zu, ohne vorher zu fragen.\n\nNur in Ordnern verwenden, denen du vertraust – am besten in einer Testumgebung.\n\nDiese Warnung erscheint nur einmal. In den Einstellungen kannst du sie wieder einschalten.',
   });
-  if (r !== 1) return false;
+  if (ok !== 1) return false;
   updateStore(s => { s.bypassAcknowledged = true; });
   return true;
 }
@@ -117,20 +117,20 @@ function claudeExe() {
   }
   return resolvedClaude;
 }
-function envFor(profile) {
+function envFor(profile, { chat = false } = {}) {
   const env = { ...process.env };
   // Variablen einer eventuell umgebenden Claude-Sitzung nicht vererben
   delete env.CLAUDECODE; delete env.CLAUDE_CODE_ENTRYPOINT; delete env.CLAUDE_CODE_SSE_PORT;
-  // Recaps (Zusammenfassung „während du weg warst“) auch im Chat-Modus erzeugen lassen – offizieller Schalter der CLI
-  env.CLAUDE_CODE_ENABLE_AWAY_SUMMARY = '1';
+  // Recaps (Zusammenfassung „während du weg warst“) nur in Chat-Sitzungen – nicht bei auth/plugin/Modell-Abfragen
+  if (chat) env.CLAUDE_CODE_ENABLE_AWAY_SUMMARY = '1'; else delete env.CLAUDE_CODE_ENABLE_AWAY_SUMMARY;
   if (profile && !profile.isDefault) env.CLAUDE_CONFIG_DIR = profile.configDir;
   else delete env.CLAUDE_CONFIG_DIR;
   return env;
 }
-function spawnClaude(args, profile, opts = {}) {
+function spawnClaude(args, profile, { chat, ...opts } = {}) {
   const exe = claudeExe();
   if (!exe) throw new Error(CLAUDE_MISSING);
-  return spawn(exe, args, { env: envFor(profile), windowsHide: true, ...opts });
+  return spawn(exe, args, { env: envFor(profile, { chat }), windowsHide: true, ...opts });
 }
 
 function authStatus(profile) {
@@ -216,17 +216,16 @@ const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9._-]{0,100}@[a-z0-9][a-z0-9._-]{0,100}$/i;
 ipcMain.handle('ext:action', async (_e, { profileId, action, id } = {}) => {
   const p = profileById(profileId);
   if (!p || !['install', 'uninstall', 'enable', 'disable'].includes(action) || typeof id !== 'string' || !PLUGIN_ID_RE.test(id)) return { ok: false, error: 'Ungültige Anfrage' };
-  if (action === 'install' || action === 'uninstall') {
-    const r = dialog.showMessageBoxSync(win, {
-      type: action === 'install' ? 'warning' : 'question', buttons: ['Abbrechen', action === 'install' ? 'Installieren' : 'Entfernen'], defaultId: 0, cancelId: 0, noLink: true,
-      title: action === 'install' ? 'Plugin installieren' : 'Plugin entfernen',
-      message: `${action === 'install' ? 'Installieren' : 'Entfernen'}: ${id}`,
-      detail: action === 'install'
-        ? `Plugins erweitern Claude Code um Befehle, Skills, Hooks oder MCP-Server und können dabei Code auf deinem PC ausführen. Nur Plugins installieren, denen du vertraust.\n\nKonto: ${p.name}`
-        : `Das Plugin wird für das Konto „${p.name}“ entfernt.`,
-    });
-    if (r !== 1) return { ok: false, cancelled: true };
-  }
+  // Jede Änderung bestätigt der Nutzer im nativen Dialog – Aktivieren startet Hooks/MCP-Server, Deaktivieren kann Schutz-Hooks abschalten
+  const LABEL = { install: ['Plugin installieren', 'Installieren'], uninstall: ['Plugin entfernen', 'Entfernen'], enable: ['Plugin aktivieren', 'Aktivieren'], disable: ['Plugin deaktivieren', 'Deaktivieren'] }[action];
+  const ok = dialog.showMessageBoxSync(win, {
+    type: action === 'install' || action === 'enable' ? 'warning' : 'question', buttons: ['Abbrechen', LABEL[1]], defaultId: 0, cancelId: 0, noLink: true,
+    title: LABEL[0], message: `${LABEL[1]}: ${id}`,
+    detail: action === 'install' || action === 'enable'
+      ? `Plugins erweitern Claude Code um Befehle, Skills, Hooks oder MCP-Server und können dabei Code auf deinem PC ausführen. Nur Plugins verwenden, denen du vertraust.\n\nKonto: ${p.name}`
+      : `Das Plugin wird für das Konto „${p.name}“ ${action === 'uninstall' ? 'entfernt' : 'deaktiviert'}.`,
+  });
+  if (ok !== 1) return { ok: false, cancelled: true };
   const r = await runClaude(p, ['plugin', action, id]);
   modelCache.delete(profileId); // Befehlsliste neu laden
   const msg = (r.out + '\n' + r.err).trim().split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 400);
@@ -236,6 +235,23 @@ ipcMain.handle('ext:action', async (_e, { profileId, action, id } = {}) => {
 // ---------- Sitzungen (ein Claude-Prozess pro Chat-Tab) ----------
 function send(tabId, msg) { if (win && !win.isDestroyed()) win.webContents.send('claude:event', { tabId, msg }); }
 
+// Ausgabedateien von Hintergrund-Aufgaben, die die CLI im Stream gemeldet hat – nur diese darf task:readOutput lesen
+const seenOutputs = new Set();
+const OUTPUT_RE = /(?:Output is being written to:\s*|"output_file":")((?:[^"\\]|\\.)+?\.output)/g;
+function collectOutputs(line) {
+  if (!line.includes('.output')) return;
+  for (const m of line.matchAll(OUTPUT_RE)) {
+    let p; try { p = JSON.parse('"' + m[1] + '"'); } catch { continue; }
+    if (seenOutputs.size < 5000) seenOutputs.add(path.resolve(p.trim()).toLowerCase());
+  }
+}
+// Laufende Hintergrund-Aufgaben einer Sitzung (task_started … task_notification / background_tasks_changed)
+function trackBgTask(s, m) {
+  if (m.subtype === 'background_tasks_changed') s.tasks = new Set((m.tasks || []).map(x => x.task_id));
+  else if (m.subtype === 'task_started' && m.task_id) s.tasks.add(m.task_id);
+  else if (m.subtype === 'task_notification' && m.task_id) s.tasks.delete(m.task_id);
+  else if (m.subtype === 'task_updated' && m.task_id && m.patch?.status && m.patch.status !== 'running') s.tasks.delete(m.task_id);
+}
 function startSession(tab) {
   const profile = profileById(tab.profileId);
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
@@ -247,13 +263,14 @@ function startSession(tab) {
   else if (tab.permissionMode && tab.permissionMode !== 'default') args.push('--permission-mode', tab.permissionMode);
   if (tab.effort) args.push('--effort', tab.effort);
 
-  const proc = spawnClaude(args, profile, { cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
-  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: 0 }; // pending: offene Berechtigungsanfragen der CLI; lastCost: letzter Sitzungsstand der Kosten
+  const proc = spawnClaude(args, profile, { chat: true, cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
+  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: 0, tasks: new Set() }; // pending: offene Berechtigungsanfragen der CLI; lastCost: letzter Sitzungsstand der Kosten
   sessions.set(tab.id, s);
 
   readline.createInterface({ input: proc.stdout }).on('line', line => {
     if (!line.trim()) return;
     let m; try { m = JSON.parse(line); } catch { return; }
+    collectOutputs(line);
     if (m.type === 'system' && m.subtype === 'init') s.tab.sessionId = m.session_id;
     if (m.type === 'control_request' && m.request?.subtype === 'can_use_tool') {
       s.pending.set(m.request_id, { toolName: m.request.tool_name, input: m.request.input, suggestions: m.request.permission_suggestions || null });
@@ -261,6 +278,7 @@ function startSession(tab) {
     if (m.type === 'rate_limit_event') recordLimits(tab.profileId, m.rate_limit_info);
     // total_cost_usd ist der Stand der ganzen laufenden Sitzung (kumuliert) – gezählt wird nur der Zuwachs seit dem letzten Ergebnis
     if (m.type === 'result') s.busy = false;
+    if (m.type === 'system') trackBgTask(s, m);
     if (m.type === 'result' && typeof m.total_cost_usd === 'number') {
       const delta = m.total_cost_usd >= s.lastCost ? m.total_cost_usd - s.lastCost : m.total_cost_usd;
       s.lastCost = m.total_cost_usd;
@@ -546,7 +564,8 @@ ipcMain.handle('settings:pickClaude', async () => {
 // In der Oberfläche wird es nur als <img> angezeigt – auch eine SVG kann dort keinen Code ausführen
 // und nichts nachladen.
 const ICON_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', ico: 'image/x-icon' };
-const ICON_MAX = 1024 * 1024;
+const ICON_MAX = 512 * 1024;
+const PROJECTS_MAX = 100;
 const ICON_RE = /^data:image\/(png|jpeg|webp|gif|svg\+xml|x-icon);base64,[A-Za-z0-9+/]+=*$/;
 const cleanIcon = v => (typeof v === 'string' && v.length <= ICON_MAX * 1.4 && ICON_RE.test(v) ? v : null);
 function looksLikeImage(buf, ext) {
@@ -565,13 +584,13 @@ ipcMain.handle('projects:pickIcon', async () => {
   if (r.canceled || !file) return null;
   const ext = path.extname(file).slice(1).toLowerCase();
   if (isUnc(file) || !ICON_TYPES[ext]) return { error: 'Dateityp nicht unterstützt' };
-  const size = fs.statSync(file).size;
-  if (size > ICON_MAX) return { error: 'Bild ist größer als 1 MB' };
-  const buf = fs.readFileSync(file);
+  let buf;
+  try { if (fs.statSync(file).size > ICON_MAX) return { error: 'Bild ist größer als 512 KB' }; buf = fs.readFileSync(file); } catch { return { error: 'Datei kann nicht gelesen werden' }; }
   if (!looksLikeImage(buf, ext)) return { error: 'Datei ist kein gültiges Bild' };
   return { icon: `data:${ICON_TYPES[ext]};base64,${buf.toString('base64')}` };
 });
 ipcMain.handle('projects:add', (_e, { name, color, cwd, icon } = {}) => updateStore(s => {
+  if (s.projects.length >= PROJECTS_MAX) return;
   name = cleanName(name, 'Projekt'); color = cleanColor(color, '#1581FF'); cwd = isAllowedCwd(cwd) ? cwd : ''; // nur per Dialog gesehene Ordner
   const id = 'p-' + crypto.randomBytes(4).toString('hex');
   const pr = { id, name: name || 'Projekt', color: color || '#1581FF', cwd: cwd || '' };
@@ -599,7 +618,10 @@ ipcMain.handle('projects:reorder', (_e, ids) => updateStore(s => {
 
 // Volltextsuche in den Sitzungen eines Kontos: Nachrichten von dir und Claude (keine Werkzeug-Ausgaben).
 // Liefert je Sitzung die Anzahl Treffer und einen Ausschnitt um den ersten Treffer.
+let searchGen = 0;
+const SEARCH_FILE_MAX = 50 * 1024 * 1024;
 ipcMain.handle('history:search', async (_e, { profileId, query } = {}) => {
+  const gen = ++searchGen; // eine neuere Suche bricht diese ab
   const p = profileById(profileId);
   const q = typeof query === 'string' ? query.trim().toLowerCase() : '';
   if (!p || q.length < 2) return [];
@@ -610,11 +632,12 @@ ipcMain.handle('history:search', async (_e, { profileId, query } = {}) => {
   };
   const results = [];
   for (const h of listHistory(p, 400)) {
-    let raw;
-    try { raw = await fs.promises.readFile(h.file, 'utf8'); } catch { continue; }
-    if (!raw.toLowerCase().includes(q)) continue;
+    if (gen !== searchGen) return [];
+    try { if ((await fs.promises.stat(h.file)).size > SEARCH_FILE_MAX) continue; } catch { continue; }
     let hits = 0, snippet = '', when = 0;
-    for (const line of raw.split('\n')) {
+    const rl = readline.createInterface({ input: fs.createReadStream(h.file, 'utf8'), crlfDelay: Infinity });
+    try { for await (const line of rl) {
+      if (gen !== searchGen) { rl.close(); return []; }
       if (!line.toLowerCase().includes(q)) continue;
       let o; try { o = JSON.parse(line); } catch { continue; }
       if ((o.type !== 'user' && o.type !== 'assistant') || o.isSidechain || o.isMeta) continue;
@@ -622,7 +645,7 @@ ipcMain.handle('history:search', async (_e, { profileId, query } = {}) => {
       if (i < 0) continue;
       hits++;
       if (!snippet) { snippet = (i > 40 ? '…' : '') + text.slice(Math.max(0, i - 40), i + q.length + 80).replace(/\s+/g, ' ') + '…'; when = Date.parse(o.timestamp) || h.mtime; }
-    }
+    } } catch { continue; }
     if (hits) results.push({ ...h, hits, snippet, when });
     if (results.length >= 60) break;
   }
@@ -675,9 +698,11 @@ ipcMain.handle('attach:pick', async () => {
     if (isUnc(file)) continue;
     const ext = path.extname(file).slice(1).toLowerCase();
     const media = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext];
-    const size = fs.statSync(file).size;
-    if (media && size <= 5 * 1024 * 1024) out.push({ kind: 'image', name: path.basename(file), media, data: fs.readFileSync(file).toString('base64') });
-    else out.push({ kind: 'file', name: path.basename(file), path: file, size });
+    try {
+      const size = fs.statSync(file).size;
+      if (media && size <= 5 * 1024 * 1024) out.push({ kind: 'image', name: path.basename(file), media, data: fs.readFileSync(file).toString('base64') });
+      else out.push({ kind: 'file', name: path.basename(file), path: file, size });
+    } catch { /* nicht lesbar: überspringen */ }
   }
   return out;
 });
@@ -744,13 +769,13 @@ ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toPr
   if (!from || !to) return { ok: false, error: 'Konto unbekannt' };
   if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) { logError('session:moveProfile abgelehnt: ungültige Session-ID'); return { ok: false, error: 'ungültige Session-ID' }; }
   if (from.configDir === to.configDir) return { ok: true };
-  const r = dialog.showMessageBoxSync(win, {
+  const ok = dialog.showMessageBoxSync(win, {
     type: 'warning', buttons: ['Abbrechen', 'Übertragen'], defaultId: 0, cancelId: 0, noLink: true,
     title: 'Chat in anderes Konto übertragen',
     message: `Chat in Konto „${to.name}“ übertragen?`,
     detail: `Der gesamte Verlauf inkl. Dateiinhalten und Befehlsausgaben wird in Konto „${to.name}“ kopiert. Nicht zwischen Firmen- und Privatkonten übertragen.`,
   });
-  if (r !== 1) return { ok: false, cancelled: true };
+  if (ok !== 1) return { ok: false, cancelled: true };
   try { return { ok: copySessionToProfile(sessionId, cwd, from, to) }; } catch (e) { logError('Übertragung: ' + e.message); return { ok: false, error: e.message }; }
 });
 // Nur existierende Ordner im Explorer öffnen – nie Dateien oder Programme
@@ -793,12 +818,18 @@ function decodeConsole(buf) {
 // Ausgabe einer Hintergrund-Aufgabe lesen – nur *.output-Dateien, die Claude Code in seinem eigenen
 // Temp-Ordner (%TEMP%\claude\…\tasks\) anlegt; höchstens die letzten 64 KB
 ipcMain.handle('task:readOutput', (_e, file) => {
-  const base = path.join(os.tmpdir(), 'claude') + path.sep;
   if (typeof file !== 'string' || isUnc(file) || !file.toLowerCase().endsWith('.output')) return { error: 'Keine Ausgabedatei' };
-  const p = path.resolve(file);
-  if (!p.toLowerCase().startsWith(base.toLowerCase()) || path.basename(path.dirname(p)).toLowerCase() !== 'tasks') return { error: 'Pfad nicht erlaubt' };
+  if (!seenOutputs.has(path.resolve(file).toLowerCase())) return { error: 'Pfad nicht erlaubt' };
+  let p, st;
   try {
-    const size = fs.statSync(p).size, max = 64 * 1024;
+    // Junctions/Symlinks auflösen (auch 8.3-Kurznamen), danach erneut prüfen; Hardlinks ablehnen
+    const base = fs.realpathSync.native(path.join(os.tmpdir(), 'claude')).toLowerCase() + path.sep;
+    p = fs.realpathSync.native(file);
+    st = fs.lstatSync(p);
+    if (!p.toLowerCase().startsWith(base) || path.basename(path.dirname(p)).toLowerCase() !== 'tasks' || !st.isFile() || st.nlink !== 1) return { error: 'Pfad nicht erlaubt' };
+  } catch { return { error: 'Ausgabe nicht (mehr) vorhanden' }; }
+  try {
+    const size = st.size, max = 64 * 1024;
     const fd = fs.openSync(p, 'r');
     try {
       const buf = Buffer.alloc(Math.min(size, max));
@@ -851,13 +882,13 @@ function createWindow() {
   // Schließen, während Claude noch arbeitet: nachfragen (die laufende Antwort würde abgebrochen)
   let closeConfirmed = false;
   win.on('close', e => {
-    const busy = [...sessions.values()].filter(x => x.busy).length;
+    const busy = [...sessions.values()].filter(x => x.busy || x.tasks?.size).length;
     if (closeConfirmed || !busy) return;
     e.preventDefault();
     const r = dialog.showMessageBoxSync(win, {
       type: 'question', buttons: ['Abbrechen', 'Trotzdem schließen'], defaultId: 0, cancelId: 0, noLink: true,
       title: 'Swapline schließen',
-      message: `Claude arbeitet noch in ${busy} Chat${busy === 1 ? '' : 's'}.`,
+      message: `Claude arbeitet noch in ${busy} Chat${busy === 1 ? '' : 's'} (Antwort oder Hintergrund-Aufgabe).`,
       detail: 'Beim Schließen wird die laufende Antwort abgebrochen. Bisherige Änderungen und der Verlauf bleiben erhalten – danach kannst du den Chat mit „mach weiter“ fortsetzen.',
     });
     if (r === 1) { closeConfirmed = true; win.close(); }
@@ -884,6 +915,13 @@ function createWindow() {
   // Keine Gerätezugriffe (Kamera, Mikrofon, Standort, Zwischenablage …), Benachrichtigungen ausgenommen.
   // Kopieren läuft über den Hauptprozess (clipboard:write), nicht über die Browser-Zwischenablage.
   win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'notifications'));
+  // Datei-Zugriffe der Oberfläche nur innerhalb des App-Ordners – kein file://host (SMB/UNC) und keine fremden Dateien
+  const appRoot = path.join(__dirname, '..').toLowerCase() + path.sep;
+  win.webContents.session.webRequest.onBeforeRequest({ urls: ['file://*/*'] }, (d, cb) => {
+    let ok = false;
+    try { const u = new URL(d.url); ok = !u.host && path.resolve(fileURLToPath(u)).toLowerCase().startsWith(appRoot); } catch {}
+    cb({ cancel: !ok });
+  });
 }
 
 // Test-Hooks (Testprofil, Screenshot, Test-Skript) wirken nur im ungepackten Entwicklungsstand – nie in der ausgelieferten App.
@@ -951,11 +989,19 @@ app.whenReady().then(() => {
   STORE_FILE = path.join(app.getPath('userData'), 'swapline.json');
   createWindow();
   // SWAPLINE_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
+  // Testlauf (nur unverpackt): SWAPLINE_TEST_JS wird in der Oberfläche ausgeführt, das Ergebnis landet in
+  // SWAPLINE_TEST_OUT (JSON); SWAPLINE_SCREENSHOT speichert optional ein Bildschirmfoto. Danach beendet sich die App.
   const shot = DEV && process.env.SWAPLINE_SCREENSHOT;
-  if (shot) {
+  const testJs = DEV && process.env.SWAPLINE_TEST_JS;
+  if (shot || testJs) {
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
       try {
-        if (DEV && process.env.SWAPLINE_TEST_JS) await win.webContents.executeJavaScript(fs.readFileSync(process.env.SWAPLINE_TEST_JS, 'utf8'));
+        if (testJs) {
+          let result;
+          try { result = await win.webContents.executeJavaScript(fs.readFileSync(testJs, 'utf8')); } catch (e) { result = { error: String(e.stack || e) }; }
+          if (process.env.SWAPLINE_TEST_OUT) fs.writeFileSync(process.env.SWAPLINE_TEST_OUT, JSON.stringify(result ?? null, null, 2));
+        }
+        if (!shot) return app.quit();
         win.show(); win.focus();
         let img;
         try { img = await win.webContents.capturePage(); } catch {
