@@ -5,6 +5,13 @@ Alle nennenswerten Änderungen an Swapline. Versionen folgen [Semantic Versionin
 Major = nicht rückwärtskompatible Änderungen. Die Versionsnummer steht nur in `package.json` und gilt für
 exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
+## [0.5.0] – 2026-11-08
+
+### Neu
+- Mehrere Hinweistöne zur Auswahl: Glocke, Ping, Tropfen, Aufsteigend, Dezent und Windows-Standard
+  (eigene Töne per Web Audio, ohne Tondateien). Vorschau beim Auswählen; „Hinweiston“ aus älteren Versionen
+  wird als Glocke übernommen.
+
 ## [0.4.0] – 2026-11-08
 
 ### Neu

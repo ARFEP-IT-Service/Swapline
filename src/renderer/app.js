@@ -1002,25 +1002,38 @@ function notifyIfHidden(t, text) {
   if (!document.hasFocus()) api.attention(); // Taskleiste blinkt
   if (mode === 'off' || (mode === 'background' && inView)) return;
   try {
-    const n = new Notification(t.title || 'Swapline', { body: text, icon: 'assets/swapline.ico', silent: true, tag: t.id });
+    const n = new Notification(t.title || 'Swapline', { body: text, icon: 'assets/swapline.ico', silent: soundSetting() !== 'system', tag: t.id });
     n.onclick = () => { api.focusWindow(); view = 'chats'; setSeg(); openTab(t.id); };
   } catch {}
-  if (store.settings.sound === 'on') playChime();
+  playSound(); // Windows-Standard kommt über die Benachrichtigung selbst (silent: false)
 }
 // Kurzer Hinweiston (zwei weiche Töne), erzeugt per Web Audio – keine Tondatei nötig
+// Hinweistöne, erzeugt per Web Audio (keine Tondateien). Je Ton: Liste von Noten
+// { f: Frequenz, to: Ziel-Frequenz (Gleiten), at: Start (s), d: Dauer (s), v: Lautstärke, w: Wellenform }
+const SOUNDS = {
+  chime: { label: 'Glocke', notes: [{ f: 880, at: 0, d: 0.45 }, { f: 1318.5, at: 0.14, d: 0.45 }] },
+  ping: { label: 'Ping', notes: [{ f: 1568, at: 0, d: 0.28, w: 'triangle', v: 0.22 }] },
+  drop: { label: 'Tropfen', notes: [{ f: 1250, to: 420, at: 0, d: 0.22, v: 0.22 }] },
+  rise: { label: 'Aufsteigend', notes: [{ f: 1046.5, at: 0, d: 0.3 }, { f: 1318.5, at: 0.1, d: 0.3 }, { f: 1568, at: 0.2, d: 0.45 }] },
+  soft: { label: 'Dezent', notes: [{ f: 523.25, at: 0, d: 0.9, v: 0.1 }, { f: 784, at: 0.05, d: 0.9, v: 0.05 }] },
+};
+const soundSetting = () => ({ on: 'chime' })[store.settings.sound] || store.settings.sound || 'off'; // „on“ aus 0.2–0.4 = Glocke
 let audioCtx;
-function playChime() {
+function playSound(name = soundSetting()) {
+  const s = SOUNDS[name]; if (!s) return;
   try {
     audioCtx ||= new AudioContext();
     const now = audioCtx.currentTime;
-    for (const [freq, at] of [[880, 0], [1318.5, 0.14]]) {
+    for (const n of s.notes) {
       const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-      osc.type = 'sine'; osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0, now + at);
-      gain.gain.linearRampToValueAtTime(0.18, now + at + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + at + 0.45);
+      osc.type = n.w || 'sine';
+      osc.frequency.setValueAtTime(n.f, now + n.at);
+      if (n.to) osc.frequency.exponentialRampToValueAtTime(n.to, now + n.at + n.d);
+      gain.gain.setValueAtTime(0, now + n.at);
+      gain.gain.linearRampToValueAtTime(n.v ?? 0.18, now + n.at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + n.at + n.d);
       osc.connect(gain).connect(audioCtx.destination);
-      osc.start(now + at); osc.stop(now + at + 0.5);
+      osc.start(now + n.at); osc.stop(now + n.at + n.d + 0.05);
     }
   } catch {}
 }
@@ -1235,6 +1248,17 @@ function openEditProfile(p) {
   profileForm(p, async data => { store = await api.profiles.update(p.id, data); renderRail(); renderList(); renderChat(); openAccounts(); }, 'Speichern');
 }
 
+// Ton-Auswahl: Vorschau beim Wechseln; „on“ aus älteren Versionen wird als Glocke angezeigt
+function soundSelect() {
+  const opts = [['off', 'Kein Ton'], ...Object.entries(SOUNDS).map(([k, s]) => [k, s.label]), ['system', 'Windows-Standard']];
+  const e = el('select', {}, opts.map(([v, l]) => el('option', { value: v, selected: soundSetting() === v }, l)));
+  e.addEventListener('change', async () => {
+    const r = await api.setSettings({ sound: e.value });
+    if (r.rejected) { e.value = soundSetting(); return toast('Nicht übernommen'); }
+    store = r; playSound(e.value);
+  });
+  return e;
+}
 function openSettings() {
   const s = store.settings;
   const pid = store.activeProfileId;
@@ -1272,10 +1296,10 @@ function openSettings() {
     el('label', { class: 'field' }, el('span', {}, 'Werkzeug-Aufrufe im Chat (Befehle, Lesen, Bearbeiten …)'), sel('toolView', [['all', 'Alle anzeigen'], ['compact', 'Kompakt – zu einer Zeile zusammengefasst'], ['hidden', 'Ausblenden – nur Nachrichten und Antworten']])),
     el('label', { class: 'field' }, el('span', {}, 'Benachrichtigung bei fertiger Antwort'), sel('notify', [['background', 'Wenn der Chat nicht im Blick ist (Standard)'], ['always', 'Immer'], ['off', 'Aus']])),
     el('div', { class: 'row' },
-      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Ton'), sel('sound', [['off', 'Kein Ton'], ['on', 'Hinweiston abspielen']])),
+      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Ton'), soundSelect()),
       el('button', { class: 'ghost', style: 'align-self:flex-end', title: 'Benachrichtigung und Ton jetzt ausprobieren', onclick: () => {
-        try { new Notification('Swapline', { body: 'So sieht eine Benachrichtigung aus.', icon: 'assets/swapline.ico', silent: true }); } catch {}
-        if (store.settings.sound === 'on') playChime();
+        try { new Notification('Swapline', { body: 'So sieht eine Benachrichtigung aus.', icon: 'assets/swapline.ico', silent: soundSetting() !== 'system' }); } catch {}
+        playSound();
       } }, 'Testen')),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Pfad zu Claude Code (claude.exe)'), path),
     el('div', { class: 'about' },

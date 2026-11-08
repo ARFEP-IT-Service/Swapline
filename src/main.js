@@ -52,7 +52,7 @@ const MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 const THEMES = ['system', 'light', 'dark'];
 const NOTIFY = ['always', 'background', 'off']; // Benachrichtigung bei fertiger Antwort
-const SOUND = ['on', 'off'];
+const SOUND = ['off', 'on', 'chime', 'ping', 'drop', 'rise', 'soft', 'system']; // 'on' = Glocke (ältere Versionen)
 const TOOLVIEW = ['all', 'compact', 'hidden']; // Werkzeug-Aufrufe im Chat
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
