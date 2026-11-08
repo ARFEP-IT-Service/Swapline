@@ -8,4 +8,4 @@ AGENTS.md
 .aider*
 dist-next/
 .env
-licenses/
+/licenses/
