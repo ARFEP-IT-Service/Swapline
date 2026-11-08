@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('api', {
   focusWindow: () => invoke('app:focus'),
   attention: () => invoke('app:attention'),
   readTaskOutput: file => invoke('task:readOutput', file),
+  copyText: text => invoke('clipboard:write', text),
   onEvent: cb => ipcRenderer.on('claude:event', (_e, d) => cb(d)),
   onUsage: cb => ipcRenderer.on('usage:update', (_e, d) => cb(d)),
   onLogin: cb => ipcRenderer.on('login:update', (_e, d) => cb(d)),

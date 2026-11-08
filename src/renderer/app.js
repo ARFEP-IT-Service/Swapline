@@ -766,7 +766,11 @@ function renderItem(t, it) {
     case 'ai': {
       const b = el('div', { class: 'bubble md' + (it.streaming ? ' streaming' : ''), html: md(it.streaming ? streamingMarkdown(it.text) : it.text) });
       if (!it.streaming) enhanceCode(b);
-      return el('div', { class: 'ai-block' }, el('div', { class: 'msg ai' }, b), it.time ? el('div', { class: 'msg-time left' }, msgTime(it.time)) : null);
+      // Fußzeile: Uhrzeit + Kopieren (kopiert den Text der Antwort als Markdown)
+      return el('div', { class: 'ai-block' }, el('div', { class: 'msg ai' }, b),
+        el('div', { class: 'ai-foot' },
+          it.time ? el('span', { class: 'msg-time left' }, msgTime(it.time)) : null,
+          el('button', { class: 'copy-answer', title: 'Antwort kopieren (Markdown)', onclick: e => copyText(it.text, e.currentTarget) }, 'Kopieren')));
     }
     case 'tool': return renderTool(it);
     case 'perm': return renderPerm(t, it);
@@ -777,9 +781,14 @@ function renderItem(t, it) {
   return null;
 }
 
+// Text in die Zwischenablage, mit kurzer Bestätigung am Knopf
+async function copyText(text, btn) {
+  if (!(await api.copyText(text || ''))) return toast('Kopieren nicht möglich');
+  if (btn) { const old = btn.textContent; btn.textContent = '✓ Kopiert'; btn.classList.add('done'); setTimeout(() => { btn.textContent = old; btn.classList.remove('done'); }, 1400); }
+}
 function enhanceCode(root) {
   root.querySelectorAll('pre').forEach(pre => {
-    const btn = el('button', { class: 'copy', onclick: () => { navigator.clipboard.writeText(pre.querySelector('code')?.innerText || pre.innerText); btn.textContent = 'Kopiert'; setTimeout(() => (btn.textContent = 'Kopieren'), 1200); } }, 'Kopieren');
+    const btn = el('button', { class: 'copy', onclick: () => copyText(pre.querySelector('code')?.innerText || pre.innerText, btn) }, 'Kopieren');
     pre.append(btn);
   });
 }
@@ -1073,7 +1082,7 @@ async function showTaskOutput(task) {
     pre.scrollTop = pre.scrollHeight;
   };
   modal('task-out', task.desc || 'Ausgabe', info, pre,
-    el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'ghost', onclick: load }, 'Aktualisieren')));
+    el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'ghost', onclick: load }, 'Aktualisieren'), el('button', { class: 'ghost', onclick: e => copyText(pre.textContent, e.currentTarget) }, 'Kopieren')));
   load();
 }
 function errorLabel(sub) {

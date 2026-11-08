@@ -1,5 +1,5 @@
 // Swapline – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -672,6 +672,8 @@ ipcMain.handle('task:readOutput', (_e, file) => {
     } finally { fs.closeSync(fd); }
   } catch { return { error: 'Ausgabe nicht (mehr) vorhanden' }; }
 });
+// Text in die Zwischenablage (Kopieren-Knöpfe) – nur Schreiben, höchstens 5 MB; Lesen gibt es nicht
+ipcMain.handle('clipboard:write', (_e, text) => { if (typeof text !== 'string') return false; clipboard.writeText(text.slice(0, 5 * 1024 * 1024)); return true; });
 ipcMain.handle('app:attention', () => { if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true); });
 ipcMain.handle('shell:openPath', (_e, p) => {
   if (!isDir(p)) { logError('openPath abgelehnt (kein Ordner): ' + String(p).slice(0, 200)); return false; }
@@ -744,7 +746,8 @@ function createWindow() {
   });
   win.webContents.on('will-redirect', (e, url) => { if (url.split('#')[0] !== indexUrl) e.preventDefault(); });
   win.webContents.on('will-attach-webview', e => e.preventDefault());
-  // Keine Gerätezugriffe (Kamera, Mikrofon, Standort, Benachrichtigungen ausgenommen)
+  // Keine Gerätezugriffe (Kamera, Mikrofon, Standort, Zwischenablage …), Benachrichtigungen ausgenommen.
+  // Kopieren läuft über den Hauptprozess (clipboard:write), nicht über die Browser-Zwischenablage.
   win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'notifications'));
 }
 

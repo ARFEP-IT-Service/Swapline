@@ -24,6 +24,7 @@ Erste Version.
 - Nutzungsanzeige: 5-Stunden- und Wochenlimit, Kosten-Gegenwert (Zuwachs pro Antwort).
 - Windows-Benachrichtigung bei fertiger Antwort und Rückfragen, Hinweistöne zur Auswahl.
 - Werkzeug-Aufrufe im Chat: alle, kompakt oder ausgeblendet.
+- Antworten von Claude und Code-Blöcke per Knopf kopieren (Markdown), ebenso die Ausgabe von Hintergrund-Aufgaben.
 - Hintergrund-Aufgaben (z. B. Befehle mit `run_in_background`) als Leiste über dem Eingabefeld, mit Status und Ausgabe.
 - Sicherheitsabfrage beim Schließen, solange Claude arbeitet.
 - Anmeldung nur über `claude auth login` (System-Browser); keine Zugangsdaten in Swapline.

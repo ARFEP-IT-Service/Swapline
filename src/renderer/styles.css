@@ -404,3 +404,11 @@ button.link:hover { color: var(--accent); }
 .bg-item .pm-text small { white-space: normal; }
 .modal.task-out { width: min(860px, 94vw); }
 .task-output { font: 12px/1.5 var(--font-mono); background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 60vh; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; }
+
+/* Antwort kopieren: Knopf in der Fußzeile, sichtbar beim Überfahren */
+.ai-foot { display: flex; align-items: center; gap: 10px; margin: 4px 6px 0; min-height: 18px; }
+.ai-foot .msg-time { margin: 0; }
+.copy-answer { border: 1px solid transparent; background: none; color: var(--muted); font-size: 11.5px; padding: 1px 8px; border-radius: 6px; opacity: 0; transition: opacity .15s; }
+.ai-block:hover .copy-answer, .copy-answer:focus-visible, .copy-answer.done { opacity: 1; }
+.copy-answer:hover { border-color: var(--line); color: var(--text); background: var(--raised); }
+.copy-answer.done { color: var(--ok); }
