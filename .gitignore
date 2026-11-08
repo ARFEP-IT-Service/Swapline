@@ -7,3 +7,4 @@ AGENTS.md
 .cursor/
 .aider*
 dist-next/
+.env
