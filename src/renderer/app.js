@@ -261,8 +261,10 @@ async function switchProfile(id) {
   historyCache = {};
   const st = status[id];
   const t = currentTab();
-  if (t && t.profileId !== id) await moveTabToProfile(t, id);
-  else if (st && !st.loggedIn) toast(`„${profile(id).name}“ ist nicht angemeldet`);
+  if (t && t.profileId !== id) {
+    // Übertragung abgelehnt -> aktives Konto bleibt das des Chats
+    if ((await moveTabToProfile(t, id)) === false) store = await api.profiles.setActive(t.profileId);
+  } else if (st && !st.loggedIn) toast(`„${profile(id).name}“ ist nicht angemeldet`);
   else toast(`Konto: ${profile(id).name}`);
   renderRail(); renderList(); renderUsage();
 }
@@ -278,8 +280,10 @@ async function moveTabToProfile(t, to) {
   }
   t.pendingProfile = null;
   if (t.sessionId) {
-    const ok = await api.session.moveProfile({ sessionId: t.sessionId, cwd: t.cwd, fromProfileId: t.profileId, toProfileId: to });
-    if (!ok) { toast('Verlauf konnte nicht übernommen werden – der Chat startet neu'); t.sessionId = null; }
+    // Der Hauptprozess fragt vorher nach (Verlauf inkl. Dateiinhalten wird kopiert)
+    const r = await api.session.moveProfile({ sessionId: t.sessionId, cwd: t.cwd, fromProfileId: t.profileId, toProfileId: to });
+    if (r?.cancelled) { toast('Übertragung abgebrochen – der Chat bleibt im bisherigen Konto'); if (t.id === activeTabId) renderChat(); return false; }
+    if (!r?.ok) { toast('Verlauf konnte nicht übernommen werden – der Chat startet neu'); t.sessionId = null; }
   }
   const st = status[to];
   await changeTab({ profileId: to }, `Weiter mit Konto „${profile(to).name}“${st?.email ? ' (' + st.email + ')' : ''}${st && !st.loggedIn ? ' – nicht angemeldet!' : ''}`, t);

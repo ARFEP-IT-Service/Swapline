@@ -292,24 +292,26 @@ function loadTranscript(file) {
 }
 
 // Sitzung in ein anderes Konto kopieren, damit sie dort mit --resume fortgesetzt werden kann
+// Sitzungsdatei <configDir>/projects/<ordner>/<uuid>.jsonl finden. Die Session-ID muss eine UUID sein,
+// und jeder Pfad muss nach dem Auflösen innerhalb von <configDir>/projects liegen (kein Path Traversal).
+function inside(base, p) { const b = path.resolve(base) + path.sep; return path.resolve(p).startsWith(b); }
+function findSessionFile(profile, sessionId, cwd) {
+  if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) return null;
+  const root = path.join(profile.configDir, 'projects');
+  const candidates = [path.join(root, encodeCwd(typeof cwd === 'string' && cwd ? cwd : HOME), sessionId + '.jsonl')];
+  try { for (const d of fs.readdirSync(root)) candidates.push(path.join(root, d, sessionId + '.jsonl')); } catch {}
+  return candidates.find(f => inside(root, f) && fs.existsSync(f) && fs.statSync(f).isFile()) || null;
+}
 function copySessionToProfile(sessionId, cwd, fromProfile, toProfile) {
-  if (!sessionId || fromProfile.configDir === toProfile.configDir) return true;
-  const enc = encodeCwd(cwd || HOME);
-  let src = path.join(fromProfile.configDir, 'projects', enc, sessionId + '.jsonl');
-  if (!fs.existsSync(src)) {
-    // Fallback: in allen Projektordnern suchen
-    const root = path.join(fromProfile.configDir, 'projects');
-    try {
-      for (const d of fs.readdirSync(root)) {
-        const p = path.join(root, d, sessionId + '.jsonl');
-        if (fs.existsSync(p)) { src = p; break; }
-      }
-    } catch {}
-  }
-  if (!fs.existsSync(src)) return false;
-  const dstDir = path.join(toProfile.configDir, 'projects', enc);
+  if (fromProfile.configDir === toProfile.configDir) return true;
+  const src = findSessionFile(fromProfile, sessionId, cwd);
+  if (!src) return false;
+  const dstRoot = path.join(toProfile.configDir, 'projects');
+  const dstDir = path.join(dstRoot, encodeCwd(typeof cwd === 'string' && cwd ? cwd : HOME));
+  const dst = path.join(dstDir, sessionId + '.jsonl');
+  if (!inside(dstRoot, dst)) return false;
   fs.mkdirSync(dstDir, { recursive: true });
-  fs.copyFileSync(src, path.join(dstDir, sessionId + '.jsonl'));
+  fs.copyFileSync(src, dst);
   return true;
 }
 
@@ -462,19 +464,11 @@ ipcMain.handle('projects:reorder', (_e, ids) => updateStore(s => {
 
 ipcMain.handle('history:list', (_e, profileId) => { const p = profileById(profileId); return p ? listHistory(p) : []; });
 ipcMain.handle('history:load', (_e, file) => loadTranscript(file));
-ipcMain.handle('history:loadSession', (_e, { profileId, sessionId, cwd }) => {
+ipcMain.handle('history:loadSession', (_e, { profileId, sessionId, cwd } = {}) => {
   const p = profileById(profileId);
-  if (!p || !sessionId) return [];
-  const root = path.join(p.configDir, 'projects');
-  let file = path.join(root, encodeCwd(cwd || HOME), sessionId + '.jsonl');
-  if (!fs.existsSync(file)) {
-    try {
-      for (const d of fs.readdirSync(root)) {
-        const f = path.join(root, d, sessionId + '.jsonl');
-        if (fs.existsSync(f)) { file = f; break; }
-      }
-    } catch {}
-  }
+  if (!p) return [];
+  const file = findSessionFile(p, sessionId, cwd);
+  if (!file) { if (sessionId && !UUID_RE.test(String(sessionId))) logError('history:loadSession abgelehnt: ungültige Session-ID'); return []; }
   return loadTranscript(file);
 });
 
@@ -510,10 +504,20 @@ ipcMain.handle('session:interrupt', (_e, tabId) => {
 // Einstellungen ändern -> Prozess beenden; die nächste Nachricht startet mit --resume neu
 ipcMain.handle('session:restart', (_e, tabId) => { stopSession(tabId); return true; });
 ipcMain.handle('session:close', (_e, tabId) => { stopSession(tabId); return true; });
-ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId }) => {
+// Übertragung eines Chats in ein anderes Konto – nur nach ausdrücklicher Bestätigung im Hauptprozess
+ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId } = {}) => {
   const from = profileById(fromProfileId), to = profileById(toProfileId);
-  if (!from || !to) return false;
-  try { return copySessionToProfile(sessionId, cwd, from, to); } catch { return false; }
+  if (!from || !to) return { ok: false, error: 'Konto unbekannt' };
+  if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) { logError('session:moveProfile abgelehnt: ungültige Session-ID'); return { ok: false, error: 'ungültige Session-ID' }; }
+  if (from.configDir === to.configDir) return { ok: true };
+  const r = dialog.showMessageBoxSync(win, {
+    type: 'warning', buttons: ['Abbrechen', 'Übertragen'], defaultId: 0, cancelId: 0, noLink: true,
+    title: 'Chat in anderes Konto übertragen',
+    message: `Chat in Konto „${to.name}“ übertragen?`,
+    detail: `Der gesamte Verlauf inkl. Dateiinhalten und Befehlsausgaben wird in Konto „${to.name}“ kopiert. Nicht zwischen Firmen- und Privatkonten übertragen.`,
+  });
+  if (r !== 1) return { ok: false, cancelled: true };
+  try { return { ok: copySessionToProfile(sessionId, cwd, from, to) }; } catch (e) { logError('Übertragung: ' + e.message); return { ok: false, error: e.message }; }
 });
 // Nur existierende Ordner im Explorer öffnen – nie Dateien oder Programme
 ipcMain.handle('shell:openPath', (_e, p) => {
