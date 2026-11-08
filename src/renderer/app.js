@@ -22,11 +22,11 @@ const el = (tag, attrs = {}, ...kids) => {
     else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
     else e.setAttribute(k, v === true ? '' : v);
   }
-  for (const k of kids.flat()) if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(String(k)));
   return e;
 };
 // replaceChildren ohne leere Einträge (null/false würden sonst als Text „null“ erscheinen)
-const fill = (node, ...kids) => node.replaceChildren(...kids.flat().filter(k => k != null && k !== false));
+const fill = (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter(k => k != null && k !== false));
 const icon = d => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = d; return s; };
 const ICONS = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
@@ -350,7 +350,7 @@ const EFFORT_LABEL = { low: 'Niedrig', medium: 'Mittel', high: 'Hoch', xhigh: 'S
 async function loadModels(pid, refresh = false) {
   if (modelInfo[pid] && !refresh) return modelInfo[pid];
   const info = await api.profiles.models(pid, refresh);
-  if (info) modelInfo[pid] = info;
+  if (info?.models?.length) modelInfo[pid] = info; // leere Antwort nicht merken
   return info;
 }
 function modelEntry(pid, value) {
@@ -1219,6 +1219,8 @@ const LOCAL_COMMANDS = [
   { name: 'login', description: 'Konten verwalten und anmelden', run: () => openAccounts() },
   { name: 'config', description: 'Einstellungen von Swapline', run: () => openSettings() },
   { name: 'settings', description: 'Einstellungen von Swapline', run: () => openSettings() },
+  { name: 'plugins', description: 'Erweiterungen: Plugins installieren und verwalten', run: () => openExtensions('installed') },
+  { name: 'skills', description: 'Skills und Befehle dieses Kontos anzeigen', run: () => openExtensions('skills') },
 ];
 function commandList() {
   const t = currentTab();
@@ -1518,6 +1520,73 @@ function openEditProfile(p) {
 }
 
 // Ton-Auswahl: Vorschau beim Wechseln; „on“ aus älteren Versionen wird als Glocke angezeigt
+// ---------- Erweiterungen: Plugins (installiert / verfügbar) und Skills & Befehle des aktiven Kontos ----------
+let extState = { tab: 'installed', data: null, q: '', busy: '' };
+async function openExtensions(tab) {
+  if (tab) extState.tab = tab;
+  const pid = store.activeProfileId;
+  const p = profile(pid);
+  const body = el('div', { class: 'ext-body' });
+  const head = el('div', { class: 'ext-head' });
+  modal('extensions', 'Erweiterungen', el('div', { class: 'hint' }, `Konto: ${p.name} – Plugins und Skills gelten pro Konto. Änderungen wirken in neuen bzw. neu gestarteten Chats.`), head, body);
+  const search = el('input', { type: 'search', class: 'ext-search', placeholder: 'Suchen …', value: extState.q });
+  search.addEventListener('input', () => { extState.q = search.value; draw(); });
+  const tabsEl = el('div', { class: 'seg ext-seg' });
+  const drawTabs = () => fill(tabsEl, [['installed', 'Installiert'], ['available', 'Verfügbar'], ['skills', 'Skills & Befehle']].map(([k, l]) =>
+    el('button', { class: extState.tab === k ? 'active' : '', onclick: () => {
+      extState.tab = k; drawTabs(); draw();
+      // Befehlsliste nachladen und danach neu zeichnen, falls sie noch fehlt
+      if (k === 'skills' && !modelInfo[pid]?.commands) loadModels(pid).then(() => { if (extState.tab === 'skills' && $('.modal.extensions')) draw(); });
+    } }, l)));
+  drawTabs();
+  fill(head, tabsEl, search);
+  const match = (...s) => !extState.q || s.some(x => (x || '').toLowerCase().includes(extState.q.toLowerCase()));
+  const act = async (action, id) => {
+    extState.busy = id; draw();
+    const r = await api.extensions.action(pid, action, id);
+    extState.busy = '';
+    if (r.cancelled) return draw();
+    toast(r.ok ? `✓ ${id}: ${{ install: 'installiert', uninstall: 'entfernt', enable: 'aktiviert', disable: 'deaktiviert' }[action]}` : `Fehler: ${r.error}`);
+    extState.data = null; delete modelInfo[pid]; loadModels(pid);
+    load();
+  };
+  function draw() {
+    const d = extState.data;
+    if (extState.tab === 'skills') {
+      const cmds = (modelInfo[pid]?.commands || []).filter(c => match(c.name, c.description));
+      const plugin = cmds.filter(c => c.name.includes(':')), own = cmds.filter(c => !c.name.includes(':'));
+      const row = c => el('div', { class: 'ext-row' }, el('div', { class: 'ext-text' }, el('b', { class: 'mono' }, '/' + c.name), el('small', {}, c.description || '–')),
+        el('button', { class: 'ghost', title: 'Im Eingabefeld einfügen', onclick: () => { $('#modal-root').replaceChildren(); const i = $('#input'); if (i) { i.value = '/' + c.name + ' '; i.focus(); autosize(); } } }, 'Verwenden'));
+      return fill(body, !modelInfo[pid] ? el('div', { class: 'list-empty' }, 'Wird geladen …') : [
+        el('div', { class: 'list-section' }, `Aus Plugins (${plugin.length})`), plugin.map(row),
+        el('div', { class: 'list-section' }, `Eingebaut und eigene Skills (${own.length})`), own.map(row)]);
+    }
+    if (!d) return fill(body, el('div', { class: 'list-empty' }, 'Lade Plugins über Claude Code …'));
+    if (d.error) return fill(body, el('div', { class: 'list-empty' }, 'Fehler: ' + d.error));
+    if (extState.tab === 'installed') {
+      const list = d.installed.filter(x => match(x.id));
+      return fill(body, list.length ? list.map(x => el('div', { class: 'ext-row' + (x.enabled ? '' : ' off') },
+        el('div', { class: 'ext-text' }, el('b', {}, x.id.split('@')[0]),
+          el('small', {}, [x.id.split('@')[1], x.version && x.version !== 'unknown' ? 'v' + x.version : null, x.scope === 'project' ? 'Projekt' : null, x.mcp.length ? 'MCP: ' + x.mcp.join(', ') : null, x.enabled ? 'aktiv' : 'deaktiviert'].filter(Boolean).join(' · '))),
+        extState.busy === x.id ? el('span', { class: 'spinner' }) : [
+          el('button', { class: 'ghost', onclick: () => act(x.enabled ? 'disable' : 'enable', x.id) }, x.enabled ? 'Deaktivieren' : 'Aktivieren'),
+          el('button', { class: 'ghost danger', onclick: () => act('uninstall', x.id) }, 'Entfernen')])) : el('div', { class: 'list-empty' }, 'Keine Plugins installiert.'));
+    }
+    const inst = new Set(d.installed.map(x => x.id));
+    const list = d.available.filter(x => match(x.id, x.name, x.description)).slice(0, 150);
+    fill(body, el('div', { class: 'hint' }, `${d.available.length} Plugins aus den Marktplätzen von Claude Code${list.length === 150 ? ' – zeige die ersten 150, Suche grenzt ein' : ''}`),
+      list.map(x => el('div', { class: 'ext-row' }, el('div', { class: 'ext-text' }, el('b', {}, x.name || x.id), el('small', {}, x.description || x.id)),
+        inst.has(x.id) ? el('span', { class: 'ext-badge' }, '✓ installiert')
+          : extState.busy === x.id ? el('span', { class: 'spinner' }) : el('button', { class: 'ghost', onclick: () => act('install', x.id) }, 'Installieren'))));
+  }
+  async function load() {
+    draw();
+    if (!modelInfo[pid]) loadModels(pid).then(() => { if (extState.tab === 'skills') draw(); });
+    if (!extState.data) { const d = await api.extensions.list(pid); extState.data = d; }
+    if ($('.modal.extensions')) draw();
+  }
+  load();
+}
 function soundSelect() {
   const opts = [['off', 'Kein Ton'], ...Object.entries(SOUNDS).map(([k, s]) => [k, s.label]), ['system', 'Windows-Standard']];
   const e = el('select', {}, opts.map(([v, l]) => el('option', { value: v, selected: soundSetting() === v }, l)));
@@ -1594,6 +1663,7 @@ $('#rail-all').ondrop = e => { e.preventDefault(); e.currentTarget.classList.rem
 $('#btn-account').onclick = () => ($('#account-menu') ? closeMenus() : openAccountMenu());
 $('#btn-project-edit').onclick = () => { const pr = project(activeProjectId()); if (pr) openProjectForm(pr); };
 $('#btn-settings').onclick = openSettings;
+$('#btn-extensions').onclick = () => openExtensions();
 $('#search').oninput = renderList;
 document.querySelectorAll('#seg button').forEach(b => b.onclick = () => { view = b.dataset.view; setSeg(); renderList(); });
 $('#btn-send').onclick = sendMessage;

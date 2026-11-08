@@ -32,6 +32,7 @@ Erste Version.
 - Suche: offene Chats inklusive Nachrichtentext, im Verlauf Volltextsuche durch alle Sitzungen mit Ausschnitt.
 - Plan-Modus: Plan als Karte mit „Plan annehmen“, „Überarbeiten lassen“ und „Ablehnen“.
 - Recap (Zusammenfassung „während du weg warst“) aus Claude Code wird angezeigt.
+- Erweiterungen-Fenster (Puzzle-Symbol, /plugins, /skills): installierte Plugins aktivieren/deaktivieren/entfernen, Plugins aus den Marktplätzen suchen und installieren (über `claude plugin …`), Skills und Befehle des Kontos anzeigen.
 - Sicherheitsabfrage beim Schließen, solange Claude arbeitet.
 - Anmeldung nur über `claude auth login` (System-Browser); keine Zugangsdaten in Swapline.
 - Installer `SWAP-Installer.exe` (pro Benutzer, ohne Admin-Rechte) und ZIP; Übernahme der Einstellungen aus

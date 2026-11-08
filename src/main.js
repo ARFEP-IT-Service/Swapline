@@ -173,14 +173,64 @@ function probeModels(profile) {
     p.on('error', () => finish(base));
     p.on('close', () => finish(base));
     p.stdin.write(JSON.stringify({ type: 'control_request', request_id: 'models', request: { subtype: 'initialize' } }) + '\n');
-    setTimeout(() => finish(base), 20000);
+    setTimeout(() => finish(base), 45000);
   });
 }
 ipcMain.handle('profiles:models', (_e, { id, refresh }) => {
   const p = profileById(id);
   if (!p) return null;
-  if (refresh || !modelCache.has(id)) modelCache.set(id, probeModels(p));
+  if (refresh || !modelCache.has(id)) {
+    const pr = probeModels(p);
+    modelCache.set(id, pr);
+    // leeres Ergebnis (z. B. Zeitüberschreitung) nicht merken – beim nächsten Mal neu abfragen
+    pr.then(r => { if (!r.models.length && modelCache.get(id) === pr) modelCache.delete(id); });
+  }
   return modelCache.get(id);
+});
+
+// ---------- Erweiterungen (Plugins) – nur über die offiziellen Befehle `claude plugin …` ----------
+function runClaude(profile, args, timeoutMs = 120000) {
+  return new Promise(resolve => {
+    if (!claudeExe()) return resolve({ code: -1, out: '', err: CLAUDE_MISSING });
+    const p = spawnClaude(args, profile, { cwd: HOME });
+    let out = '', err = '';
+    p.stdout.on('data', d => (out += d));
+    p.stderr.on('data', d => (err += d));
+    const timer = setTimeout(() => { try { p.kill(); } catch {} }, timeoutMs);
+    p.on('error', e => { clearTimeout(timer); resolve({ code: -1, out, err: e.message }); });
+    p.on('close', code => { clearTimeout(timer); resolve({ code, out, err }); });
+  });
+}
+ipcMain.handle('ext:list', async (_e, profileId) => {
+  const p = profileById(profileId);
+  if (!p) return { error: 'Konto unbekannt' };
+  const r = await runClaude(p, ['plugin', 'list', '--json', '--available'], 60000);
+  try {
+    const j = JSON.parse(r.out);
+    const installed = (Array.isArray(j) ? j : j.installed || []).map(x => ({ id: x.id, version: x.version, enabled: !!x.enabled, scope: x.scope, installedAt: x.installedAt, mcp: Object.keys(x.mcpServers || {}) }));
+    const available = (j.available || []).map(x => ({ id: x.pluginId || x.id, name: x.name, description: String(x.description || '').slice(0, 400), installs: x.installCount || x.installs || null }));
+    return { installed, available };
+  } catch { return { error: (r.err || r.out || 'Keine Antwort von Claude Code').trim().split('\n').pop().slice(0, 300) }; }
+});
+const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9._-]{0,100}@[a-z0-9][a-z0-9._-]{0,100}$/i;
+ipcMain.handle('ext:action', async (_e, { profileId, action, id } = {}) => {
+  const p = profileById(profileId);
+  if (!p || !['install', 'uninstall', 'enable', 'disable'].includes(action) || typeof id !== 'string' || !PLUGIN_ID_RE.test(id)) return { ok: false, error: 'Ungültige Anfrage' };
+  if (action === 'install' || action === 'uninstall') {
+    const r = dialog.showMessageBoxSync(win, {
+      type: action === 'install' ? 'warning' : 'question', buttons: ['Abbrechen', action === 'install' ? 'Installieren' : 'Entfernen'], defaultId: 0, cancelId: 0, noLink: true,
+      title: action === 'install' ? 'Plugin installieren' : 'Plugin entfernen',
+      message: `${action === 'install' ? 'Installieren' : 'Entfernen'}: ${id}`,
+      detail: action === 'install'
+        ? `Plugins erweitern Claude Code um Befehle, Skills, Hooks oder MCP-Server und können dabei Code auf deinem PC ausführen. Nur Plugins installieren, denen du vertraust.\n\nKonto: ${p.name}`
+        : `Das Plugin wird für das Konto „${p.name}“ entfernt.`,
+    });
+    if (r !== 1) return { ok: false, cancelled: true };
+  }
+  const r = await runClaude(p, ['plugin', action, id]);
+  modelCache.delete(profileId); // Befehlsliste neu laden
+  const msg = (r.out + '\n' + r.err).trim().split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 400);
+  return r.code === 0 ? { ok: true, message: msg } : { ok: false, error: msg || `Fehler (Code ${r.code})` };
 });
 
 // ---------- Sitzungen (ein Claude-Prozess pro Chat-Tab) ----------
