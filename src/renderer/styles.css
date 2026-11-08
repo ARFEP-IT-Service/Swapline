@@ -372,3 +372,15 @@ button.link:hover { color: var(--accent); }
 .md p { margin: .55em 0; }
 .md ul, .md ol { margin: .5em 0; }
 .md li + li { margin-top: .2em; }
+
+/* Werkzeug-Aufrufe kompakt: eine aufklappbare Zeile pro Folge von Aufrufen */
+.tool-group { margin: 8px 0; max-width: 88%; }
+.tool-group > summary { list-style: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border: 1px dashed var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.tool-group > summary::-webkit-details-marker { display: none; }
+.tool-group > summary:hover { border-color: var(--accent); color: var(--text); }
+.tool-group .tg-count { font-weight: 600; color: var(--text); }
+.tool-group .tg-names { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; }
+.tool-group .tg-state.ok { color: var(--accent); } .tool-group .tg-state.err { color: var(--danger); }
+.tool-group .tg-state.run::after { content: ""; display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.tool-group[open] > summary { margin-bottom: 4px; }
+.tool-group .tg-body { padding-left: 10px; border-left: 2px solid var(--line); }

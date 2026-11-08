@@ -5,6 +5,13 @@ Alle nennenswerten Änderungen an Swapline. Versionen folgen [Semantic Versionin
 Major = nicht rückwärtskompatible Änderungen. Die Versionsnummer steht nur in `package.json` und gilt für
 exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
+## [0.4.0] – 2026-11-08
+
+### Neu
+- Einstellung „Werkzeug-Aufrufe im Chat“: **Alle anzeigen** (wie bisher), **Kompakt** (aufeinanderfolgende
+  Befehle/Lese-/Bearbeitungsschritte als eine aufklappbare Zeile, z. B. „3 Schritte · Liest, Durchsucht, Befehl“)
+  oder **Ausblenden** (nur Nachrichten und Antworten). Rückfragen, Fragen von Claude und Fehler bleiben immer sichtbar.
+
 ## [0.3.0] – 2026-11-08
 
 ### Neu

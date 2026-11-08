@@ -53,6 +53,7 @@ const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 const THEMES = ['system', 'light', 'dark'];
 const NOTIFY = ['always', 'background', 'off']; // Benachrichtigung bei fertiger Antwort
 const SOUND = ['on', 'off'];
+const TOOLVIEW = ['all', 'compact', 'hidden']; // Werkzeug-Aufrufe im Chat
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
 // Netzwerkpfade (UNC, \\server\… oder //server/…) werden nie geprüft oder benutzt – schon die Existenzprüfung
@@ -462,6 +463,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else if (k === 'theme' && THEMES.includes(v)) ok.theme = v;
     else if (k === 'notify' && NOTIFY.includes(v)) ok.notify = v;
     else if (k === 'sound' && SOUND.includes(v)) ok.sound = v;
+    else if (k === 'toolView' && TOOLVIEW.includes(v)) ok.toolView = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
       ok.permissionMode = v;

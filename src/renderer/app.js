@@ -665,11 +665,43 @@ function updateComposer() {
   $('#btn-stop').hidden = !t.running;
 }
 
+// Werkzeug-Aufrufe im Chat: alle zeigen, kompakt (aufeinanderfolgende Aufrufe als eine aufklappbare Zeile)
+// oder ausblenden. Rückfragen, Fragen und Fehlermeldungen sind keine Werkzeug-Aufrufe und bleiben immer sichtbar.
+const toolView = () => store.settings.toolView || 'all';
+function makeToolGroup() {
+  return el('details', { class: 'tool-group' },
+    el('summary', {}, el('span', { class: 'tg-state' }), el('span', { class: 'tg-count' }), el('span', { class: 'tg-names' })),
+    el('div', { class: 'tg-body' }));
+}
+function updateToolGroup(g) {
+  if (!g) return;
+  const tools = [...g.querySelectorAll('.tg-body > .tool')];
+  const names = [...new Set(tools.map(x => x.dataset.label))];
+  const running = tools.some(x => x.querySelector('.t-state.run')), failed = tools.some(x => x.querySelector('.t-state.err'));
+  g.querySelector('.tg-state').className = 'tg-state ' + (running ? 'run' : failed ? 'err' : 'ok');
+  g.querySelector('.tg-state').textContent = running ? '' : failed ? '✕' : '⚙';
+  g.querySelector('.tg-count').textContent = `${tools.length} ${tools.length === 1 ? 'Schritt' : 'Schritte'}`;
+  g.querySelector('.tg-names').textContent = names.slice(0, 4).join(', ') + (names.length > 4 ? ' …' : '');
+}
+// Element eines Werkzeug-Aufrufs vor `anchor` einsetzen – im Kompaktmodus in die laufende Gruppe
+function placeTool(el0, anchor, parent) {
+  const prev = anchor ? anchor.previousElementSibling : parent.lastElementChild;
+  let g = prev?.classList.contains('tool-group') ? prev : null;
+  if (!g) { g = makeToolGroup(); anchor ? anchor.before(g) : parent.append(g); }
+  g.querySelector('.tg-body').append(el0);
+  updateToolGroup(g);
+}
 function renderMessages() {
   const t = currentTab(); if (!t) return;
   const box = $('#messages');
   const wrap = el('div', { class: 'msg-wrap' });
-  for (const it of t.items) { it.el = renderItem(t, it); if (it.el) wrap.append(it.el); }
+  const mode = toolView();
+  for (const it of t.items) {
+    if (it.kind === 'tool' && mode === 'hidden') { it.el = null; continue; }
+    it.el = renderItem(t, it);
+    if (!it.el) continue;
+    if (it.kind === 'tool' && mode === 'compact') placeTool(it.el, null, wrap); else wrap.append(it.el);
+  }
   t.typingEl = el('div', { class: 'typing', hidden: !(t.running && !t.streamItem) }, el('i'), el('i'), el('i'));
   wrap.append(t.typingEl);
   box.replaceChildren(wrap);
@@ -683,8 +715,10 @@ function appendItem(t, it) {
   if (t.id !== activeTabId) return;
   const box = $('#messages');
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
+  if (it.kind === 'tool' && toolView() === 'hidden') { it.el = null; return; }
   it.el = renderItem(t, it);
-  if (it.el) { it.el.classList.add('enter'); t.typingEl.before(it.el); }
+  if (it.el && it.kind === 'tool' && toolView() === 'compact') placeTool(it.el, t.typingEl);
+  else if (it.el) { it.el.classList.add('enter'); t.typingEl.before(it.el); }
   if (nearBottom || it.kind === 'me' || it.kind === 'perm' || it.kind === 'question') box.scrollTop = box.scrollHeight;
 }
 function refreshItem(t, it) {
@@ -692,7 +726,7 @@ function refreshItem(t, it) {
   const box = $('#messages');
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
   if (it.kind === 'ai') updateAiBubble(it); // Blase bleibt stehen, nur der Inhalt wechselt
-  else { const n = renderItem(t, it); it.el.replaceWith(n); it.el = n; }
+  else { const n = renderItem(t, it); it.el.replaceWith(n); it.el = n; updateToolGroup(n.closest('.tool-group')); }
   if (nearBottom) box.scrollTop = box.scrollHeight;
 }
 // Während des Schreibens: offene Codeblöcke vorläufig schließen, damit das Layout nicht springt
@@ -754,7 +788,7 @@ const TOOL_LABEL = { Bash: 'Befehl', PowerShell: 'PowerShell', Read: 'Liest', Wr
 
 function renderTool(it) {
   const state = it.result == null ? 'run' : it.isError ? 'err' : 'ok';
-  const d = el('details', { class: 'tool' },
+  const d = el('details', { class: 'tool', 'data-label': TOOL_LABEL[it.name] || it.name },
     el('summary', {},
       el('span', { class: 't-state ' + state }, state === 'ok' ? '✓' : state === 'err' ? '✕' : ''),
       el('span', { class: 't-name' }, TOOL_LABEL[it.name] || it.name),
@@ -1215,6 +1249,7 @@ function openSettings() {
       store = r;
       if (r.rejected) { e.value = s[key] || ''; toast('Nicht übernommen'); return; }
       if (key === 'theme') applyTheme();
+      if (key === 'toolView') renderMessages();
     });
     return e;
   };
@@ -1234,6 +1269,7 @@ function openSettings() {
     store.bypassAcknowledged ? el('div', { class: 'row' },
       el('span', { class: 'hint', style: 'flex:1' }, 'Die Warnung zu „Alles erlauben“ wurde bestätigt und erscheint nicht mehr.'),
       el('button', { class: 'ghost', onclick: async e => { store = await api.resetBypassWarning(); e.target.closest('.row').remove(); toast('Warnung erscheint beim nächsten Mal wieder'); } }, 'Wieder anzeigen')) : null,
+    el('label', { class: 'field' }, el('span', {}, 'Werkzeug-Aufrufe im Chat (Befehle, Lesen, Bearbeiten …)'), sel('toolView', [['all', 'Alle anzeigen'], ['compact', 'Kompakt – zu einer Zeile zusammengefasst'], ['hidden', 'Ausblenden – nur Nachrichten und Antworten']])),
     el('label', { class: 'field' }, el('span', {}, 'Benachrichtigung bei fertiger Antwort'), sel('notify', [['background', 'Wenn der Chat nicht im Blick ist (Standard)'], ['always', 'Immer'], ['off', 'Aus']])),
     el('div', { class: 'row' },
       el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Ton'), sel('sound', [['off', 'Kein Ton'], ['on', 'Hinweiston abspielen']])),
