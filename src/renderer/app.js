@@ -269,7 +269,7 @@ function openAccountMenu() {
   document.body.append(menu);
 }
 function closeMenus() { document.querySelectorAll('.popmenu').forEach(x => x.remove()); }
-document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#ch-settings')) closeMenus(); });
+document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#ch-settings') && !e.target.closest('#bgbar')) closeMenus(); });
 
 // Rechtsklick auf einen Chat: in Projekt verschieben / schließen
 function openChatMenu(e, t) {
@@ -660,7 +660,9 @@ function renderChat() {
   const t = currentTab();
   $('#empty').hidden = !!t;
   $('#chat-view').hidden = !t;
+  $('#bgbar').hidden = true;
   if (!t) return;
+  renderBgBar(t);
   const p = profile(t.profileId);
   $('#ch-avatar').replaceWith(Object.assign(avatar(p), { id: 'ch-avatar' }));
   $('#ch-title').textContent = t.title || 'Neuer Chat';
@@ -903,6 +905,7 @@ function ingest(t, m, fromHistory = false) {
         t.modelName = m.model;
         if (changed) saveTabs();
       } else if (m.subtype === 'compact_boundary') add({ kind: 'sys', text: 'Unterhaltung wurde zusammengefasst' });
+      else if (['task_started', 'task_updated', 'task_notification', 'background_tasks_changed'].includes(m.subtype)) trackTask(t, m);
       break;
 
     case 'stream_event': {
@@ -938,6 +941,10 @@ function ingest(t, m, fromHistory = false) {
       if (!Array.isArray(c)) break;
       for (const block of c) {
         if (block.type === 'tool_result') {
+          // Hintergrund-Befehl: Pfad der Ausgabedatei steht im Ergebnis des Aufrufs
+          const outFile = /Output is being written to: (.+?\.output)/.exec(textOf(block.content))?.[1];
+          const task = outFile && Object.values(t.tasks || {}).find(x => x.toolUseId === block.tool_use_id);
+          if (task) { task.output = outFile; renderBgBar(t); }
           const tool = [...t.items].reverse().find(x => x.kind === 'tool' && x.id === block.tool_use_id);
           if (tool) {
             tool.result = textOf(block.content) || '(keine Ausgabe)';
@@ -995,6 +1002,79 @@ function ingest(t, m, fromHistory = false) {
       }
       break;
   }
+}
+// ---------- Hintergrund-Aufgaben (z. B. Befehle mit run_in_background, Agenten im Hintergrund) ----------
+// Claude Code meldet task_started / task_updated / task_notification / background_tasks_changed.
+const TASK_TYPES = { local_bash: 'Befehl', local_agent: 'Agent', remote_agent: 'Agent (Cloud)' };
+function trackTask(t, m) {
+  t.tasks ||= {};
+  if (m.subtype === 'background_tasks_changed') {
+    // Liste der laufenden Aufgaben: alles, was nicht mehr drin ist, gilt als beendet
+    const running = new Set((m.tasks || []).map(x => x.task_id));
+    for (const x of m.tasks || []) t.tasks[x.task_id] ||= { id: x.task_id, desc: x.description, type: x.task_type, status: 'running', start: Date.now() };
+    for (const task of Object.values(t.tasks)) if (task.status === 'running' && !running.has(task.id)) task.status = 'completed';
+  } else {
+    const task = (t.tasks[m.task_id] ||= { id: m.task_id, status: 'running', start: Date.now() });
+    if (m.description) task.desc = m.description;
+    if (m.task_type) task.type = m.task_type;
+    if (m.tool_use_id) task.toolUseId = m.tool_use_id;
+    if (m.subtype === 'task_updated' && m.patch?.status) { task.status = m.patch.status; if (m.patch.end_time) task.end = m.patch.end_time; }
+    if (m.subtype === 'task_notification') { task.status = m.status || task.status; task.summary = m.summary; if (m.output_file) task.output = m.output_file; task.end ||= Date.now(); }
+  }
+  renderBgBar(t);
+}
+const taskIcon = s => (s === 'running' ? el('span', { class: 'spinner sm' }) : el('span', { class: 'bg-ic ' + (s === 'completed' ? 'ok' : 'err') }, s === 'completed' ? '✓' : '✕'));
+function taskDuration(task) {
+  const s = Math.round(((task.end || Date.now()) - task.start) / 1000);
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+}
+function renderBgBar(t) {
+  if (t.id !== activeTabId) return;
+  const bar = $('#bgbar');
+  const list = Object.values(t.tasks || {});
+  bar.hidden = !list.length;
+  if (!list.length) return;
+  const running = list.filter(x => x.status === 'running').length, done = list.length - running;
+  const failed = list.filter(x => x.status !== 'running' && x.status !== 'completed').length;
+  fill(bar, el('button', { class: 'bg-chip' + (running ? ' running' : ''), onclick: () => ($('#bg-menu') ? closeMenus() : openBgMenu(t)) },
+    running ? el('span', { class: 'spinner sm' }) : el('span', { class: 'bg-ic ' + (failed ? 'err' : 'ok') }, failed ? '✕' : '✓'),
+    running ? (running === 1 ? '1 Hintergrund-Aufgabe läuft' : `${running} Hintergrund-Aufgaben laufen`) : '',
+    running && done ? ' · ' : '',
+    done ? `${done} beendet` : '',
+    el('span', { class: 'bg-hint' }, ' – anzeigen')));
+}
+function openBgMenu(t) {
+  closeMenus();
+  const r = $('#bgbar').getBoundingClientRect();
+  const list = Object.values(t.tasks || {}).sort((a, b) => b.start - a.start);
+  const items = [el('div', { class: 'pm-title' }, 'Hintergrund-Aufgaben')];
+  for (const task of list) {
+    items.push(el('div', { class: 'bg-item' },
+      taskIcon(task.status),
+      el('div', { class: 'pm-text' },
+        el('b', {}, task.desc || task.id),
+        el('small', {}, [TASK_TYPES[task.type] || task.type || 'Aufgabe', task.status === 'running' ? 'läuft seit ' + taskDuration(task) : (task.summary || task.status) + ' · ' + taskDuration(task)].join(' · '))),
+      task.output ? el('button', { class: 'ghost', onclick: () => { closeMenus(); showTaskOutput(task); } }, 'Ausgabe') : null));
+  }
+  if (list.some(x => x.status !== 'running')) items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: () => {
+    for (const [id, x] of Object.entries(t.tasks)) if (x.status !== 'running') delete t.tasks[id];
+    closeMenus(); renderBgBar(t);
+  } }, el('span', { class: 'pm-ic' }, '🧹'), 'Beendete entfernen'));
+  const menu = el('div', { class: 'popmenu bg-menu', id: 'bg-menu', style: `left:${r.left}px; bottom:${window.innerHeight - r.top + 6}px` }, ...items);
+  document.body.append(menu);
+}
+async function showTaskOutput(task) {
+  const pre = el('pre', { class: 'task-output' }, 'Wird geladen …');
+  const info = el('div', { class: 'hint' });
+  const load = async () => {
+    const r = await api.readTaskOutput(task.output);
+    pre.textContent = r.error ? r.error : (r.text || '(noch keine Ausgabe)');
+    info.textContent = r.error ? '' : `${r.truncated ? 'Letzte 64 KB von ' : ''}${Math.round((r.size || 0) / 1024 * 10) / 10} KB · ${task.status === 'running' ? 'läuft noch' : 'beendet'}`;
+    pre.scrollTop = pre.scrollHeight;
+  };
+  modal('task-out', task.desc || 'Ausgabe', info, pre,
+    el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'ghost', onclick: load }, 'Aktualisieren')));
+  load();
 }
 function errorLabel(sub) {
   return { error_max_turns: 'Maximale Anzahl an Schritten erreicht.', error_during_execution: 'Fehler während der Ausführung (oder abgebrochen).' }[sub] || 'Fehler: ' + sub;

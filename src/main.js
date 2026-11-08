@@ -645,6 +645,33 @@ ipcMain.handle('app:focus', () => {
   if (win.isMinimized()) win.restore();
   win.show(); win.focus();
 });
+// Windows-Konsolenprogramme (ping, dir …) schreiben in der OEM-Codepage 850 statt UTF-8. Ist der Text kein
+// gültiges UTF-8, wird er als CP850 gelesen, damit Umlaute stimmen.
+const CP850 = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜø£Ø×ƒáíóúñÑªº¿®¬½¼¡«»░▒▓│┤ÁÂÀ©╣║╗╝¢¥┐└┴┬├─┼ãÃ╚╔╩╦╠═╬¤ðÐÊËÈıÍÎÏ┘┌█▄¦Ì▀ÓßÔÒõÕµþÞÚÛÙýÝ¯´­±‗¾¶§÷¸°¨·¹³²■ ';
+function decodeConsole(buf) {
+  const utf8 = buf.toString('utf8');
+  if (!utf8.includes('�')) return utf8;
+  let out = '';
+  for (const b of buf) out += b < 0x80 ? String.fromCharCode(b) : CP850[b - 0x80];
+  return out;
+}
+// Ausgabe einer Hintergrund-Aufgabe lesen – nur *.output-Dateien, die Claude Code in seinem eigenen
+// Temp-Ordner (%TEMP%\claude\…\tasks\) anlegt; höchstens die letzten 64 KB
+ipcMain.handle('task:readOutput', (_e, file) => {
+  const base = path.join(os.tmpdir(), 'claude') + path.sep;
+  if (typeof file !== 'string' || isUnc(file) || !file.toLowerCase().endsWith('.output')) return { error: 'Keine Ausgabedatei' };
+  const p = path.resolve(file);
+  if (!p.toLowerCase().startsWith(base.toLowerCase()) || path.basename(path.dirname(p)).toLowerCase() !== 'tasks') return { error: 'Pfad nicht erlaubt' };
+  try {
+    const size = fs.statSync(p).size, max = 64 * 1024;
+    const fd = fs.openSync(p, 'r');
+    try {
+      const buf = Buffer.alloc(Math.min(size, max));
+      fs.readSync(fd, buf, 0, buf.length, Math.max(0, size - max));
+      return { text: decodeConsole(buf), truncated: size > max, size };
+    } finally { fs.closeSync(fd); }
+  } catch { return { error: 'Ausgabe nicht (mehr) vorhanden' }; }
+});
 ipcMain.handle('app:attention', () => { if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true); });
 ipcMain.handle('shell:openPath', (_e, p) => {
   if (!isDir(p)) { logError('openPath abgelehnt (kein Ordner): ' + String(p).slice(0, 200)); return false; }
