@@ -26,7 +26,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 ## Installation
 
-**Mit Installer (empfohlen):** `SWAP-Installer.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%ProgramsSwapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Ein Update ist einfach der neuere Installer; deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
+**Mit Installer (empfohlen):** `SWAP-Installer.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%\Programs\swapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Ein Update ist einfach der neuere Installer; deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
 
 **Ohne Installer:** `Swapline-0.1.0-windows.zip` in einen festen Ordner entpacken und `Swapline.exe` starten.
 
