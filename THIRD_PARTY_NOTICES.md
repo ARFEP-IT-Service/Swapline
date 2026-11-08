@@ -16,6 +16,13 @@ Drittkomponenten; die vollständigen Lizenztexte liegen im Ordner `licenses/` ne
 | DOMPurify | 3.4.17 | Sanitizing rendered Markdown | Apache-2.0 OR MPL-2.0 (used under Apache-2.0) | `licenses/dompurify-3.4.17-LICENSE.txt`, `licenses/dompurify-3.4.17-LICENSE-MPL.txt` |
 | @types/trusted-types | 2.0.7 | Type definitions pulled in by DOMPurify (no runtime code) | MIT | `licenses/types__trusted-types-2.0.7.txt` |
 
+Installer only (`SWAP-Installer.exe`, not part of the installed app) / nur im Installer:
+
+| Component | Version | Used for | License | Full text |
+|---|---|---|---|---|
+| NSIS (Nullsoft Scriptable Install System) | 3.0.4.1 (as used by electron-builder) | Installer and uninstaller stub | zlib/libpng; LZMA module: CPL-1.0 | `licenses/Installer-NSIS-COPYING.txt` |
+| electron-builder NSIS scripts | 26.18.0 | Installer logic (per-user installation, shortcuts, uninstall entry) | MIT | `licenses/Installer-electron-builder-26.18.0.txt` |
+
 `licenses/packages.json` lists the exact npm packages and versions that were bundled. The build
 checks that every bundled package has a license text and that no unbundled package is listed
 (`tools/check-bundle.js`).

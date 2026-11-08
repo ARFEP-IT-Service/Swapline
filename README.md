@@ -26,10 +26,11 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 ## Installation
 
-1. `Swapline-0.1.0-windows.zip` herunterladen und in einen beliebigen Ordner entpacken.
-2. `Swapline.exe` starten.
+**Mit Installer (empfohlen):** `SWAP-Installer.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%ProgramsSwapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Ein Update ist einfach der neuere Installer; deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
 
-> **Hinweis:** Die exe ist nicht digital signiert. Windows SmartScreen zeigt deshalb beim ersten Start „Der Computer wurde durch Windows geschützt“. Über **Weitere Informationen → Trotzdem ausführen** startet die App.
+**Ohne Installer:** `Swapline-0.1.0-windows.zip` in einen festen Ordner entpacken und `Swapline.exe` starten.
+
+> **Hinweis:** Installer und exe sind nicht digital signiert. Windows SmartScreen zeigt deshalb beim ersten Start „Der Computer wurde durch Windows geschützt“. Über **Weitere Informationen → Trotzdem ausführen** startet die App.
 
 Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: Profil links unten → **Konto hinzufügen** → Name eingeben → Claude Code öffnet deinen Standard-Browser mit der Anmeldeseite von Anthropic → dort anmelden. Ist im Browser schon ein anderes Claude-Konto angemeldet, ein privates Fenster verwenden. Verlangt Claude Code einen Code, öffnet Swapline auf Wunsch ein Konsolenfenster mit `claude auth login`, in das du den Code selbst eingibst.
 
@@ -47,10 +48,10 @@ Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: P
 ```bash
 npm install
 npm start                 # App aus dem Quellcode starten
-npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/win-unpacked + dist/Swapline-0.1.0-windows.zip
+npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/SWAP-Installer.exe + dist/Swapline-0.1.0-windows.zip
 ```
 
-`npm run dist` sammelt die Lizenztexte (`tools/collect-licenses.js`), baut mit electron-builder die Ordner-Variante als ZIP und prüft danach, dass jedes gebündelte Paket einen Lizenztext hat (`tools/check-bundle.js`).
+`npm run dist` sammelt die Lizenztexte (`tools/collect-licenses.js`), baut mit electron-builder den Installer (NSIS, pro Benutzer) und die Ordner-Variante als ZIP und prüft danach, dass jedes gebündelte Paket einen Lizenztext hat (`tools/check-bundle.js`).
 
 Testprofil, damit die echten Einstellungen unberührt bleiben (wirkt nur beim Start aus dem Quellcode, nicht in der gebauten App):
 

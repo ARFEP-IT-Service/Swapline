@@ -19,6 +19,10 @@ const written = [];
 written.push(copy(path.join(electronDir, 'dist', 'LICENSE'), `Electron-${electronVersion}.txt`));
 written.push(copy(path.join(electronDir, 'dist', 'LICENSES.chromium.html'), 'Chromium-LICENSES.chromium.html'));
 written.push(copy(path.join(__dirname, 'licenses', 'LGPL-2.1.txt'), 'FFmpeg-LGPL-2.1.txt'));
+// Nur im Installer (SWAP-Installer.exe): NSIS-Stub und die NSIS-Skripte von electron-builder
+written.push(copy(path.join(__dirname, 'licenses', 'NSIS-COPYING.txt'), 'Installer-NSIS-COPYING.txt'));
+const builderVersion = require(path.join(root, 'node_modules', 'electron-builder', 'package.json')).version;
+written.push(copy(path.join(root, 'node_modules', 'electron-builder', 'LICENSE'), `Installer-electron-builder-${builderVersion}.txt`));
 
 // Produktions-Abhängigkeiten (direkt + indirekt) laut npm
 const tree = JSON.parse(execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ls', '--omit=dev', '--all', '--json'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' }));

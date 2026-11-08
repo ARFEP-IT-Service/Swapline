@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "licenses": "node tools/collect-licenses.js",
-    "dist": "node tools/collect-licenses.js && electron-builder --win zip && node tools/check-bundle.js"
+    "dist": "node tools/collect-licenses.js && electron-builder --win && node tools/check-bundle.js"
   },
   "build": {
     "appId": "de.arfep.swapline",
@@ -31,6 +31,12 @@
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "zip",
           "arch": [
             "x64"
@@ -42,6 +48,22 @@
     "artifactName": "${productName}-${version}-windows.${ext}",
     "directories": {
       "output": "dist"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "artifactName": "SWAP-Installer.exe",
+      "installerIcon": "src/renderer/assets/swapline.ico",
+      "uninstallerIcon": "src/renderer/assets/swapline.ico",
+      "shortcutName": "Swapline",
+      "uninstallDisplayName": "Swapline",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "packElevateHelper": false
     }
   },
   "dependencies": {
