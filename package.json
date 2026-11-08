@@ -1,6 +1,6 @@
 {
-  "name": "switchdesk",
-  "productName": "Switchdesk",
+  "name": "swapline",
+  "productName": "Swapline",
   "version": "0.1.0",
   "description": "Messenger-artige Oberfläche für Claude Code mit Kontowechsel",
   "main": "src/main.js",
@@ -11,9 +11,9 @@
     "dist": "node tools/collect-licenses.js && electron-builder --win zip && node tools/check-bundle.js"
   },
   "build": {
-    "appId": "de.arfep.switchdesk",
-    "productName": "Switchdesk",
-    "copyright": "Copyright (c) 2026 Halil Ayberk Bulut (ARFEP IT-Service) and Switchdesk contributors",
+    "appId": "de.arfep.swapline",
+    "productName": "Swapline",
+    "copyright": "Copyright (c) 2026 Halil Ayberk Bulut (ARFEP IT-Service) and Swapline contributors",
     "files": [
       "src/**/*",
       "node_modules/marked/lib/marked.umd.js",
@@ -37,7 +37,7 @@
           ]
         }
       ],
-      "icon": "src/renderer/assets/switchdesk.ico"
+      "icon": "src/renderer/assets/swapline.ico"
     },
     "artifactName": "${productName}-${version}-windows.${ext}",
     "directories": {

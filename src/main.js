@@ -1,4 +1,4 @@
-// Switchdesk – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
+// Swapline – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
@@ -603,10 +603,10 @@ function openExternalSafe(url) {
   return true;
 }
 
-// ---------- Fehlerprotokoll (userData/switchdesk.log) ----------
+// ---------- Fehlerprotokoll (userData/swapline.log) ----------
 function logError(msg) {
   try {
-    const file = path.join(app.getPath('userData'), 'switchdesk.log');
+    const file = path.join(app.getPath('userData'), 'swapline.log');
     try { if (fs.statSync(file).size > 1e6) fs.renameSync(file, file + '.old'); } catch {}
     fs.appendFileSync(file, `[${new Date().toISOString()}] ${msg}\n`);
   } catch {}
@@ -619,8 +619,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 900, minHeight: 560,
     backgroundColor: '#0f1115',
-    title: 'Switchdesk',
-    icon: path.join(__dirname, 'renderer', 'assets', 'switchdesk.ico'),
+    title: 'Swapline',
+    icon: path.join(__dirname, 'renderer', 'assets', 'swapline.ico'),
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -650,8 +650,8 @@ function createWindow() {
 
 // Test-Hooks (Testprofil, Screenshot, Test-Skript) wirken nur im ungepackten Entwicklungsstand – nie in der ausgelieferten App.
 const DEV = !app.isPackaged;
-// Testprofil: SWITCHDESK_PROFILE=<name> nutzt einen eigenen Datenordner (echte Einstellungen bleiben unberührt)
-if (DEV && process.env.SWITCHDESK_PROFILE) app.setPath('userData', path.join(app.getPath('appData'), 'Switchdesk-' + process.env.SWITCHDESK_PROFILE));
+// Testprofil: SWAPLINE_PROFILE=<name> nutzt einen eigenen Datenordner (echte Einstellungen bleiben unberührt)
+if (DEV && process.env.SWAPLINE_PROFILE) app.setPath('userData', path.join(app.getPath('appData'), 'Swapline-' + process.env.SWAPLINE_PROFILE));
 
 // Früher (bis Auftrag 2) zeigte die App die Anmeldeseite eingebettet an und legte dabei Browser-Daten
 // unter userData/Partitions/login-* sowie ein Hilfsskript login-browser.cmd ab. Beides wird beim Start
@@ -668,28 +668,39 @@ function purgeEmbeddedLoginData(dir) {
   return removed;
 }
 
-// Einmalige Übernahme aus dem früheren Namen „ConsoleAI“ (%APPDATA%\ConsoleAI): Einstellungen
-// (consoleai.json → switchdesk.json) und die Chat-Liste (Local Storage). Login-Daten werden dabei
-// nicht übernommen, sondern im alten Ordner ungelesen gelöscht. ~/.claude-profiles bleibt unverändert.
-function migrateFromConsoleAI() {
+// Einmalige Übernahme aus früheren Namen der App: zuerst %APPDATA%\Switchdesk, sonst %APPDATA%\ConsoleAI.
+// Übernommen werden die Einstellungen (switchdesk.json bzw. consoleai.json → swapline.json) und die Chat-Liste
+// (Local Storage). Login-Daten werden nicht übernommen, sondern in den alten Ordnern ungelesen gelöscht.
+// Die alten Ordner bleiben mit einem Hinweis MOVED-TO-SWAPLINE.txt liegen; ~/.claude-profiles bleibt unverändert.
+const LEGACY_APPS = [{ dir: 'Switchdesk', store: 'switchdesk.json' }, { dir: 'ConsoleAI', store: 'consoleai.json' }];
+function migrateFromLegacy(appDataRoot = app.getPath('appData')) {
+  const newDir = app.getPath('userData');
+  const existing = LEGACY_APPS.map(l => ({ ...l, path: path.join(appDataRoot, l.dir) })).filter(l => fs.existsSync(l.path));
+  if (!existing.length) return null;
+  let source = null;
   try {
-    const oldDir = path.join(app.getPath('appData'), 'ConsoleAI');
-    const newDir = app.getPath('userData');
-    if (!fs.existsSync(oldDir)) return;
-    purgeEmbeddedLoginData(oldDir);
-    if (fs.existsSync(path.join(newDir, 'switchdesk.json'))) return; // schon übernommen
+    for (const l of existing) purgeEmbeddedLoginData(l.path);
+    if (fs.existsSync(path.join(newDir, 'swapline.json'))) return null; // schon übernommen
+    source = existing.find(l => fs.existsSync(path.join(l.path, l.store)));
+    if (!source) return null;
     fs.mkdirSync(newDir, { recursive: true });
-    const oldStore = path.join(oldDir, 'consoleai.json');
-    if (fs.existsSync(oldStore)) fs.copyFileSync(oldStore, path.join(newDir, 'switchdesk.json'));
-    const ls = path.join(oldDir, 'Local Storage');
+    fs.copyFileSync(path.join(source.path, source.store), path.join(newDir, 'swapline.json'));
+    const ls = path.join(source.path, 'Local Storage');
     if (fs.existsSync(ls) && !fs.existsSync(path.join(newDir, 'Local Storage'))) fs.cpSync(ls, path.join(newDir, 'Local Storage'), { recursive: true });
-    fs.writeFileSync(path.join(oldDir, 'MOVED-TO-SWITCHDESK.txt'), 'Die Einstellungen wurden nach %APPDATA%\\Switchdesk übernommen. Dieser Ordner kann gelöscht werden.\r\n');
-  } catch (e) { logError('Übernahme aus ConsoleAI: ' + e.message); }
+    for (const l of existing) {
+      const note = l === source ? `Die Einstellungen wurden aus diesem Ordner nach ${newDir} übernommen.` : `Swapline hat die Einstellungen aus %APPDATA%\\${source.dir} übernommen.`;
+      fs.writeFileSync(path.join(l.path, 'MOVED-TO-SWAPLINE.txt'), note + ' Dieser Ordner kann gelöscht werden.\r\n');
+    }
+    logError(`Einstellungen übernommen aus ${source.dir}`);
+  } catch (e) { logError('Übernahme alter Einstellungen: ' + e.message); }
+  return source?.dir || null;
 }
-if (!(DEV && process.env.SWITCHDESK_PROFILE)) migrateFromConsoleAI();
+// Testprofil: Übernahme nur, wenn ausdrücklich ein Test-Ordner mit Altdaten angegeben ist (SWAPLINE_TEST_APPDATA)
+if (!(DEV && process.env.SWAPLINE_PROFILE)) migrateFromLegacy();
+else if (process.env.SWAPLINE_TEST_APPDATA) migrateFromLegacy(process.env.SWAPLINE_TEST_APPDATA);
 
-// Eigene App-Kennung: Taskleiste gruppiert unter Switchdesk, Benachrichtigungen zeigen Name und Icon der App
-if (process.platform === 'win32') app.setAppUserModelId('de.arfep.switchdesk');
+// Eigene App-Kennung: Taskleiste gruppiert unter Swapline, Benachrichtigungen zeigen Name und Icon der App
+if (process.platform === 'win32') app.setAppUserModelId('de.arfep.swapline');
 
 app.whenReady().then(() => {
   purgeEmbeddedLoginData(app.getPath('userData'));
@@ -699,14 +710,14 @@ app.whenReady().then(() => {
     for (const p of getStore().profiles) { try { for (const h of listHistory(p)) if (h.cwd) rememberFolder(h.cwd); } catch {} }
     updateStore(s => { s.knownFoldersSeeded = true; });
   }, 1500);
-  STORE_FILE = path.join(app.getPath('userData'), 'switchdesk.json');
+  STORE_FILE = path.join(app.getPath('userData'), 'swapline.json');
   createWindow();
-  // SWITCHDESK_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
-  const shot = DEV && process.env.SWITCHDESK_SCREENSHOT;
+  // SWAPLINE_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
+  const shot = DEV && process.env.SWAPLINE_SCREENSHOT;
   if (shot) {
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
       try {
-        if (DEV && process.env.SWITCHDESK_TEST_JS) await win.webContents.executeJavaScript(fs.readFileSync(process.env.SWITCHDESK_TEST_JS, 'utf8'));
+        if (DEV && process.env.SWAPLINE_TEST_JS) await win.webContents.executeJavaScript(fs.readFileSync(process.env.SWAPLINE_TEST_JS, 'utf8'));
         win.show(); win.focus();
         let img;
         try { img = await win.webContents.capturePage(); } catch {
@@ -718,7 +729,7 @@ app.whenReady().then(() => {
         if (img) fs.writeFileSync(shot, img.toPNG());
       } catch (e) { logError('Screenshot-Test: ' + (e.stack || e)); }
       app.quit();
-    }, Number(process.env.SWITCHDESK_SCREENSHOT_DELAY || 4000)));
+    }, Number(process.env.SWAPLINE_SCREENSHOT_DELAY || 4000)));
   }
 });
 function cleanup() {

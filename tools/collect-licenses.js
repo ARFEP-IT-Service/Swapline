@@ -1,4 +1,4 @@
-// Erzeugt licenses/ mit den Volltexten aller Bestandteile, die Switchdesk ausliefert:
+// Erzeugt licenses/ mit den Volltexten aller Bestandteile, die Swapline ausliefert:
 // Electron, Chromium (inkl. aller Chromium-Drittkomponenten), FFmpeg (LGPL-2.1) und jedes
 // Produktions-npm-Paket. Bricht ab, wenn für ein Paket kein Lizenztext gefunden wird.
 'use strict';

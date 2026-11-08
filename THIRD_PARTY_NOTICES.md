@@ -1,11 +1,11 @@
 # Third-party notices / Hinweise zu Drittkomponenten
 
-Switchdesk is licensed under the MIT License (see `LICENSE`). The Windows release contains the
+Swapline is licensed under the MIT License (see `LICENSE`). The Windows release contains the
 following third-party components. Their full license texts are in the `licenses/` folder next to
-`Switchdesk.exe`.
+`Swapline.exe`.
 
-Switchdesk steht unter der MIT-Lizenz (siehe `LICENSE`). Das Windows-Release enthält die folgenden
-Drittkomponenten; die vollständigen Lizenztexte liegen im Ordner `licenses/` neben `Switchdesk.exe`.
+Swapline steht unter der MIT-Lizenz (siehe `LICENSE`). Das Windows-Release enthält die folgenden
+Drittkomponenten; die vollständigen Lizenztexte liegen im Ordner `licenses/` neben `Swapline.exe`.
 
 | Component | Version | Used for | License | Full text |
 |---|---|---|---|---|
@@ -23,25 +23,25 @@ checks that every bundled package has a license text and that no unbundled packa
 ## FFmpeg (LGPL)
 
 `ffmpeg.dll` is shipped unmodified as built by the Electron project and lies as a separate file
-next to `Switchdesk.exe`. You may replace it with your own build of the same FFmpeg version/ABI
+next to `Swapline.exe`. You may replace it with your own build of the same FFmpeg version/ABI
 (see the Electron release notes for 45.2.3). Source code: Electron's FFmpeg is built from
 Chromium's FFmpeg fork, https://chromium.googlesource.com/chromium/third_party/ffmpeg — the exact
 revision is referenced by the Chromium version that Electron 45.2.3 is based on
 (https://github.com/electron/electron/releases/tag/v45.2.3).
 
 `ffmpeg.dll` wird unverändert so ausgeliefert, wie das Electron-Projekt sie baut, und liegt als
-eigene Datei neben `Switchdesk.exe`. Sie darf durch einen eigenen Build derselben FFmpeg-Version
+eigene Datei neben `Swapline.exe`. Sie darf durch einen eigenen Build derselben FFmpeg-Version
 ersetzt werden.
 
 ## Not included / Nicht enthalten
 
-Claude Code itself is **not** part of Switchdesk. Switchdesk starts the `claude` program that the
+Claude Code itself is **not** part of Swapline. Swapline starts the `claude` program that the
 user has installed separately; Claude Code is subject to Anthropic's own terms
 (https://code.claude.com/docs).
 
 ## Trademarks / Marken
 
-“Claude” and “Claude Code” are trademarks of Anthropic, PBC. Switchdesk is an unofficial project and
+“Claude” and “Claude Code” are trademarks of Anthropic, PBC. Swapline is an unofficial project and
 is not affiliated with or endorsed by Anthropic. Electron is a trademark of the OpenJS Foundation.
 
 The ARFEP logo (`src/renderer/assets/arfep/`) is **not** covered by the MIT license, see

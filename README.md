@@ -1,10 +1,10 @@
-<img src="src/renderer/assets/switchdesk.svg" alt="Switchdesk" width="96" height="96">
+<img src="src/renderer/assets/swapline.svg" alt="Swapline" width="96" height="96">
 
-# Switchdesk
+# Swapline
 
 **Claude Code im Messenger-Stil – mit Kontowechsel per Klick.**
 
-Switchdesk ist eine Windows-Desktop-App für [Claude Code](https://code.claude.com/docs). Statt im Terminal chattest du wie in einer Nachrichten-App: Sprechblasen, Markdown, einklappbare Werkzeug-Aufrufe, Rückfragen als Buttons. Mehrere Claude-Konten (Pro, Max, Team, Enterprise) liegen nebeneinander und lassen sich mit einem Klick wechseln, ohne erneute Anmeldung.
+Swapline ist eine Windows-Desktop-App für [Claude Code](https://code.claude.com/docs). Statt im Terminal chattest du wie in einer Nachrichten-App: Sprechblasen, Markdown, einklappbare Werkzeug-Aufrufe, Rückfragen als Buttons. Mehrere Claude-Konten (Pro, Max, Team, Enterprise) liegen nebeneinander und lassen sich mit einem Klick wechseln, ohne erneute Anmeldung.
 
 by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
@@ -22,32 +22,32 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 ## Voraussetzungen
 
 - Windows 10/11 (x64)
-- [Claude Code](https://code.claude.com/docs) installiert (`claude --version`). Fehlt es, zeigt Switchdesk „Claude Code nicht gefunden“.
+- [Claude Code](https://code.claude.com/docs) installiert (`claude --version`). Fehlt es, zeigt Swapline „Claude Code nicht gefunden“.
 
 ## Installation
 
-1. `Switchdesk-0.1.0-windows.zip` herunterladen und in einen beliebigen Ordner entpacken.
-2. `Switchdesk.exe` starten.
+1. `Swapline-0.1.0-windows.zip` herunterladen und in einen beliebigen Ordner entpacken.
+2. `Swapline.exe` starten.
 
 > **Hinweis:** Die exe ist nicht digital signiert. Windows SmartScreen zeigt deshalb beim ersten Start „Der Computer wurde durch Windows geschützt“. Über **Weitere Informationen → Trotzdem ausführen** startet die App.
 
-Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: Profil links unten → **Konto hinzufügen** → Name eingeben → Claude Code öffnet deinen Standard-Browser mit der Anmeldeseite von Anthropic → dort anmelden. Ist im Browser schon ein anderes Claude-Konto angemeldet, ein privates Fenster verwenden. Verlangt Claude Code einen Code, öffnet Switchdesk auf Wunsch ein Konsolenfenster mit `claude auth login`, in das du den Code selbst eingibst.
+Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: Profil links unten → **Konto hinzufügen** → Name eingeben → Claude Code öffnet deinen Standard-Browser mit der Anmeldeseite von Anthropic → dort anmelden. Ist im Browser schon ein anderes Claude-Konto angemeldet, ein privates Fenster verwenden. Verlangt Claude Code einen Code, öffnet Swapline auf Wunsch ein Konsolenfenster mit `claude auth login`, in das du den Code selbst eingibst.
 
 ## Daten und Anmeldung
 
-- **Anmeldung:** ausschließlich über `claude auth login`, also Anthropics eigenen Ablauf im System-Browser. Switchdesk zeigt keine Anmeldeseite an, liest dabei keine Ausgabe und sieht weder Passwort noch Code noch Token.
-- **Zugangsdaten:** Switchdesk liest, speichert oder überträgt keine Zugangsdaten oder Tokens. Claude Code legt sie selbst in seinem Konfigurationsordner ab; Switchdesk legt pro Konto nur fest, welcher Ordner das ist (Umgebungsvariable `CLAUDE_CONFIG_DIR`).
-- **Anfragen an Claude:** laufen immer über das unveränderte, installierte Claude-Code-Programm (`claude -p --input-format stream-json …`). Der Programmcode von Switchdesk baut selbst keine Netzverbindungen auf (keine Telemetrie, keine Updates, keine Remote-Bilder); https-Links öffnet es im Standard-Browser.
-- **Verlauf:** Switchdesk liest die Sitzungsdateien von Claude Code (`<Konfigurationsordner>/projects/…/*.jsonl`), um alte Chats anzuzeigen und fortzusetzen.
-- **Chat in ein anderes Konto übertragen:** kopiert die Sitzungsdatei (gesamter Verlauf inkl. Dateiinhalten und Befehlsausgaben) in den Ordner des anderen Kontos – keine Zugangsdaten. Vorher fragt Switchdesk nach. Nicht zwischen Firmen- und Privatkonten übertragen.
-- **Lokal gespeichert** (`%APPDATA%\Switchdesk`): Konten-, Projekt- und App-Einstellungen, Chat-Liste mit Titeln, Nutzungswerte, Fehlerprotokoll `switchdesk.log`.
+- **Anmeldung:** ausschließlich über `claude auth login`, also Anthropics eigenen Ablauf im System-Browser. Swapline zeigt keine Anmeldeseite an, liest dabei keine Ausgabe und sieht weder Passwort noch Code noch Token.
+- **Zugangsdaten:** Swapline liest, speichert oder überträgt keine Zugangsdaten oder Tokens. Claude Code legt sie selbst in seinem Konfigurationsordner ab; Swapline legt pro Konto nur fest, welcher Ordner das ist (Umgebungsvariable `CLAUDE_CONFIG_DIR`).
+- **Anfragen an Claude:** laufen immer über das unveränderte, installierte Claude-Code-Programm (`claude -p --input-format stream-json …`). Der Programmcode von Swapline baut selbst keine Netzverbindungen auf (keine Telemetrie, keine Updates, keine Remote-Bilder); https-Links öffnet es im Standard-Browser.
+- **Verlauf:** Swapline liest die Sitzungsdateien von Claude Code (`<Konfigurationsordner>/projects/…/*.jsonl`), um alte Chats anzuzeigen und fortzusetzen.
+- **Chat in ein anderes Konto übertragen:** kopiert die Sitzungsdatei (gesamter Verlauf inkl. Dateiinhalten und Befehlsausgaben) in den Ordner des anderen Kontos – keine Zugangsdaten. Vorher fragt Swapline nach. Nicht zwischen Firmen- und Privatkonten übertragen.
+- **Lokal gespeichert** (`%APPDATA%\Swapline`): Konten-, Projekt- und App-Einstellungen, Chat-Liste mit Titeln, Nutzungswerte, Fehlerprotokoll `swapline.log`.
 
 ## Entwicklung
 
 ```bash
 npm install
 npm start                 # App aus dem Quellcode starten
-npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/win-unpacked + dist/Switchdesk-0.1.0-windows.zip
+npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/win-unpacked + dist/Swapline-0.1.0-windows.zip
 ```
 
 `npm run dist` sammelt die Lizenztexte (`tools/collect-licenses.js`), baut mit electron-builder die Ordner-Variante als ZIP und prüft danach, dass jedes gebündelte Paket einen Lizenztext hat (`tools/check-bundle.js`).
@@ -55,7 +55,7 @@ npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/win-unpa
 Testprofil, damit die echten Einstellungen unberührt bleiben (wirkt nur beim Start aus dem Quellcode, nicht in der gebauten App):
 
 ```bash
-SWITCHDESK_PROFILE=test npm start
+SWAPLINE_PROFILE=test npm start
 ```
 
 | Datei | Inhalt |
@@ -64,11 +64,11 @@ SWITCHDESK_PROFILE=test npm start
 | `src/preload.js` | Brücke zwischen Oberfläche und Hauptprozess |
 | `src/renderer/` | Oberfläche (HTML/CSS/JS ohne Framework), Markdown über marked + DOMPurify |
 | `tools/` | Lizenzsammlung, Bundle-Prüfung |
-| `src/renderer/assets/switchdesk.ico`, `.svg` | App-Icon (exe, Fenster, Taskleiste, Benachrichtigungen, README) |
+| `src/renderer/assets/swapline.ico`, `.svg` | App-Icon (exe, Fenster, Taskleiste, Benachrichtigungen, README) |
 
 ## Lizenz
 
-[MIT](LICENSE) – Copyright (c) 2026 Halil Ayberk Bulut (ARFEP IT-Service) and Switchdesk contributors.
+[MIT](LICENSE) – Copyright (c) 2026 Halil Ayberk Bulut (ARFEP IT-Service) and Swapline contributors.
 
 Drittkomponenten (Electron, Chromium, FFmpeg, marked, DOMPurify) siehe [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); die Volltexte liegen im Release im Ordner `licenses/`. Das ARFEP-Logo in `src/renderer/assets/arfep/` steht **nicht** unter MIT (siehe [NOTICE](src/renderer/assets/arfep/NOTICE.md)).
 
