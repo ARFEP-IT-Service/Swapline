@@ -1,3 +1,5 @@
+<img src="src/renderer/assets/switchdesk.svg" alt="Switchdesk" width="96" height="96">
+
 # Switchdesk
 
 **Claude Code im Messenger-Stil – mit Kontowechsel per Klick.**
@@ -46,7 +48,6 @@ Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: P
 npm install
 npm start                 # App aus dem Quellcode starten
 npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/win-unpacked + dist/Switchdesk-0.1.0-windows.zip
-npm run icon              # Icon neu erzeugen (Python + Pillow)
 ```
 
 `npm run dist` sammelt die Lizenztexte (`tools/collect-licenses.js`), baut mit electron-builder die Ordner-Variante als ZIP und prüft danach, dass jedes gebündelte Paket einen Lizenztext hat (`tools/check-bundle.js`).
@@ -62,7 +63,8 @@ SWITCHDESK_PROFILE=test npm start
 | `src/main.js` | Hauptprozess: Konten, Start von Claude Code pro Chat, Verlauf, Nutzung, Prüfung aller Eingaben der Oberfläche |
 | `src/preload.js` | Brücke zwischen Oberfläche und Hauptprozess |
 | `src/renderer/` | Oberfläche (HTML/CSS/JS ohne Framework), Markdown über marked + DOMPurify |
-| `tools/` | Lizenzsammlung, Bundle-Prüfung, Icon |
+| `tools/` | Lizenzsammlung, Bundle-Prüfung |
+| `src/renderer/assets/switchdesk.ico`, `.svg` | App-Icon (exe, Fenster, Taskleiste, Benachrichtigungen, README) |
 
 ## Lizenz
 

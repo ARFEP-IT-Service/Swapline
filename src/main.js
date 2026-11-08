@@ -620,7 +620,7 @@ function createWindow() {
     width: 1280, height: 820, minWidth: 900, minHeight: 560,
     backgroundColor: '#0f1115',
     title: 'Switchdesk',
-    icon: path.join(__dirname, 'renderer', 'assets', 'icon.png'),
+    icon: path.join(__dirname, 'renderer', 'assets', 'switchdesk.ico'),
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -687,6 +687,9 @@ function migrateFromConsoleAI() {
   } catch (e) { logError('Übernahme aus ConsoleAI: ' + e.message); }
 }
 if (!(DEV && process.env.SWITCHDESK_PROFILE)) migrateFromConsoleAI();
+
+// Eigene App-Kennung: Taskleiste gruppiert unter Switchdesk, Benachrichtigungen zeigen Name und Icon der App
+if (process.platform === 'win32') app.setAppUserModelId('de.arfep.switchdesk');
 
 app.whenReady().then(() => {
   purgeEmbeddedLoginData(app.getPath('userData'));

@@ -930,7 +930,7 @@ function scheduleStreamRender(t) {
 }
 function notifyIfHidden(t, text) {
   if (t.id !== activeTabId) { t.unread = true; renderList(); }
-  if (!document.hasFocus()) { try { new Notification(t.title || 'Switchdesk', { body: text, silent: false }); } catch {} }
+  if (!document.hasFocus()) { try { new Notification(t.title || 'Switchdesk', { body: text, icon: 'assets/switchdesk.ico', silent: false }); } catch {} }
 }
 
 api.onEvent(({ tabId, msg }) => {

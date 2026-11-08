@@ -8,8 +8,7 @@
   "scripts": {
     "start": "electron .",
     "licenses": "node tools/collect-licenses.js",
-    "dist": "node tools/collect-licenses.js && electron-builder --win zip && node tools/check-bundle.js",
-    "icon": "python tools/make_icon.py"
+    "dist": "node tools/collect-licenses.js && electron-builder --win zip && node tools/check-bundle.js"
   },
   "build": {
     "appId": "de.arfep.switchdesk",
@@ -38,7 +37,7 @@
           ]
         }
       ],
-      "icon": "build/icon.ico"
+      "icon": "src/renderer/assets/switchdesk.ico"
     },
     "artifactName": "${productName}-${version}-windows.${ext}",
     "directories": {
