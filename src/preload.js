@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
     remove: id => invoke('projects:remove', id),
     setActive: id => invoke('projects:setActive', id),
     reorder: ids => invoke('projects:reorder', ids),
+    pickIcon: () => invoke('projects:pickIcon'),
   },
   pickFolder: () => invoke('dialog:pickFolder'),
   setSettings: patch => invoke('settings:set', patch),

@@ -467,10 +467,41 @@ ipcMain.handle('settings:pickClaude', async () => {
 });
 
 // Projekte (Gruppen für Chats, optional mit Ordner)
-ipcMain.handle('projects:add', (_e, { name, color, cwd } = {}) => updateStore(s => {
+// Projektbild: per Datei-Dialog im Hauptprozess gewählt, geprüft und als data:-URL gespeichert.
+// In der Oberfläche wird es nur als <img> angezeigt – auch eine SVG kann dort keinen Code ausführen
+// und nichts nachladen.
+const ICON_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', ico: 'image/x-icon' };
+const ICON_MAX = 1024 * 1024;
+const ICON_RE = /^data:image\/(png|jpeg|webp|gif|svg\+xml|x-icon);base64,[A-Za-z0-9+/]+=*$/;
+const cleanIcon = v => (typeof v === 'string' && v.length <= ICON_MAX * 1.4 && ICON_RE.test(v) ? v : null);
+function looksLikeImage(buf, ext) {
+  const hex = buf.subarray(0, 12).toString('hex');
+  if (ext === 'png') return hex.startsWith('89504e470d0a1a0a');
+  if (ext === 'jpg' || ext === 'jpeg') return hex.startsWith('ffd8ff');
+  if (ext === 'gif') return hex.startsWith('47494638');
+  if (ext === 'webp') return hex.startsWith('52494646') && buf.subarray(8, 12).toString('latin1') === 'WEBP';
+  if (ext === 'ico') return hex.startsWith('00000100');
+  if (ext === 'svg') return /<svg[\s>]/i.test(buf.subarray(0, 4096).toString('utf8'));
+  return false;
+}
+ipcMain.handle('projects:pickIcon', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Bild für das Projekt wählen', properties: ['openFile'], filters: [{ name: 'Bilder', extensions: Object.keys(ICON_TYPES) }] });
+  const file = r.filePaths?.[0];
+  if (r.canceled || !file) return null;
+  const ext = path.extname(file).slice(1).toLowerCase();
+  if (isUnc(file) || !ICON_TYPES[ext]) return { error: 'Dateityp nicht unterstützt' };
+  const size = fs.statSync(file).size;
+  if (size > ICON_MAX) return { error: 'Bild ist größer als 1 MB' };
+  const buf = fs.readFileSync(file);
+  if (!looksLikeImage(buf, ext)) return { error: 'Datei ist kein gültiges Bild' };
+  return { icon: `data:${ICON_TYPES[ext]};base64,${buf.toString('base64')}` };
+});
+ipcMain.handle('projects:add', (_e, { name, color, cwd, icon } = {}) => updateStore(s => {
   name = cleanName(name, 'Projekt'); color = cleanColor(color, '#1581FF'); cwd = isAllowedCwd(cwd) ? cwd : ''; // nur per Dialog gesehene Ordner
   const id = 'p-' + crypto.randomBytes(4).toString('hex');
-  s.projects.push({ id, name: name || 'Projekt', color: color || '#1581FF', cwd: cwd || '' });
+  const pr = { id, name: name || 'Projekt', color: color || '#1581FF', cwd: cwd || '' };
+  if (cleanIcon(icon)) pr.icon = cleanIcon(icon);
+  s.projects.push(pr);
   s.activeProjectId = id;
 }));
 ipcMain.handle('projects:update', (_e, { id, patch }) => updateStore(s => {
@@ -479,6 +510,7 @@ ipcMain.handle('projects:update', (_e, { id, patch }) => updateStore(s => {
     if ('name' in patch) p.name = cleanName(patch.name, p.name);
     if ('color' in patch) p.color = cleanColor(patch.color, p.color);
     if ('cwd' in patch) p.cwd = isAllowedCwd(patch.cwd) ? patch.cwd : '';
+    if ('icon' in patch) { if (cleanIcon(patch.icon)) p.icon = cleanIcon(patch.icon); else delete p.icon; }
   }
 }));
 ipcMain.handle('projects:remove', (_e, id) => updateStore(s => {

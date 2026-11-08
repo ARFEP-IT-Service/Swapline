@@ -25,6 +25,8 @@ const el = (tag, attrs = {}, ...kids) => {
   for (const k of kids.flat()) if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(String(k)));
   return e;
 };
+// replaceChildren ohne leere Einträge (null/false würden sonst als Text „null“ erscheinen)
+const fill = (node, ...kids) => node.replaceChildren(...kids.flat().filter(k => k != null && k !== false));
 const icon = d => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = d; return s; };
 const ICONS = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
@@ -82,7 +84,10 @@ const profile = id => store.profiles.find(p => p.id === id);
 const activeProfile = () => profile(store.activeProfileId) || store.profiles[0];
 const currentTab = () => tabs.find(t => t.id === activeTabId);
 const initials = name => (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-const avatar = (p, cls = '') => el('div', { class: 'avatar ' + cls, style: `background:${p?.color || '#64748B'}` }, initials(p?.name));
+// Avatar: eigenes Bild (Projekte, data:-URL aus dem Hauptprozess) oder Initialen auf Farbe
+const avatar = (p, cls = '') => p?.icon
+  ? el('div', { class: 'avatar img ' + cls }, el('img', { src: p.icon, alt: '' }))
+  : el('div', { class: 'avatar ' + cls, style: `background:${p?.color || '#64748B'}` }, initials(p?.name));
 const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p || 'Home';
 
 function fmtTime(ts) {
@@ -185,19 +190,35 @@ function openProjectForm(pr = {}) {
   const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
   drawColors();
   const folder = el('div', { class: 'folder-row' });
-  const drawFolder = () => folder.replaceChildren(
+  const drawFolder = () => fill(folder,
     el('span', { class: 'mono ' + (cwd ? '' : 'muted') }, cwd || 'kein Ordner – wird pro Chat gewählt'),
     el('button', { class: 'ghost', onclick: async () => { const d = await api.pickFolder(); if (d) { cwd = d; if (!name.value.trim()) name.value = baseName(d); drawFolder(); } } }, 'Wählen …'),
     cwd ? el('button', { class: 'ghost', onclick: () => { cwd = ''; drawFolder(); } }, 'Entfernen') : null);
   drawFolder();
+  // Projektbild (SVG, PNG, JPG, WebP, GIF, ICO bis 1 MB) – gewählt über den Datei-Dialog des Hauptprozesses
+  let icon = pr.icon || null;
+  const iconRow = el('div', { class: 'folder-row' });
+  const drawIcon = () => fill(iconRow,
+    avatar({ name: name.value || pr.name || '?', color, icon }, 'lg'),
+    el('span', { class: 'hint', style: 'flex:1' }, icon ? 'eigenes Bild' : 'Initialen auf Farbe'),
+    el('button', { class: 'ghost', onclick: async () => {
+      const r = await api.projects.pickIcon();
+      if (r?.error) return toast(r.error);
+      if (r?.icon) { icon = r.icon; drawIcon(); }
+    } }, 'Bild wählen …'),
+    icon ? el('button', { class: 'ghost', onclick: () => { icon = null; drawIcon(); } }, 'Entfernen') : null);
+  drawIcon();
+  name.addEventListener('input', () => { if (!icon) drawIcon(); });
+  colors.addEventListener('click', () => { if (!icon) setTimeout(drawIcon); });
   const save = async () => {
     if (!name.value.trim()) return name.focus();
-    const data = { name: name.value.trim(), color, cwd };
+    const data = { name: name.value.trim(), color, cwd, icon };
     store = pr.id ? await api.projects.update(pr.id, data) : await api.projects.add(data);
     m.close(); renderRail(); renderList();
   };
   const m = modal('project', pr.id ? 'Projekt bearbeiten' : 'Neues Projekt',
     el('label', { class: 'field' }, el('span', {}, 'Name'), name),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Bild (optional)'), iconRow),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Farbe'), colors),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Projektordner (neue Chats starten hier)'), folder),
     el('div', { class: 'row', style: 'margin-top:16px' },
@@ -1098,7 +1119,7 @@ function renderLoginModal() {
         el('button', { class: 'ghost', onclick: () => { api.profiles.loginConsole(p.id); loginState[p.id] = { state: 'console' }; renderLoginModal(); } }, 'Im Konsolenfenster anmelden'),
         el('button', { class: 'ghost', onclick: openAccounts }, 'Zurück')));
   }
-  box.replaceChildren(...parts);
+  fill(box, parts);
 }
 function cancelLoginUI(id) { api.profiles.loginCancel(id); loginState[id] = { state: 'cancelled' }; renderLoginModal(); }
 // Dialog geschlossen (×, Hintergrund, Esc) -> laufende Anmeldung abbrechen
@@ -1164,7 +1185,7 @@ function openSettings() {
   };
   // Pfad zu claude.exe nur per Datei-Dialog (der Hauptprozess prüft den Dateinamen)
   const path = el('div', { class: 'folder-row' });
-  const drawPath = () => path.replaceChildren(
+  const drawPath = () => fill(path,
     el('span', { class: 'mono ' + (store.settings.claudePath ? '' : 'muted') }, store.settings.claudePath || 'automatisch (~/.local/bin/claude.exe oder PATH)'),
     el('button', { class: 'ghost', onclick: async () => { const r = await api.pickClaude(); store = r; if (r.rejected) toast(r.rejected); drawPath(); } }, 'Wählen …'),
     store.settings.claudePath ? el('button', { class: 'ghost', onclick: async () => { store = await api.setSettings({ claudePath: '' }); drawPath(); } }, 'Automatisch') : null);
