@@ -406,10 +406,11 @@ function openChatSettingsMenu() {
   items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, 'Berechtigungen'));
   for (const m of MODES) {
     const on = (t.permissionMode || 'default') === m.value;
-    items.push(el('button', { class: 'pm-item' + (on ? ' sel' : '') + (m.value === 'bypassPermissions' ? ' danger' : ''), onclick: () => {
+    items.push(el('button', { class: 'pm-item' + (on ? ' sel' : '') + (m.value === 'bypassPermissions' ? ' danger' : ''), onclick: async () => {
       done();
       if (on) return;
-      if (m.value === 'bypassPermissions' && !confirm('„Alles erlauben“ startet Claude mit --dangerously-skip-permissions.\n\nClaude führt dann Befehle aus und ändert Dateien, ohne zu fragen. Nur in Ordnern nutzen, denen du vertraust.\n\nFortfahren?')) return;
+      // Warnung und Bestätigung kommen als nativer Dialog aus dem Hauptprozess
+      if (m.value === 'bypassPermissions' && !(await api.session.confirmBypass(t.id))) return;
       changeTab({ permissionMode: m.value }, m.value === 'bypassPermissions' ? '⚠ Alles erlauben: keine Rückfragen mehr (--dangerously-skip-permissions)' : `Berechtigungen: ${m.label}`);
     } }, el('span', { class: 'pm-text' }, el('b', {}, m.label), el('small', {}, m.desc)), check(on)));
   }
@@ -1131,18 +1132,28 @@ function openSettings() {
   if (!modelOpts.length) modelOpts.push(['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']);
   const sel = (key, opts) => {
     const e = el('select', {}, opts.map(([v, l]) => el('option', { value: v, selected: (s[key] || '') === v }, l)));
-    e.addEventListener('change', async () => { store = await api.setSettings({ [key]: e.value }); if (key === 'theme') applyTheme(); });
+    e.addEventListener('change', async () => {
+      const r = await api.setSettings({ [key]: e.value }); // „Alles erlauben“ bestätigt der Hauptprozess per Dialog
+      store = r;
+      if (r.rejected) { e.value = s[key] || ''; toast('Nicht übernommen'); return; }
+      if (key === 'theme') applyTheme();
+    });
     return e;
   };
-  const path = el('input', { type: 'text', value: s.claudePath || '', placeholder: 'automatisch (~/.local/bin/claude.exe oder PATH)' });
-  path.addEventListener('change', async () => { store = await api.setSettings({ claudePath: path.value.trim() }); });
+  // Pfad zu claude.exe nur per Datei-Dialog (der Hauptprozess prüft den Dateinamen)
+  const path = el('div', { class: 'folder-row' });
+  const drawPath = () => path.replaceChildren(
+    el('span', { class: 'mono ' + (store.settings.claudePath ? '' : 'muted') }, store.settings.claudePath || 'automatisch (~/.local/bin/claude.exe oder PATH)'),
+    el('button', { class: 'ghost', onclick: async () => { const r = await api.pickClaude(); store = r; if (r.rejected) toast(r.rejected); drawPath(); } }, 'Wählen …'),
+    store.settings.claudePath ? el('button', { class: 'ghost', onclick: async () => { store = await api.setSettings({ claudePath: '' }); drawPath(); } }, 'Automatisch') : null);
+  drawPath();
   modal('settings', 'Einstellungen',
     el('label', { class: 'field' }, el('span', {}, 'Darstellung'), sel('theme', [['system', 'Wie System'], ['light', 'Hell'], ['dark', 'Dunkel']])),
     el('label', { class: 'field' }, el('span', {}, 'Modell für neue Chats'), sel('model', [['', `Standard${defName ? ' · ' + defName : ' (laut Konto)'}`], ...modelOpts])),
     el('label', { class: 'field' }, el('span', {}, 'Aufwand für neue Chats'), sel('effort', [['', `Standard${defEff ? ' · ' + (EFFORT_LABEL[defEff] || defEff) : ' (laut Konto)'}`], ...Object.entries(EFFORT_LABEL)])),
     el('p', { class: 'hint' }, '„Standard“ richtet sich nach dem Konto: Modell laut Claude-Empfehlung, Aufwand laut effortLevel in den Claude-Einstellungen des Kontos.'),
     el('label', { class: 'field' }, el('span', {}, 'Berechtigungen für neue Chats'), sel('permissionMode', [['default', 'Nachfragen'], ['acceptEdits', 'Änderungen erlauben'], ['plan', 'Nur planen'], ['bypassPermissions', 'Alles erlauben (--dangerously-skip-permissions)']])),
-    el('label', { class: 'field' }, el('span', {}, 'Pfad zu Claude Code'), path),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Pfad zu Claude Code (claude.exe)'), path),
     el('div', { class: 'about' },
       el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' }),
       el('div', {},

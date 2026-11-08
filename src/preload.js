@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   pickFolder: () => invoke('dialog:pickFolder'),
   setSettings: patch => invoke('settings:set', patch),
+  pickClaude: () => invoke('settings:pickClaude'),
   history: {
     list: profileId => invoke('history:list', profileId),
     load: file => invoke('history:load', file),
@@ -37,6 +38,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   session: {
     send: (tab, content) => invoke('session:send', { tab, content }),
+    confirmBypass: tabId => invoke('session:confirmBypass', tabId),
     respond: (tabId, requestId, response) => invoke('session:respond', { tabId, requestId, response }),
     interrupt: tabId => invoke('session:interrupt', tabId),
     restart: tabId => invoke('session:restart', tabId),

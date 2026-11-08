@@ -45,13 +45,49 @@ function getStore() {
 function updateStore(fn) { const s = getStore(); fn(s); saveStore(s); return s; }
 function profileById(id) { return getStore().profiles.find(p => p.id === id); }
 
+// ---------- Eingaben aus der Oberfläche prüfen ----------
+const MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
+const THEMES = ['system', 'light', 'dark'];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
+const isDir = p => typeof p === 'string' && p !== '' && path.isAbsolute(p) && fs.existsSync(p) && fs.statSync(p).isDirectory();
+const cleanName = (v, fallback) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f"<>|&^%]/g, '').trim().slice(0, 40) : '') || fallback;
+const cleanColor = (v, fallback) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback);
+// "Alles erlauben" muss im Hauptprozess bestätigt werden (nativer Dialog) – die Oberfläche allein reicht nicht.
+const bypassApproved = new Set(); // tabIds bzw. 'default-setting'
+function confirmBypass(key) {
+  if (bypassApproved.has(key) || bypassApproved.has('default-setting')) return true;
+  const r = dialog.showMessageBoxSync(win, {
+    type: 'warning', buttons: ['Abbrechen', 'Alles erlauben'], defaultId: 0, cancelId: 0, noLink: true,
+    title: 'Alles erlauben',
+    message: 'Claude ohne Rückfragen arbeiten lassen?',
+    detail: 'Claude Code wird mit --dangerously-skip-permissions gestartet. Claude führt dann Befehle aus, ändert und löscht Dateien und greift auf das Netz zu, ohne vorher zu fragen.\n\nNur in Ordnern verwenden, denen du vertraust – am besten in einer Testumgebung.',
+  });
+  if (r !== 1) return false;
+  bypassApproved.add(key);
+  return true;
+}
+
 // ---------- Claude starten ----------
+const CLAUDE_MISSING = 'Claude Code nicht gefunden. Bitte Claude Code installieren (https://code.claude.com/docs) oder in den Einstellungen den Pfad zu claude.exe angeben.';
+let resolvedClaude; // Ergebnis von where.exe (einmal pro App-Start)
+const isClaudeExePath = p => typeof p === 'string' && path.isAbsolute(p) && path.basename(p).toLowerCase() === 'claude.exe' && fs.existsSync(p) && fs.statSync(p).isFile();
+// Reihenfolge: Pfad aus den Einstellungen (nur eine Datei namens claude.exe) → ~/.local/bin/claude.exe → where.exe.
+// Rückgabe null, wenn nichts gefunden wird. Gestartet wird immer ohne Shell.
 function claudeExe() {
   const custom = getStore().settings.claudePath;
-  if (custom && fs.existsSync(custom)) return custom;
-  const local = path.join(HOME, '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
-  if (fs.existsSync(local)) return local;
-  return 'claude';
+  if (isClaudeExePath(custom)) return custom;
+  const local = path.join(HOME, '.local', 'bin', 'claude.exe');
+  if (isClaudeExePath(local)) return local;
+  if (resolvedClaude === undefined) {
+    resolvedClaude = null;
+    try {
+      const out = require('node:child_process').execFileSync('where.exe', ['claude'], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+      resolvedClaude = out.split(/\r?\n/).map(x => x.trim()).find(isClaudeExePath) || null;
+    } catch {}
+  }
+  return resolvedClaude;
 }
 function envFor(profile) {
   const env = { ...process.env };
@@ -63,11 +99,13 @@ function envFor(profile) {
 }
 function spawnClaude(args, profile, opts = {}) {
   const exe = claudeExe();
-  return spawn(exe, args, { env: envFor(profile), shell: exe === 'claude', windowsHide: true, ...opts });
+  if (!exe) throw new Error(CLAUDE_MISSING);
+  return spawn(exe, args, { env: envFor(profile), windowsHide: true, ...opts });
 }
 
 function authStatus(profile) {
   return new Promise(resolve => {
+    if (!claudeExe()) return resolve({ loggedIn: false, claudeMissing: true, error: CLAUDE_MISSING });
     const p = spawnClaude(['auth', 'status', '--json'], profile);
     let out = '';
     p.stdout.on('data', d => (out += d));
@@ -88,6 +126,7 @@ function probeModels(profile) {
   return new Promise(resolve => {
     const settings = readJson(path.join(profile.configDir, 'settings.json'));
     const base = { models: [], account: null, effortLevel: settings.effortLevel || '', settingsModel: settings.model || '' };
+    if (!claudeExe()) return resolve(base);
     const p = spawnClaude(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-prompt-tool', 'stdio'], profile, { cwd: HOME });
     let done = false;
     const finish = r => { if (done) return; done = true; try { p.kill(); } catch {} resolve(r); };
@@ -277,7 +316,8 @@ function copySessionToProfile(sessionId, cwd, fromProfile, toProfile) {
 // ---------- IPC ----------
 ipcMain.handle('store:get', () => getStore());
 
-ipcMain.handle('profiles:add', (_e, { name, color }) => {
+ipcMain.handle('profiles:add', (_e, { name, color } = {}) => {
+  name = cleanName(name, 'Neues Konto'); color = cleanColor(color, '#22c55e');
   const slug = (name || 'konto').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'konto';
   const id = slug + '-' + crypto.randomBytes(3).toString('hex');
   const configDir = path.join(PROFILES_ROOT, id);
@@ -285,7 +325,7 @@ ipcMain.handle('profiles:add', (_e, { name, color }) => {
   return updateStore(s => { s.profiles.push({ id, name: name || 'Neues Konto', color: color || '#22c55e', configDir }); });
 });
 ipcMain.handle('profiles:update', (_e, { id, patch }) => updateStore(s => {
-  const p = s.profiles.find(x => x.id === id); if (p) Object.assign(p, { name: patch.name ?? p.name, color: patch.color ?? p.color });
+  const p = s.profiles.find(x => x.id === id); if (p && patch) Object.assign(p, { name: cleanName(patch.name, p.name), color: cleanColor(patch.color, p.color) });
 }));
 ipcMain.handle('profiles:remove', (_e, id) => updateStore(s => {
   const p = s.profiles.find(x => x.id === id);
@@ -316,6 +356,7 @@ ipcMain.handle('profiles:login', (_e, id) => {
   if (!p) return false;
   cancelLogin(id);
   const exe = claudeExe();
+  if (!exe) { loginEvent(id, { state: 'error', error: CLAUDE_MISSING }); return false; }
   // stdin bleibt offen (die CLI wartet sonst nicht auf die Browser-Rückmeldung), wird aber nie beschrieben;
   // stdout/stderr werden verworfen, nicht gelesen.
   const proc = spawn(exe, ['auth', 'login'], { env: envFor(p), windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
@@ -346,15 +387,16 @@ ipcMain.handle('profiles:loginConsole', (_e, id) => {
 });
 ipcMain.handle('profiles:loginCancel', (_e, id) => cancelLogin(id));
 ipcMain.handle('profiles:logout', (_e, id) => new Promise(res => {
-  const p = profileById(id); if (!p) return res(false);
+  const p = profileById(id); if (!p || !claudeExe()) return res(false);
   spawnClaude(['auth', 'logout'], p).on('close', () => res(true));
 }));
+// claude.exe direkt in einem eigenen Konsolenfenster starten (Argument-Array, keine Shell, kein Kontoname in Befehlszeilen)
 ipcMain.handle('profiles:openTerminal', (_e, { id, cwd }) => {
   const p = profileById(id);
   const exe = claudeExe();
-  spawn('cmd.exe', ['/c', `title Claude - ${p.name} && "${exe}"`], {
-    env: envFor(p), cwd: cwd && fs.existsSync(cwd) ? cwd : HOME, detached: true, stdio: 'ignore', windowsHide: false, windowsVerbatimArguments: true,
-  }).unref();
+  if (!p || !exe) return false;
+  spawn(exe, [], { env: envFor(p), cwd: isDir(cwd) ? cwd : HOME, detached: true, windowsHide: false, stdio: 'ignore' }).unref();
+  return true;
 });
 
 ipcMain.handle('favorites:add', async () => {
@@ -368,17 +410,46 @@ ipcMain.handle('dialog:pickFolder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
   return r.canceled ? null : r.filePaths[0];
 });
-ipcMain.handle('settings:set', (_e, patch) => updateStore(s => { Object.assign(s.settings, patch); }));
+// Nur bekannte Schlüssel mit gültigen Werten; alles andere wird abgelehnt.
+ipcMain.handle('settings:set', (_e, patch) => {
+  const ok = {};
+  const reject = why => { logError('settings:set abgelehnt: ' + why); return { ...getStore(), rejected: why }; };
+  if (!patch || typeof patch !== 'object') return reject('kein Objekt');
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'model' && isModel(v)) ok.model = v;
+    else if (k === 'effort' && EFFORTS.includes(v)) ok.effort = v;
+    else if (k === 'theme' && THEMES.includes(v)) ok.theme = v;
+    else if (k === 'permissionMode' && MODES.includes(v)) {
+      if (v === 'bypassPermissions' && !confirmBypass('default-setting')) return reject('Bypass nicht bestätigt');
+      ok.permissionMode = v;
+    } else if (k === 'claudePath' && (v === '' || isClaudeExePath(v))) { ok.claudePath = v; resolvedClaude = undefined; }
+    else return reject(`Schlüssel/Wert nicht erlaubt: ${String(k).slice(0, 40)}`);
+  }
+  return updateStore(s => { Object.assign(s.settings, ok); });
+});
+// claudePath nur über einen Datei-Dialog im Hauptprozess
+ipcMain.handle('settings:pickClaude', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'claude.exe auswählen', properties: ['openFile'], filters: [{ name: 'claude.exe', extensions: ['exe'] }] });
+  if (r.canceled || !r.filePaths[0]) return getStore();
+  if (!isClaudeExePath(r.filePaths[0])) return { ...getStore(), rejected: 'Datei heißt nicht claude.exe' };
+  resolvedClaude = undefined;
+  return updateStore(s => { s.settings.claudePath = r.filePaths[0]; });
+});
 
 // Projekte (Gruppen für Chats, optional mit Ordner)
-ipcMain.handle('projects:add', (_e, { name, color, cwd }) => updateStore(s => {
+ipcMain.handle('projects:add', (_e, { name, color, cwd } = {}) => updateStore(s => {
+  name = cleanName(name, 'Projekt'); color = cleanColor(color, '#1581FF'); cwd = isDir(cwd) ? cwd : '';
   const id = 'p-' + crypto.randomBytes(4).toString('hex');
   s.projects.push({ id, name: name || 'Projekt', color: color || '#1581FF', cwd: cwd || '' });
   s.activeProjectId = id;
 }));
 ipcMain.handle('projects:update', (_e, { id, patch }) => updateStore(s => {
   const p = s.projects.find(x => x.id === id);
-  if (p) for (const k of ['name', 'color', 'cwd']) if (k in patch) p[k] = patch[k];
+  if (p && patch) {
+    if ('name' in patch) p.name = cleanName(patch.name, p.name);
+    if ('color' in patch) p.color = cleanColor(patch.color, p.color);
+    if ('cwd' in patch) p.cwd = isDir(patch.cwd) ? patch.cwd : '';
+  }
 }));
 ipcMain.handle('projects:remove', (_e, id) => updateStore(s => {
   s.projects = s.projects.filter(x => x.id !== id);
@@ -407,7 +478,24 @@ ipcMain.handle('history:loadSession', (_e, { profileId, sessionId, cwd }) => {
   return loadTranscript(file);
 });
 
-ipcMain.handle('session:send', (_e, { tab, content }) => {
+// Tab-Daten aus der Oberfläche werden vollständig geprüft, bevor Claude gestartet wird
+function validTab(t) {
+  if (!t || typeof t !== 'object') return null;
+  if (typeof t.id !== 'string' || !/^[a-z0-9]{6,40}$/i.test(t.id)) return null;
+  if (!profileById(t.profileId)) return null;
+  if (t.sessionId != null && !UUID_RE.test(t.sessionId)) return null;
+  if (!isModel(t.model || '') || !EFFORTS.includes(t.effort || '') || !MODES.includes(t.permissionMode || 'default')) return null;
+  return { id: t.id, profileId: t.profileId, cwd: isDir(t.cwd) ? t.cwd : '', sessionId: t.sessionId || null, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode || 'default' };
+}
+ipcMain.handle('session:confirmBypass', (_e, tabId) => typeof tabId === 'string' && confirmBypass(tabId));
+ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
+  const tab = validTab(rawTab);
+  if (!tab || typeof content !== 'string') { logError('session:send abgelehnt: ungültige Tab-Daten'); return false; }
+  if (tab.permissionMode === 'bypassPermissions' && !confirmBypass(tab.id)) {
+    send(tab.id, { type: 'app_error', message: '„Alles erlauben“ wurde nicht bestätigt – Nachricht nicht gesendet.' });
+    return false;
+  }
+  if (!claudeExe()) { send(tab.id, { type: 'app_error', message: CLAUDE_MISSING }); return false; }
   let s = sessions.get(tab.id);
   if (!s) s = startSession(tab);
   writeTo(tab.id, { type: 'user', message: { role: 'user', content } });
@@ -427,7 +515,12 @@ ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toPr
   if (!from || !to) return false;
   try { return copySessionToProfile(sessionId, cwd, from, to); } catch { return false; }
 });
-ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
+// Nur existierende Ordner im Explorer öffnen – nie Dateien oder Programme
+ipcMain.handle('shell:openPath', (_e, p) => {
+  if (!isDir(p)) { logError('openPath abgelehnt (kein Ordner): ' + String(p).slice(0, 200)); return false; }
+  shell.openPath(p);
+  return true;
+});
 
 // Externe Links nur über https in den Standard-Browser
 function openExternalSafe(url) {
