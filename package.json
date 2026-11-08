@@ -1,6 +1,6 @@
 {
-  "name": "consoleai",
-  "productName": "ConsoleAI",
+  "name": "switchdesk",
+  "productName": "Switchdesk",
   "version": "0.1.0",
   "description": "Messenger-artige Oberfläche für Claude Code mit Kontowechsel",
   "main": "src/main.js",
@@ -11,8 +11,8 @@
     "icon": "python tools/make_icon.py"
   },
   "build": {
-    "appId": "de.arfep.consoleai",
-    "productName": "ConsoleAI",
+    "appId": "de.arfep.switchdesk",
+    "productName": "Switchdesk",
     "files": [
       "src/**/*",
       "node_modules/marked/lib/marked.umd.js",
@@ -25,7 +25,7 @@
       "icon": "build/icon.ico"
     },
     "portable": {
-      "artifactName": "ConsoleAI.exe"
+      "artifactName": "Switchdesk.exe"
     },
     "directories": {
       "output": "dist"

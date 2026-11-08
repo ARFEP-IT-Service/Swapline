@@ -1,4 +1,4 @@
-// ConsoleAI – Oberfläche: Konten, Chats, Favoriten, Verlauf, Nachrichten.
+// Switchdesk – Oberfläche: Konten, Chats, Favoriten, Verlauf, Nachrichten.
 'use strict';
 
 const BRAND = {
@@ -6,7 +6,7 @@ const BRAND = {
   city: 'Göttingen',
   website: 'https://arfep.de/',
   contact: 'https://arfep.de/#kontakt',
-  repo: 'https://github.com/ARFEP-IT-Service/ConsoleAI',
+  repo: 'https://github.com/ARFEP-IT-Service/Switchdesk',
   logo: dark => `assets/arfep/${dark ? 'logo-white' : 'logo-ink'}.svg`,
 };
 const VERSION = '0.1.0';
@@ -58,7 +58,7 @@ let activeTabId = null;
 let historyCache = {};         // profileId -> Liste
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const LS_TABS = 'consoleai.tabs.v1';
+const LS_TABS = 'switchdesk.tabs.v1';
 function saveTabs() {
   try {
     localStorage.setItem(LS_TABS, JSON.stringify({
@@ -68,7 +68,12 @@ function saveTabs() {
   } catch {}
 }
 function loadTabs() {
-  try { return JSON.parse(localStorage.getItem(LS_TABS)) || { tabs: [] }; } catch { return { tabs: [] }; }
+  try {
+    // einmalige Übernahme des Schlüssels aus dem früheren Namen „ConsoleAI“
+    const legacy = 'consoleai.tabs.v1';
+    if (!localStorage.getItem(LS_TABS) && localStorage.getItem(legacy)) { localStorage.setItem(LS_TABS, localStorage.getItem(legacy)); localStorage.removeItem(legacy); }
+    return JSON.parse(localStorage.getItem(LS_TABS)) || { tabs: [] };
+  } catch { return { tabs: [] }; }
 }
 
 const profile = id => store.profiles.find(p => p.id === id);
@@ -534,7 +539,7 @@ function renderUsage() {
   rows.push(el('div', { class: 'u-row', title: 'Geschätzter API-Gegenwert laut Claude Code. Bei Abos zahlst du das nicht zusätzlich.' },
     el('span', { class: 'u-label' }, 'Gegenwert heute / gesamt'),
     el('span', { class: 'u-val' }, `$${today.toFixed(2)} / $${(u.costUsd || 0).toFixed(2)}`)));
-  rows.push(el('div', { class: 'brand' }, el('span', {}, `ConsoleAI ${VERSION} · by`), el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' })));
+  rows.push(el('div', { class: 'brand' }, el('span', {}, `Switchdesk ${VERSION} · by`), el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' })));
   box.replaceChildren(...rows);
 }
 function resetIn(sec) {
@@ -925,7 +930,7 @@ function scheduleStreamRender(t) {
 }
 function notifyIfHidden(t, text) {
   if (t.id !== activeTabId) { t.unread = true; renderList(); }
-  if (!document.hasFocus()) { try { new Notification(t.title || 'ConsoleAI', { body: text, silent: false }); } catch {} }
+  if (!document.hasFocus()) { try { new Notification(t.title || 'Switchdesk', { body: text, silent: false }); } catch {} }
 }
 
 api.onEvent(({ tabId, msg }) => {
@@ -1172,7 +1177,7 @@ function openSettings() {
     el('div', { class: 'about' },
       el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' }),
       el('div', {},
-        el('p', {}, el('b', {}, `ConsoleAI ${VERSION}`), ' – Open Source (MIT)'),
+        el('p', {}, el('b', {}, `Switchdesk ${VERSION}`), ' – Open Source (MIT)'),
         el('p', { class: 'muted' }, `by ${BRAND.company}, ${BRAND.city}`),
         el('p', {}, el('a', { href: BRAND.website, style: 'color:var(--accent)' }, 'arfep.de'), ' · ',
           el('a', { href: BRAND.contact, style: 'color:var(--accent)' }, 'IT-Hilfe anfragen'), ' · ',

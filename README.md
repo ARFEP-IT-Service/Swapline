@@ -1,8 +1,8 @@
-# ConsoleAI
+# Switchdesk
 
 **Claude Code im Messenger-Stil – mit Kontowechsel per Klick.**
 
-ConsoleAI ist eine Windows-Desktop-App für [Claude Code](https://docs.claude.com/en/docs/claude-code). Statt im Terminal chattest du wie in einer Nachrichten-App: Sprechblasen, Markdown, einklappbare Werkzeug-Aufrufe, Rückfragen als Buttons. Mehrere Claude-Konten (Pro, Max, Team, Enterprise) liegen nebeneinander und lassen sich mit einem Klick wechseln, ohne erneute Anmeldung.
+Switchdesk ist eine Windows-Desktop-App für [Claude Code](https://docs.claude.com/en/docs/claude-code). Statt im Terminal chattest du wie in einer Nachrichten-App: Sprechblasen, Markdown, einklappbare Werkzeug-Aufrufe, Rückfragen als Buttons. Mehrere Claude-Konten (Pro, Max, Team, Enterprise) liegen nebeneinander und lassen sich mit einem Klick wechseln, ohne erneute Anmeldung.
 
 by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
@@ -25,7 +25,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 ## Nutzung
 
-`ConsoleAI.exe` starten. Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten über **+** in der Leiste: Name eingeben → es öffnet sich ein Anmeldefenster → im Browser bestätigen.
+`Switchdesk.exe` starten. Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten über **+** in der Leiste: Name eingeben → es öffnet sich ein Anmeldefenster → im Browser bestätigen.
 
 > Tipp: Vor dem Anmelden im Browser mit dem passenden claude.ai-Konto eingeloggt sein oder ein privates Fenster verwenden.
 
@@ -34,14 +34,14 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 ```bash
 npm install
 npm start                 # App aus dem Quellcode starten
-npm run dist              # dist/ConsoleAI.exe (portabel, eine Datei)
+npm run dist              # dist/Switchdesk.exe (portabel, eine Datei)
 npm run icon              # Icon neu erzeugen (Python + Pillow)
 ```
 
 Testprofil, damit die echten Einstellungen unberührt bleiben:
 
 ```bash
-CONSOLEAI_PROFILE=test npm start
+SWITCHDESK_PROFILE=test npm start
 ```
 
 ### Aufbau
@@ -52,11 +52,11 @@ CONSOLEAI_PROFILE=test npm start
 | `src/preload.js` | sichere Brücke zwischen Oberfläche und Hauptprozess |
 | `src/renderer/` | Oberfläche (HTML/CSS/JS ohne Framework), Markdown über marked + DOMPurify |
 
-ConsoleAI startet für jeden Chat die installierte Claude-Code-CLI im Stream-JSON-Modus und beantwortet Berechtigungsabfragen über das Steuerprotokoll (`--permission-prompt-tool stdio`). Kontowechsel funktioniert über die Umgebungsvariable `CLAUDE_CONFIG_DIR`. Es werden keine Zugangsdaten kopiert oder an Dritte gesendet.
+Switchdesk startet für jeden Chat die installierte Claude-Code-CLI im Stream-JSON-Modus und beantwortet Berechtigungsabfragen über das Steuerprotokoll (`--permission-prompt-tool stdio`). Kontowechsel funktioniert über die Umgebungsvariable `CLAUDE_CONFIG_DIR`. Es werden keine Zugangsdaten kopiert oder an Dritte gesendet.
 
 ## Lizenz
 
-[MIT](LICENSE) – Copyright (c) 2026 Halil Ayberk Bulut (ARFEP IT-Service) and ConsoleAI contributors.
+[MIT](LICENSE) – Copyright (c) 2026 Halil Ayberk Bulut (ARFEP IT-Service) and Switchdesk contributors.
 
 Das ARFEP-Logo in `src/renderer/assets/arfep/` steht **nicht** unter MIT (siehe [NOTICE](src/renderer/assets/arfep/NOTICE.md)).
 

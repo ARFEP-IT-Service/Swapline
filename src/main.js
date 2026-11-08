@@ -1,4 +1,4 @@
-// ConsoleAI – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
+// Switchdesk – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
@@ -534,10 +534,10 @@ function openExternalSafe(url) {
   return true;
 }
 
-// ---------- Fehlerprotokoll (userData/consoleai.log) ----------
+// ---------- Fehlerprotokoll (userData/switchdesk.log) ----------
 function logError(msg) {
   try {
-    const file = path.join(app.getPath('userData'), 'consoleai.log');
+    const file = path.join(app.getPath('userData'), 'switchdesk.log');
     try { if (fs.statSync(file).size > 1e6) fs.renameSync(file, file + '.old'); } catch {}
     fs.appendFileSync(file, `[${new Date().toISOString()}] ${msg}\n`);
   } catch {}
@@ -550,7 +550,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 900, minHeight: 560,
     backgroundColor: '#0f1115',
-    title: 'ConsoleAI',
+    title: 'Switchdesk',
     icon: path.join(__dirname, 'renderer', 'assets', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
@@ -581,8 +581,8 @@ function createWindow() {
 
 // Test-Hooks (Testprofil, Screenshot, Test-Skript) wirken nur im ungepackten Entwicklungsstand – nie in der ausgelieferten App.
 const DEV = !app.isPackaged;
-// Testprofil: CONSOLEAI_PROFILE=<name> nutzt einen eigenen Datenordner (echte Einstellungen bleiben unberührt)
-if (DEV && process.env.CONSOLEAI_PROFILE) app.setPath('userData', path.join(app.getPath('appData'), 'ConsoleAI-' + process.env.CONSOLEAI_PROFILE));
+// Testprofil: SWITCHDESK_PROFILE=<name> nutzt einen eigenen Datenordner (echte Einstellungen bleiben unberührt)
+if (DEV && process.env.SWITCHDESK_PROFILE) app.setPath('userData', path.join(app.getPath('appData'), 'Switchdesk-' + process.env.SWITCHDESK_PROFILE));
 
 // Früher (bis Auftrag 2) zeigte die App die Anmeldeseite eingebettet an und legte dabei Browser-Daten
 // unter userData/Partitions/login-* sowie ein Hilfsskript login-browser.cmd ab. Beides wird beim Start
@@ -599,16 +599,36 @@ function purgeEmbeddedLoginData(dir) {
   return removed;
 }
 
+// Einmalige Übernahme aus dem früheren Namen „ConsoleAI“ (%APPDATA%\ConsoleAI): Einstellungen
+// (consoleai.json → switchdesk.json) und die Chat-Liste (Local Storage). Login-Daten werden dabei
+// nicht übernommen, sondern im alten Ordner ungelesen gelöscht. ~/.claude-profiles bleibt unverändert.
+function migrateFromConsoleAI() {
+  try {
+    const oldDir = path.join(app.getPath('appData'), 'ConsoleAI');
+    const newDir = app.getPath('userData');
+    if (!fs.existsSync(oldDir)) return;
+    purgeEmbeddedLoginData(oldDir);
+    if (fs.existsSync(path.join(newDir, 'switchdesk.json'))) return; // schon übernommen
+    fs.mkdirSync(newDir, { recursive: true });
+    const oldStore = path.join(oldDir, 'consoleai.json');
+    if (fs.existsSync(oldStore)) fs.copyFileSync(oldStore, path.join(newDir, 'switchdesk.json'));
+    const ls = path.join(oldDir, 'Local Storage');
+    if (fs.existsSync(ls) && !fs.existsSync(path.join(newDir, 'Local Storage'))) fs.cpSync(ls, path.join(newDir, 'Local Storage'), { recursive: true });
+    fs.writeFileSync(path.join(oldDir, 'MOVED-TO-SWITCHDESK.txt'), 'Die Einstellungen wurden nach %APPDATA%\\Switchdesk übernommen. Dieser Ordner kann gelöscht werden.\r\n');
+  } catch (e) { logError('Übernahme aus ConsoleAI: ' + e.message); }
+}
+if (!(DEV && process.env.SWITCHDESK_PROFILE)) migrateFromConsoleAI();
+
 app.whenReady().then(() => {
   purgeEmbeddedLoginData(app.getPath('userData'));
-  STORE_FILE = path.join(app.getPath('userData'), 'consoleai.json');
+  STORE_FILE = path.join(app.getPath('userData'), 'switchdesk.json');
   createWindow();
-  // CONSOLEAI_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
-  const shot = DEV && process.env.CONSOLEAI_SCREENSHOT;
+  // SWITCHDESK_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
+  const shot = DEV && process.env.SWITCHDESK_SCREENSHOT;
   if (shot) {
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
       try {
-        if (DEV && process.env.CONSOLEAI_TEST_JS) await win.webContents.executeJavaScript(fs.readFileSync(process.env.CONSOLEAI_TEST_JS, 'utf8'));
+        if (DEV && process.env.SWITCHDESK_TEST_JS) await win.webContents.executeJavaScript(fs.readFileSync(process.env.SWITCHDESK_TEST_JS, 'utf8'));
         win.show(); win.focus();
         let img;
         try { img = await win.webContents.capturePage(); } catch {
@@ -620,7 +640,7 @@ app.whenReady().then(() => {
         if (img) fs.writeFileSync(shot, img.toPNG());
       } catch (e) { logError('Screenshot-Test: ' + (e.stack || e)); }
       app.quit();
-    }, Number(process.env.CONSOLEAI_SCREENSHOT_DELAY || 4000)));
+    }, Number(process.env.SWITCHDESK_SCREENSHOT_DELAY || 4000)));
   }
 });
 function cleanup() {
