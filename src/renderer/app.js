@@ -57,6 +57,7 @@ const status = {};             // profileId -> auth status
 let view = 'chats';
 let tabs = [];                 // Chats
 let activeTabId = null;
+let lastOpened = {}; // projectId (oder "all") -> zuletzt geöffneter Chat
 let historyCache = {};         // profileId -> Liste
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -64,7 +65,7 @@ const LS_TABS = 'swapline.tabs.v1';
 function saveTabs() {
   try {
     localStorage.setItem(LS_TABS, JSON.stringify({
-      activeTabId,
+      activeTabId, lastOpened,
       tabs: tabs.map(t => ({ id: t.id, title: t.title, profileId: t.profileId, projectId: t.projectId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, updated: t.updated, preview: t.preview })),
     }));
   } catch {}
@@ -165,6 +166,15 @@ function renderProjectHead() {
 async function switchProject(id) {
   store = await api.projects.setActive(id);
   historyCache = {};
+  // Gehört der offene Chat nicht zum gewählten Projekt: den dort zuletzt geöffneten (sonst zuletzt aktiven) Chat öffnen,
+  // sonst die leere Startansicht zeigen
+  const t = currentTab();
+  if (!t || !tabInProject(t, id)) {
+    const last = tabs.find(x => x.id === lastOpened[id] && tabInProject(x, id));
+    const next = last || tabs.filter(x => tabInProject(x, id)).sort((a, b) => (b.updated || 0) - (a.updated || 0))[0];
+    if (next) return openTab(next.id);
+    activeTabId = null; saveTabs(); renderChat();
+  }
   renderRail(); renderList();
 }
 
@@ -620,6 +630,7 @@ function closeTab(id) {
 async function openTab(id) {
   activeTabId = id;
   const t = currentTab();
+  if (t) { lastOpened.all = t.id; if (t.projectId) lastOpened[t.projectId] = t.id; }
   if (t) {
     t.unread = false;
     if (!t.loaded) {
@@ -1350,6 +1361,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
   const saved = loadTabs();
   tabs = (saved.tabs || []).map(t => makeTab({ ...t, loaded: !t.sessionId }));
   activeTabId = tabs.some(t => t.id === saved.activeTabId) ? saved.activeTabId : null;
+  lastOpened = saved.lastOpened || {};
   renderRail(); renderList(); renderUsage();
   if (activeTabId) openTab(activeTabId); else renderChat();
   refreshStatus();

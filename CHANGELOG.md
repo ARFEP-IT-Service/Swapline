@@ -5,6 +5,16 @@ Alle nennenswerten Änderungen an Swapline. Versionen folgen [Semantic Versionin
 Major = nicht rückwärtskompatible Änderungen. Die Versionsnummer steht nur in `package.json` und gilt für
 exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
+## [0.6.0] – 2026-11-08
+
+### Neu
+- Sicherheitsabfrage beim Schließen, solange Claude in einem Chat noch arbeitet („Claude arbeitet noch in 1 Chat –
+  trotzdem schließen?“). Ohne laufenden Chat schließt Swapline wie bisher ohne Rückfrage.
+
+### Geändert
+- Projektwechsel wechselt auch den Chat: Es öffnet sich der im Projekt zuletzt angesehene Chat (sonst der zuletzt
+  aktive); hat das Projekt keine Chats, erscheint die Startansicht. Der zuletzt geöffnete Chat je Projekt wird gespeichert.
+
 ## [0.5.0] – 2026-11-08
 
 ### Neu

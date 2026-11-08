@@ -204,6 +204,7 @@ function startSession(tab) {
     }
     if (m.type === 'rate_limit_event') recordLimits(tab.profileId, m.rate_limit_info);
     // total_cost_usd ist der Stand der ganzen laufenden Sitzung (kumuliert) – gezählt wird nur der Zuwachs seit dem letzten Ergebnis
+    if (m.type === 'result') s.busy = false;
     if (m.type === 'result' && typeof m.total_cost_usd === 'number') {
       const delta = m.total_cost_usd >= s.lastCost ? m.total_cost_usd - s.lastCost : m.total_cost_usd;
       s.lastCost = m.total_cost_usd;
@@ -579,6 +580,7 @@ ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
   if (!claudeExe()) { send(tab.id, { type: 'app_error', message: CLAUDE_MISSING }); return false; }
   let s = sessions.get(tab.id);
   if (!s) s = startSession(tab);
+  s.busy = true; // Claude arbeitet an einer Antwort (bis zum result)
   writeTo(tab.id, { type: 'user', message: { role: 'user', content } });
   return true;
 });
@@ -682,6 +684,20 @@ function createWindow() {
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.on('focus', () => win.flashFrame(false));
+  // Schließen, während Claude noch arbeitet: nachfragen (die laufende Antwort würde abgebrochen)
+  let closeConfirmed = false;
+  win.on('close', e => {
+    const busy = [...sessions.values()].filter(x => x.busy).length;
+    if (closeConfirmed || !busy) return;
+    e.preventDefault();
+    const r = dialog.showMessageBoxSync(win, {
+      type: 'question', buttons: ['Abbrechen', 'Trotzdem schließen'], defaultId: 0, cancelId: 0, noLink: true,
+      title: 'Swapline schließen',
+      message: `Claude arbeitet noch in ${busy} Chat${busy === 1 ? '' : 's'}.`,
+      detail: 'Beim Schließen wird die laufende Antwort abgebrochen. Bisherige Änderungen und der Verlauf bleiben erhalten – danach kannst du den Chat mit „mach weiter“ fortsetzen.',
+    });
+    if (r === 1) { closeConfirmed = true; win.close(); }
+  });
   win.webContents.on('render-process-gone', (_e, d) => {
     logError(`Oberfläche abgestürzt: ${d.reason} (Code ${d.exitCode})`);
     if (d.reason !== 'clean-exit' && !win.isDestroyed()) win.webContents.reload();
