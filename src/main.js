@@ -49,6 +49,8 @@ function profileById(id) { return getStore().profiles.find(p => p.id === id); }
 const MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 const THEMES = ['system', 'light', 'dark'];
+const NOTIFY = ['always', 'background', 'off']; // Benachrichtigung bei fertiger Antwort
+const SOUND = ['on', 'off'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
 // Netzwerkpfade (UNC, \\server\… oder //server/…) werden nie geprüft oder benutzt – schon die Existenzprüfung
@@ -448,6 +450,8 @@ ipcMain.handle('settings:set', (_e, patch) => {
     if (k === 'model' && isModel(v)) ok.model = v;
     else if (k === 'effort' && EFFORTS.includes(v)) ok.effort = v;
     else if (k === 'theme' && THEMES.includes(v)) ok.theme = v;
+    else if (k === 'notify' && NOTIFY.includes(v)) ok.notify = v;
+    else if (k === 'sound' && SOUND.includes(v)) ok.sound = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass('default-setting')) return reject('Bypass nicht bestätigt');
       if (v !== 'bypassPermissions') bypassApproved.delete('default-setting');
@@ -620,6 +624,13 @@ ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toPr
   try { return { ok: copySessionToProfile(sessionId, cwd, from, to) }; } catch (e) { logError('Übertragung: ' + e.message); return { ok: false, error: e.message }; }
 });
 // Nur existierende Ordner im Explorer öffnen – nie Dateien oder Programme
+// Fenster nach vorne holen (Klick auf eine Benachrichtigung) bzw. in der Taskleiste blinken lassen
+ipcMain.handle('app:focus', () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show(); win.focus();
+});
+ipcMain.handle('app:attention', () => { if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true); });
 ipcMain.handle('shell:openPath', (_e, p) => {
   if (!isDir(p)) { logError('openPath abgelehnt (kein Ordner): ' + String(p).slice(0, 200)); return false; }
   shell.openPath(p);
@@ -657,6 +668,7 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.on('focus', () => win.flashFrame(false));
   win.webContents.on('render-process-gone', (_e, d) => {
     logError(`Oberfläche abgestürzt: ${d.reason} (Code ${d.exitCode})`);
     if (d.reason !== 'clean-exit' && !win.isDestroyed()) win.webContents.reload();

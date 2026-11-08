@@ -374,7 +374,7 @@ function renderChatChip(t) {
   const bypass = t.permissionMode === 'bypassPermissions';
   const eff = effortLabel(t);
   const chip = $('#ch-settings');
-  chip.classList.toggle('danger', bypass);
+  chip.classList.toggle('risk', bypass);
   chip.replaceChildren(
     avatar(p, 'sm'),
     el('span', { class: 'cc-text' },
@@ -448,7 +448,7 @@ function openChatSettingsMenu() {
   items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, 'Berechtigungen'));
   for (const m of MODES) {
     const on = (t.permissionMode || 'default') === m.value;
-    items.push(el('button', { class: 'pm-item' + (on ? ' sel' : '') + (m.value === 'bypassPermissions' ? ' danger' : ''), onclick: async () => {
+    items.push(el('button', { class: 'pm-item' + (on ? ' sel' : '') + (m.value === 'bypassPermissions' ? ' risk' : ''), onclick: async () => {
       done();
       if (on) return;
       // Warnung und Bestätigung kommen als nativer Dialog aus dem Hauptprozess
@@ -921,7 +921,7 @@ function ingest(t, m, fromHistory = false) {
       // Alle offenen Werkzeuge als erledigt markieren
       t.items.forEach(x => { if (x.kind === 'tool' && x.result == null) { x.result = ''; refreshItem(t, x); } });
       setTyping(t); updateComposer(); saveTabs(); renderList();
-      notifyIfHidden(t, 'Antwort ist fertig');
+      notifyIfHidden(t, m.is_error ? 'Fehler: ' + String(m.result || errorLabel(m.subtype)).slice(0, 120) : (t.preview || 'Antwort ist fertig'));
       if (t.pendingProfile) moveTabToProfile(t, t.pendingProfile);
       break;
     }
@@ -951,9 +951,36 @@ function scheduleStreamRender(t) {
   // höchstens ~15× pro Sekunde neu zeichnen
   t._raf = setTimeout(() => { t._raf = null; if (t.streamItem) refreshItem(t, t.streamItem); }, 66);
 }
+// Windows-Benachrichtigung (fertige Antwort, Rückfrage) – je nach Einstellung immer, nur wenn der Chat
+// nicht im Blick ist, oder nie; optional mit eigenem Ton. Klick holt Swapline nach vorne und öffnet den Chat.
 function notifyIfHidden(t, text) {
   if (t.id !== activeTabId) { t.unread = true; renderList(); }
-  if (!document.hasFocus()) { try { new Notification(t.title || 'Swapline', { body: text, icon: 'assets/swapline.ico', silent: false }); } catch {} }
+  const mode = store.settings.notify || 'background';
+  const inView = document.hasFocus() && t.id === activeTabId;
+  if (!document.hasFocus()) api.attention(); // Taskleiste blinkt
+  if (mode === 'off' || (mode === 'background' && inView)) return;
+  try {
+    const n = new Notification(t.title || 'Swapline', { body: text, icon: 'assets/swapline.ico', silent: true, tag: t.id });
+    n.onclick = () => { api.focusWindow(); view = 'chats'; setSeg(); openTab(t.id); };
+  } catch {}
+  if (store.settings.sound === 'on') playChime();
+}
+// Kurzer Hinweiston (zwei weiche Töne), erzeugt per Web Audio – keine Tondatei nötig
+let audioCtx;
+function playChime() {
+  try {
+    audioCtx ||= new AudioContext();
+    const now = audioCtx.currentTime;
+    for (const [freq, at] of [[880, 0], [1318.5, 0.14]]) {
+      const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, now + at);
+      gain.gain.linearRampToValueAtTime(0.18, now + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + at + 0.45);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(now + at); osc.stop(now + at + 0.5);
+    }
+  } catch {}
 }
 
 api.onEvent(({ tabId, msg }) => {
@@ -1196,6 +1223,13 @@ function openSettings() {
     el('label', { class: 'field' }, el('span', {}, 'Aufwand für neue Chats'), sel('effort', [['', `Standard${defEff ? ' · ' + (EFFORT_LABEL[defEff] || defEff) : ' (laut Konto)'}`], ...Object.entries(EFFORT_LABEL)])),
     el('p', { class: 'hint' }, '„Standard“ richtet sich nach dem Konto: Modell laut Claude-Empfehlung, Aufwand laut effortLevel in den Claude-Einstellungen des Kontos.'),
     el('label', { class: 'field' }, el('span', {}, 'Berechtigungen für neue Chats'), sel('permissionMode', [['default', 'Nachfragen'], ['acceptEdits', 'Änderungen erlauben'], ['plan', 'Nur planen'], ['bypassPermissions', 'Alles erlauben (--dangerously-skip-permissions)']])),
+    el('label', { class: 'field' }, el('span', {}, 'Benachrichtigung bei fertiger Antwort'), sel('notify', [['background', 'Wenn der Chat nicht im Blick ist (Standard)'], ['always', 'Immer'], ['off', 'Aus']])),
+    el('div', { class: 'row' },
+      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Ton'), sel('sound', [['off', 'Kein Ton'], ['on', 'Hinweiston abspielen']])),
+      el('button', { class: 'ghost', style: 'align-self:flex-end', title: 'Benachrichtigung und Ton jetzt ausprobieren', onclick: () => {
+        try { new Notification('Swapline', { body: 'So sieht eine Benachrichtigung aus.', icon: 'assets/swapline.ico', silent: true }); } catch {}
+        if (store.settings.sound === 'on') playChime();
+      } }, 'Testen')),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Pfad zu Claude Code (claude.exe)'), path),
     el('div', { class: 'about' },
       el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' }),

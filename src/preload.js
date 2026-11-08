@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('api', {
     moveProfile: data => invoke('session:moveProfile', data),
   },
   openPath: p => invoke('shell:openPath', p),
+  focusWindow: () => invoke('app:focus'),
+  attention: () => invoke('app:attention'),
   onEvent: cb => ipcRenderer.on('claude:event', (_e, d) => cb(d)),
   onUsage: cb => ipcRenderer.on('usage:update', (_e, d) => cb(d)),
   onLogin: cb => ipcRenderer.on('login:update', (_e, d) => cb(d)),
