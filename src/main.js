@@ -342,7 +342,8 @@ function copySessionToProfile(sessionId, cwd, fromProfile, toProfile) {
 }
 
 // ---------- IPC ----------
-ipcMain.handle('store:get', () => getStore());
+// appVersion kommt aus package.json (einzige Quelle der Versionsnummer) und wird nicht gespeichert
+ipcMain.handle('store:get', () => ({ ...getStore(), appVersion: app.getVersion() }));
 
 ipcMain.handle('profiles:add', (_e, { name, color } = {}) => {
   name = cleanName(name, 'Neues Konto'); color = cleanColor(color, '#22c55e');

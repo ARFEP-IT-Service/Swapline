@@ -26,9 +26,9 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 ## Installation
 
-**Mit Installer (empfohlen):** `SWAP-Installer.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%\Programs\swapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Ein Update ist einfach der neuere Installer; deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
+**Mit Installer (empfohlen):** `SWAP-Installer.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%\Programs\swapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Ein Update ist einfach der neuere Installer – er ersetzt die vorhandene Version im selben Ordner; deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
 
-**Ohne Installer:** `Swapline-0.1.0-windows.zip` in einen festen Ordner entpacken und `Swapline.exe` starten.
+**Ohne Installer:** `Swapline-<Version>-windows.zip` in einen festen Ordner entpacken und `Swapline.exe` starten.
 
 > **Hinweis:** Installer und exe sind nicht digital signiert. Windows SmartScreen zeigt deshalb beim ersten Start „Der Computer wurde durch Windows geschützt“. Über **Weitere Informationen → Trotzdem ausführen** startet die App.
 
@@ -48,7 +48,7 @@ Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: P
 ```bash
 npm install
 npm start                 # App aus dem Quellcode starten
-npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/SWAP-Installer.exe + dist/Swapline-0.1.0-windows.zip
+npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/SWAP-Installer.exe + dist/Swapline-<Version>-windows.zip
 ```
 
 `npm run dist` sammelt die Lizenztexte (`tools/collect-licenses.js`), baut mit electron-builder den Installer (NSIS, pro Benutzer) und die Ordner-Variante als ZIP und prüft danach, dass jedes gebündelte Paket einen Lizenztext hat (`tools/check-bundle.js`).
@@ -66,6 +66,10 @@ SWAPLINE_PROFILE=test npm start
 | `src/renderer/` | Oberfläche (HTML/CSS/JS ohne Framework), Markdown über marked + DOMPurify |
 | `tools/` | Lizenzsammlung, Bundle-Prüfung |
 | `src/renderer/assets/swapline.ico`, `.svg` | App-Icon (exe, Fenster, Taskleiste, Benachrichtigungen, README) |
+
+## Versionen
+
+Swapline folgt [Semantic Versioning](https://semver.org/lang/de/) (MAJOR.MINOR.PATCH). Die Nummer steht nur in `package.json`; Änderungen je Version in [CHANGELOG.md](CHANGELOG.md).
 
 ## Lizenz
 

@@ -9,7 +9,7 @@ const BRAND = {
   repo: 'https://github.com/ARFEP-IT-Service/Swapline',
   logo: dark => `assets/arfep/${dark ? 'logo-white' : 'logo-ink'}.svg`,
 };
-const VERSION = '0.1.0';
+let VERSION = ''; // aus package.json, kommt beim Start vom Hauptprozess (store:get → appVersion)
 const COLORS = ['#1581FF', '#7C5CFF', '#22C55E', '#F97316', '#E5007E', '#06B6D4', '#EAB308', '#64748B'];
 
 const $ = s => document.querySelector(s);
@@ -1274,6 +1274,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
 // ---------- Start ----------
 (async function init() {
   store = await api.getStore();
+  VERSION = store.appVersion || '';
   applyTheme();
   const saved = loadTabs();
   tabs = (saved.tabs || []).map(t => makeTab({ ...t, loaded: !t.sessionId }));
