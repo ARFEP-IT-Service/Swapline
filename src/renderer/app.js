@@ -760,7 +760,7 @@ function renderPerm(t, it) {
   if (it.answered) card.append(el('div', { class: 'muted' }, it.answered));
   else card.append(el('div', { class: 'actions' },
     el('button', { class: 'primary', onclick: () => answerPerm(t, it, 'allow') }, 'Erlauben'),
-    it.suggestions?.length ? el('button', { class: 'ghost', onclick: () => answerPerm(t, it, 'always'), title: 'Regel in den Projekteinstellungen speichern' }, 'Immer erlauben') : null,
+    it.suggestions?.length && !it.suggestions.some(x => x?.type === 'setMode') ? el('button', { class: 'ghost', onclick: () => answerPerm(t, it, 'always'), title: 'Regel in den Projekteinstellungen speichern' }, 'Immer erlauben') : null,
     el('button', { class: 'ghost danger', onclick: () => answerPerm(t, it, 'deny') }, 'Ablehnen')));
   return card;
 }

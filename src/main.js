@@ -1,6 +1,6 @@
 // Switchdesk – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
-const { spawn, execFile } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -51,13 +51,16 @@ const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 const THEMES = ['system', 'light', 'dark'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
-const isDir = p => typeof p === 'string' && p !== '' && path.isAbsolute(p) && fs.existsSync(p) && fs.statSync(p).isDirectory();
+// Netzwerkpfade (UNC, \\server\… oder //server/…) werden nie geprüft oder benutzt – schon die Existenzprüfung
+// würde eine SMB-Anmeldung auslösen.
+const isUnc = p => typeof p === 'string' && /^(\\\\|\/\/)/.test(p);
+const isDir = p => typeof p === 'string' && p !== '' && !isUnc(p) && path.isAbsolute(p) && fs.existsSync(p) && fs.statSync(p).isDirectory();
 const cleanName = (v, fallback) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f"<>|&^%]/g, '').trim().slice(0, 40) : '') || fallback;
 const cleanColor = (v, fallback) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback);
 // "Alles erlauben" muss im Hauptprozess bestätigt werden (nativer Dialog) – die Oberfläche allein reicht nicht.
 const bypassApproved = new Set(); // tabIds bzw. 'default-setting'
 function confirmBypass(key) {
-  if (bypassApproved.has(key) || bypassApproved.has('default-setting')) return true;
+  if (bypassApproved.has(key)) return true;
   const r = dialog.showMessageBoxSync(win, {
     type: 'warning', buttons: ['Abbrechen', 'Alles erlauben'], defaultId: 0, cancelId: 0, noLink: true,
     title: 'Alles erlauben',
@@ -69,10 +72,28 @@ function confirmBypass(key) {
   return true;
 }
 
+// Ordner, die als Arbeitsordner erlaubt sind: alles, was der Hauptprozess selbst über einen Dialog,
+// ein Projekt, einen Favoriten oder den Verlauf von Claude Code gesehen hat. Wird gespeichert, damit
+// wiederhergestellte Chats nach einem Neustart gültig bleiben.
+const folderKey = p => path.resolve(p).toLowerCase();
+function rememberFolder(p) {
+  if (!isDir(p)) return;
+  const s = getStore();
+  s.knownFolders ||= [];
+  if (!s.knownFolders.some(x => folderKey(x) === folderKey(p))) { s.knownFolders.push(path.resolve(p)); saveStore(s); }
+}
+function isAllowedCwd(p) {
+  if (!isDir(p)) return false;
+  const s = getStore();
+  const k = folderKey(p);
+  return k === folderKey(HOME) || (s.knownFolders || []).some(x => folderKey(x) === k)
+    || (s.projects || []).some(x => x.cwd && folderKey(x.cwd) === k) || (s.favorites || []).some(x => folderKey(x.path) === k);
+}
+
 // ---------- Claude starten ----------
 const CLAUDE_MISSING = 'Claude Code nicht gefunden. Bitte Claude Code installieren (https://code.claude.com/docs) oder in den Einstellungen den Pfad zu claude.exe angeben.';
 let resolvedClaude; // Ergebnis von where.exe (einmal pro App-Start)
-const isClaudeExePath = p => typeof p === 'string' && path.isAbsolute(p) && path.basename(p).toLowerCase() === 'claude.exe' && fs.existsSync(p) && fs.statSync(p).isFile();
+const isClaudeExePath = p => typeof p === 'string' && !isUnc(p) && path.isAbsolute(p) && path.basename(p).toLowerCase() === 'claude.exe' && fs.existsSync(p) && fs.statSync(p).isFile();
 // Reihenfolge: Pfad aus den Einstellungen (nur eine Datei namens claude.exe) → ~/.local/bin/claude.exe → where.exe.
 // Rückgabe null, wenn nichts gefunden wird. Gestartet wird immer ohne Shell.
 function claudeExe() {
@@ -83,7 +104,7 @@ function claudeExe() {
   if (resolvedClaude === undefined) {
     resolvedClaude = null;
     try {
-      const out = require('node:child_process').execFileSync('where.exe', ['claude'], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+      const out = execFileSync('where.exe', ['claude'], { cwd: HOME, encoding: 'utf8', windowsHide: true, timeout: 5000 });
       resolvedClaude = out.split(/\r?\n/).map(x => x.trim()).find(isClaudeExePath) || null;
     } catch {}
   }
@@ -165,13 +186,16 @@ function startSession(tab) {
   if (tab.effort) args.push('--effort', tab.effort);
 
   const proc = spawnClaude(args, profile, { cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
-  const s = { proc, tab: { ...tab }, stderr: '' };
+  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map() }; // pending: offene Berechtigungsanfragen der CLI
   sessions.set(tab.id, s);
 
   readline.createInterface({ input: proc.stdout }).on('line', line => {
     if (!line.trim()) return;
     let m; try { m = JSON.parse(line); } catch { return; }
     if (m.type === 'system' && m.subtype === 'init') s.tab.sessionId = m.session_id;
+    if (m.type === 'control_request' && m.request?.subtype === 'can_use_tool') {
+      s.pending.set(m.request_id, { toolName: m.request.tool_name, input: m.request.input, suggestions: m.request.permission_suggestions || null });
+    }
     if (m.type === 'rate_limit_event') recordLimits(tab.profileId, m.rate_limit_info);
     if (m.type === 'result' && typeof m.total_cost_usd === 'number') recordCost(tab.profileId, m.total_cost_usd);
     send(tab.id, m);
@@ -397,7 +421,7 @@ ipcMain.handle('profiles:openTerminal', (_e, { id, cwd }) => {
   const p = profileById(id);
   const exe = claudeExe();
   if (!p || !exe) return false;
-  spawn(exe, [], { env: envFor(p), cwd: isDir(cwd) ? cwd : HOME, detached: true, windowsHide: false, stdio: 'ignore' }).unref();
+  spawn(exe, [], { env: envFor(p), cwd: isAllowedCwd(cwd) ? cwd : HOME, detached: true, windowsHide: false, stdio: 'ignore' }).unref();
   return true;
 });
 
@@ -410,7 +434,10 @@ ipcMain.handle('favorites:add', async () => {
 ipcMain.handle('favorites:remove', (_e, dir) => updateStore(s => { s.favorites = s.favorites.filter(f => f.path !== dir); }));
 ipcMain.handle('dialog:pickFolder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
-  return r.canceled ? null : r.filePaths[0];
+  if (r.canceled || !r.filePaths[0]) return null;
+  if (isUnc(r.filePaths[0])) return null;
+  rememberFolder(r.filePaths[0]);
+  return r.filePaths[0];
 });
 // Nur bekannte Schlüssel mit gültigen Werten; alles andere wird abgelehnt.
 ipcMain.handle('settings:set', (_e, patch) => {
@@ -423,8 +450,9 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else if (k === 'theme' && THEMES.includes(v)) ok.theme = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass('default-setting')) return reject('Bypass nicht bestätigt');
+      if (v !== 'bypassPermissions') bypassApproved.delete('default-setting');
       ok.permissionMode = v;
-    } else if (k === 'claudePath' && (v === '' || isClaudeExePath(v))) { ok.claudePath = v; resolvedClaude = undefined; }
+    } else if (k === 'claudePath' && v === '') { ok.claudePath = ''; resolvedClaude = undefined; } // setzen nur über settings:pickClaude
     else return reject(`Schlüssel/Wert nicht erlaubt: ${String(k).slice(0, 40)}`);
   }
   return updateStore(s => { Object.assign(s.settings, ok); });
@@ -440,7 +468,7 @@ ipcMain.handle('settings:pickClaude', async () => {
 
 // Projekte (Gruppen für Chats, optional mit Ordner)
 ipcMain.handle('projects:add', (_e, { name, color, cwd } = {}) => updateStore(s => {
-  name = cleanName(name, 'Projekt'); color = cleanColor(color, '#1581FF'); cwd = isDir(cwd) ? cwd : '';
+  name = cleanName(name, 'Projekt'); color = cleanColor(color, '#1581FF'); cwd = isAllowedCwd(cwd) ? cwd : ''; // nur per Dialog gesehene Ordner
   const id = 'p-' + crypto.randomBytes(4).toString('hex');
   s.projects.push({ id, name: name || 'Projekt', color: color || '#1581FF', cwd: cwd || '' });
   s.activeProjectId = id;
@@ -450,7 +478,7 @@ ipcMain.handle('projects:update', (_e, { id, patch }) => updateStore(s => {
   if (p && patch) {
     if ('name' in patch) p.name = cleanName(patch.name, p.name);
     if ('color' in patch) p.color = cleanColor(patch.color, p.color);
-    if ('cwd' in patch) p.cwd = isDir(patch.cwd) ? patch.cwd : '';
+    if ('cwd' in patch) p.cwd = isAllowedCwd(patch.cwd) ? patch.cwd : '';
   }
 }));
 ipcMain.handle('projects:remove', (_e, id) => updateStore(s => {
@@ -462,7 +490,13 @@ ipcMain.handle('projects:reorder', (_e, ids) => updateStore(s => {
   s.projects.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 }));
 
-ipcMain.handle('history:list', (_e, profileId) => { const p = profileById(profileId); return p ? listHistory(p) : []; });
+ipcMain.handle('history:list', (_e, profileId) => {
+  const p = profileById(profileId);
+  if (!p) return [];
+  const list = listHistory(p);
+  for (const h of list) if (h.cwd) rememberFolder(h.cwd); // Ordner aus Claude Codes eigenem Verlauf
+  return list;
+});
 ipcMain.handle('history:loadSession', (_e, { profileId, sessionId, cwd } = {}) => {
   const p = profileById(profileId);
   if (!p) return [];
@@ -478,12 +512,17 @@ function validTab(t) {
   if (!profileById(t.profileId)) return null;
   if (t.sessionId != null && !UUID_RE.test(t.sessionId)) return null;
   if (!isModel(t.model || '') || !EFFORTS.includes(t.effort || '') || !MODES.includes(t.permissionMode || 'default')) return null;
-  return { id: t.id, profileId: t.profileId, cwd: isDir(t.cwd) ? t.cwd : '', sessionId: t.sessionId || null, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode || 'default' };
+  if (t.cwd && !isAllowedCwd(t.cwd)) return null;
+  return { id: t.id, profileId: t.profileId, cwd: t.cwd || '', sessionId: t.sessionId || null, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode || 'default' };
 }
 ipcMain.handle('session:confirmBypass', (_e, tabId) => typeof tabId === 'string' && confirmBypass(tabId));
 ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
   const tab = validTab(rawTab);
-  if (!tab || typeof content !== 'string') { logError('session:send abgelehnt: ungültige Tab-Daten'); return false; }
+  if (!tab || typeof content !== 'string') {
+    logError('session:send abgelehnt: ungültige Tab-Daten');
+    if (rawTab?.cwd && typeof rawTab.id === 'string') send(rawTab.id, { type: 'app_error', message: 'Dieser Arbeitsordner ist nicht freigegeben. Bitte den Ordner über „Neuer Chat“ oder ein Projekt neu wählen.' });
+    return false;
+  }
   if (tab.permissionMode === 'bypassPermissions' && !confirmBypass(tab.id)) {
     send(tab.id, { type: 'app_error', message: '„Alles erlauben“ wurde nicht bestätigt – Nachricht nicht gesendet.' });
     return false;
@@ -494,15 +533,45 @@ ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
   writeTo(tab.id, { type: 'user', message: { role: 'user', content } });
   return true;
 });
-ipcMain.handle('session:respond', (_e, { tabId, requestId, response }) => {
-  writeTo(tabId, { type: 'control_response', response: { subtype: 'success', request_id: requestId, response } });
+// Antwort auf eine Berechtigungsanfrage. Nur offene Anfragen dieser CLI werden beantwortet; die Eingabe des
+// Werkzeugs darf nicht verändert werden (Ausnahme: Antworten auf eine Frage), Regeln nur exakt so, wie die CLI
+// sie vorgeschlagen hat, und nie ein Moduswechsel.
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+ipcMain.handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
+  const s = sessions.get(tabId);
+  const req = s?.pending.get(requestId);
+  const reject = why => { logError('session:respond abgelehnt: ' + why); return false; };
+  if (!req) return reject('keine offene Anfrage');
+  if (!response || !['allow', 'deny'].includes(response.behavior)) return reject('ungültige Antwort');
+  let out;
+  if (response.behavior === 'deny') {
+    out = { behavior: 'deny', message: String(response.message || 'Abgelehnt.').slice(0, 500) };
+  } else {
+    let input = req.input;
+    if (req.toolName === 'AskUserQuestion') {
+      const { answers, ...rest } = response.updatedInput || {};
+      if (!same(rest, req.input)) return reject('Eingabe verändert');
+      const clean = {};
+      for (const [k, v] of Object.entries(answers || {})) if (typeof v === 'string') clean[String(k).slice(0, 500)] = v.slice(0, 2000);
+      input = { ...req.input, answers: clean };
+    } else if (!same(response.updatedInput, req.input)) return reject('Eingabe verändert');
+    out = { behavior: 'allow', updatedInput: input };
+    if (response.updatedPermissions != null) {
+      const perms = response.updatedPermissions;
+      if (!req.suggestions || !same(perms, req.suggestions) || perms.some(x => x?.type === 'setMode')) return reject('Regeln nicht wie vorgeschlagen');
+      out.updatedPermissions = req.suggestions;
+    }
+  }
+  s.pending.delete(requestId);
+  writeTo(tabId, { type: 'control_response', response: { subtype: 'success', request_id: requestId, response: out } });
+  return true;
 });
 ipcMain.handle('session:interrupt', (_e, tabId) => {
   writeTo(tabId, { type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'interrupt' } });
 });
 // Einstellungen ändern -> Prozess beenden; die nächste Nachricht startet mit --resume neu
 ipcMain.handle('session:restart', (_e, tabId) => { stopSession(tabId); return true; });
-ipcMain.handle('session:close', (_e, tabId) => { stopSession(tabId); return true; });
+ipcMain.handle('session:close', (_e, tabId) => { stopSession(tabId); bypassApproved.delete(tabId); return true; });
 // Übertragung eines Chats in ein anderes Konto – nur nach ausdrücklicher Bestätigung im Hauptprozess
 ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId } = {}) => {
   const from = profileById(fromProfileId), to = profileById(toProfileId);
@@ -553,7 +622,7 @@ function createWindow() {
     title: 'Switchdesk',
     icon: path.join(__dirname, 'renderer', 'assets', 'icon.png'),
     autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.on('render-process-gone', (_e, d) => {
@@ -621,6 +690,12 @@ if (!(DEV && process.env.SWITCHDESK_PROFILE)) migrateFromConsoleAI();
 
 app.whenReady().then(() => {
   purgeEmbeddedLoginData(app.getPath('userData'));
+  // Arbeitsordner aus Claude Codes eigenem Verlauf freigeben (einmal, im Hintergrund) – damit bestehende Chats gültig bleiben
+  setTimeout(() => {
+    if (getStore().knownFoldersSeeded) return;
+    for (const p of getStore().profiles) { try { for (const h of listHistory(p)) if (h.cwd) rememberFolder(h.cwd); } catch {} }
+    updateStore(s => { s.knownFoldersSeeded = true; });
+  }, 1500);
   STORE_FILE = path.join(app.getPath('userData'), 'switchdesk.json');
   createWindow();
   // SWITCHDESK_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
