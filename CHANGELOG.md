@@ -22,7 +22,7 @@ Erste Version.
   „Alles erlauben“ (`--dangerously-skip-permissions`) rot hervorgehoben, einmalige Bestätigung.
 - Verlauf aller Claude-Code-Sitzungen des Kontos, fortsetzbar.
 - Nutzungsanzeige: 5-Stunden- und Wochenlimit, Kosten-Gegenwert (Zuwachs pro Antwort).
-- Windows-Benachrichtigung bei fertiger Antwort und Rückfragen, Hinweistöne zur Auswahl.
+- Windows-Benachrichtigung bei fertiger Antwort und Rückfragen – bleibt auf Wunsch stehen, bis man sie anklickt; Klick öffnet den Chat. Hinweistöne zur Auswahl.
 - Werkzeug-Aufrufe im Chat: alle, kompakt oder ausgeblendet.
 - Antworten von Claude und Code-Blöcke per Knopf kopieren (Markdown), ebenso die Ausgabe von Hintergrund-Aufgaben.
 - Hintergrund-Aufgaben (z. B. Befehle mit `run_in_background`) als Leiste über dem Eingabefeld, mit Status und Ausgabe.

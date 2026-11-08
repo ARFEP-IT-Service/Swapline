@@ -58,4 +58,6 @@ contextBridge.exposeInMainWorld('api', {
   onEvent: cb => ipcRenderer.on('claude:event', (_e, d) => cb(d)),
   onUsage: cb => ipcRenderer.on('usage:update', (_e, d) => cb(d)),
   onLogin: cb => ipcRenderer.on('login:update', (_e, d) => cb(d)),
+  notify: data => invoke('notify:show', data),
+  onNotifyClick: cb => ipcRenderer.on('notify:click', (_e, tabId) => cb(tabId)),
 });

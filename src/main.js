@@ -1,5 +1,5 @@
 // Swapline – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Notification } = require('electron');
 const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -54,6 +54,7 @@ const THEMES = ['system', 'light', 'dark'];
 const NOTIFY = ['always', 'background', 'off']; // Benachrichtigung bei fertiger Antwort
 const SOUND = ['off', 'on', 'chime', 'ping', 'drop', 'rise', 'soft', 'system']; // 'on' = Glocke (ältere Versionen)
 const TOOLVIEW = ['all', 'compact', 'hidden']; // Werkzeug-Aufrufe im Chat
+const NOTIFYSTAY = ['sticky', 'auto']; // Benachrichtigung bleibt bis zum Klick / verschwindet von selbst
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
 // Netzwerkpfade (UNC, \\server\… oder //server/…) werden nie geprüft oder benutzt – schon die Existenzprüfung
@@ -472,6 +473,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else if (k === 'notify' && NOTIFY.includes(v)) ok.notify = v;
     else if (k === 'sound' && SOUND.includes(v)) ok.sound = v;
     else if (k === 'toolView' && TOOLVIEW.includes(v)) ok.toolView = v;
+    else if (k === 'notifyStay' && NOTIFYSTAY.includes(v)) ok.notifyStay = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
       ok.permissionMode = v;
@@ -703,6 +705,26 @@ ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toPr
 });
 // Nur existierende Ordner im Explorer öffnen – nie Dateien oder Programme
 // Fenster nach vorne holen (Klick auf eine Benachrichtigung) bzw. in der Taskleiste blinken lassen
+// Windows-Benachrichtigung über Electron: kann bis zum Klick stehen bleiben (timeoutType 'never').
+// Klick holt Swapline nach vorne und meldet der Oberfläche, welcher Chat geöffnet werden soll.
+const liveNotes = new Set(); // Referenzen halten, sonst räumt der Garbage Collector die Klick-Behandlung weg
+ipcMain.handle('notify:show', (_e, { title, body, tabId, silent } = {}) => {
+  if (!Notification.isSupported()) return false;
+  const sticky = (getStore().settings.notifyStay || 'sticky') === 'sticky';
+  const n = new Notification({
+    title: String(title || 'Swapline').slice(0, 120), body: String(body || '').slice(0, 300), silent: silent !== false,
+    icon: path.join(__dirname, 'renderer', 'assets', 'swapline.ico'), timeoutType: sticky ? 'never' : 'default',
+  });
+  liveNotes.add(n);
+  const done = () => liveNotes.delete(n);
+  n.on('click', () => {
+    done();
+    if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); if (typeof tabId === 'string') win.webContents.send('notify:click', tabId); }
+  });
+  n.on('close', done);
+  n.show();
+  return true;
+});
 ipcMain.handle('app:focus', () => {
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();

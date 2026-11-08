@@ -1165,10 +1165,8 @@ function notifyIfHidden(t, text) {
   const inView = document.hasFocus() && t.id === activeTabId;
   if (!document.hasFocus()) api.attention(); // Taskleiste blinkt
   if (mode === 'off' || (mode === 'background' && inView)) return;
-  try {
-    const n = new Notification(t.title || 'Swapline', { body: text, icon: 'assets/swapline.ico', silent: soundSetting() !== 'system', tag: t.id });
-    n.onclick = () => { api.focusWindow(); view = 'chats'; setSeg(); openTab(t.id); };
-  } catch {}
+  // Benachrichtigung über den Hauptprozess (bleibt je nach Einstellung bis zum Klick stehen)
+  api.notify({ title: t.title || 'Swapline', body: text, tabId: t.id, silent: soundSetting() !== 'system' });
   playSound(); // Windows-Standard kommt über die Benachrichtigung selbst (silent: false)
 }
 // Kurzer Hinweiston (zwei weiche Töne), erzeugt per Web Audio – keine Tondatei nötig
@@ -1206,6 +1204,8 @@ api.onEvent(({ tabId, msg }) => {
   const t = tabs.find(x => x.id === tabId);
   if (t) ingest(t, msg);
 });
+// Klick auf eine Windows-Benachrichtigung: passenden Chat öffnen
+api.onNotifyClick(tabId => { if (tabs.some(x => x.id === tabId)) { view = 'chats'; setSeg(); openTab(tabId); } });
 api.onUsage(u => { store.usage = u; renderUsage(); });
 
 // ---------- Senden ----------
@@ -1566,8 +1566,9 @@ function openSettings() {
     el('label', { class: 'field' }, el('span', {}, 'Benachrichtigung bei fertiger Antwort'), sel('notify', [['background', 'Wenn der Chat nicht im Blick ist (Standard)'], ['always', 'Immer'], ['off', 'Aus']])),
     el('div', { class: 'row' },
       el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Ton'), soundSelect()),
+      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Anzeige'), sel('notifyStay', [['sticky', 'Bleibt, bis ich klicke'], ['auto', 'Verschwindet von selbst']])),
       el('button', { class: 'ghost', style: 'align-self:flex-end', title: 'Benachrichtigung und Ton jetzt ausprobieren', onclick: () => {
-        try { new Notification('Swapline', { body: 'So sieht eine Benachrichtigung aus.', icon: 'assets/swapline.ico', silent: soundSetting() !== 'system' }); } catch {}
+        api.notify({ title: 'Swapline', body: 'So sieht eine Benachrichtigung aus.', silent: soundSetting() !== 'system' });
         playSound();
       } }, 'Testen')),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Pfad zu Claude Code (claude.exe)'), path),
