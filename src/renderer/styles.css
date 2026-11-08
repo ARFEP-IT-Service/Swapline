@@ -268,12 +268,6 @@ button.link:hover { color: var(--accent); }
 .login-state.ok { color: var(--ok); font-size: 16px; }
 .login-state.err { color: var(--danger); }
 .spinner { width: 16px; height: 16px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
-.modal.login { width: min(560px, 94vw); overflow: hidden; }
-.login-bar { display: flex; align-items: center; gap: 6px; margin: 12px 0 8px; }
-.login-bar .icon-btn:disabled { opacity: .4; cursor: default; }
-.login-bar-text { flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); min-width: 0; }
-#login-frame { height: clamp(360px, calc(86vh - 250px), 640px); border-radius: 12px; border: 1px solid var(--line); background: #fff; overflow: hidden; display: grid; place-items: center; }
-.login-frame-ph { display: flex; gap: 10px; align-items: center; color: #5B646D; font-size: 13px; }
 .item .sub .live { color: var(--warn); font-family: var(--font-body); }
 
 /* Einblenden nur beim ersten Erscheinen */

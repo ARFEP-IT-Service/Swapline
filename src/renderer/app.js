@@ -1007,11 +1007,12 @@ function renderAccountsList() {
         } }, 'Entfernen')));
   }));
 }
-// Anmeldung: läuft im Hintergrund, der Link öffnet sich in einem eigenen App-Fenster
+// Anmeldung: `claude auth login` öffnet den System-Browser (Anthropics eigener Ablauf).
+// Die App zeigt nur den Stand an und fragt danach `claude auth status` ab.
 const loginState = {}; // profileId -> letzter Stand
-function startLogin(p, external = false) {
-  loginState[p.id] = { state: 'starting' };
-  api.profiles.login(p.id, external);
+function startLogin(p) {
+  loginState[p.id] = { state: 'waiting' };
+  api.profiles.login(p.id);
   openLoginModal(p);
 }
 function openLoginModal(p) {
@@ -1022,26 +1023,29 @@ function renderLoginModal() {
   const box = $('#login-body'); if (!box) return;
   const p = profile(box.dataset.id); if (!p) return;
   const ls = loginState[p.id] || {};
-  const head = el('div', { class: 'row' }, avatar(p), el('div', {}, el('b', {}, p.name), el('div', { class: 'hint' }, p.configDir)));
-  const parts = [head];
-  if (ls.state === 'starting') parts.push(el('div', { class: 'login-state' }, el('span', { class: 'spinner' }), 'Anmeldung wird vorbereitet …'));
-  if (ls.state === 'waiting' && !ls.external && !ls.needsCode) {
-    parts.push(el('div', { class: 'login-bar' },
-      el('button', { class: 'icon-btn', id: 'login-back', title: 'Zurück', disabled: !ls.canGoBack, onclick: () => api.profiles.loginBack(p.id) }, icon('<path d="M15 18l-6-6 6-6"/>')),
-      el('button', { class: 'icon-btn', title: 'Neu laden', onclick: () => api.profiles.loginReload(p.id) }, icon('<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>')),
-      el('span', { class: 'login-bar-text' }, el('span', { class: 'spinner', id: 'login-spin', hidden: !ls.loading }), 'Mit dem gewünschten Claude-Konto anmelden'),
-      el('button', { class: 'ghost danger', onclick: () => cancelLoginUI(p.id) }, 'Abbrechen')));
-    parts.push(el('div', { id: 'login-frame' }, el('div', { class: 'login-frame-ph' }, el('span', { class: 'spinner' }), 'Anmeldeseite wird geladen …')));
-    parts.push(el('div', { class: 'hint', style: 'margin-top:8px' }, 'Eigener Speicher pro Konto – dein normaler Browser bleibt unberührt. Klappt „Mit Google“ nicht? ',
-      el('button', { class: 'link', style: 'color:var(--accent)', onclick: () => { loginState[p.id] = { ...ls, external: true }; api.profiles.loginExternal(p.id); renderLoginModal(); } }, 'Im Browser anmelden')));
-  } else if (ls.state === 'waiting') {
-    parts.push(el('div', { class: 'login-state' }, el('span', { class: 'spinner' }), ls.needsCode ? 'Bitte anmelden und den angezeigten Code einfügen' : 'Bitte im Browser anmelden – danach geht es hier automatisch weiter …'));
-    if (ls.needsCode) {
-      const code = el('input', { type: 'text', placeholder: 'Code hier einfügen' });
-      parts.push(el('label', { class: 'field' }, el('span', {}, 'Code'), code),
-        el('button', { class: 'primary', onclick: () => { if (code.value.trim()) { api.profiles.loginCode(p.id, code.value); loginState[p.id] = { ...ls, state: 'starting', needsCode: false }; renderLoginModal(); } } }, 'Code senden'));
-    }
-    parts.push(el('div', { class: 'row', style: 'margin-top:14px' }, el('button', { class: 'ghost danger', onclick: () => cancelLoginUI(p.id) }, 'Abbrechen')));
+  const parts = [el('div', { class: 'row' }, avatar(p), el('div', {}, el('b', {}, p.name), el('div', { class: 'hint' }, p.configDir)))];
+  if (ls.state === 'waiting') {
+    parts.push(
+      el('div', { class: 'login-state' }, el('span', { class: 'spinner' }), 'Bitte im Browser anmelden …'),
+      el('p', { class: 'hint' }, 'Claude Code hat deinen Standard-Browser mit der Anmeldeseite von Anthropic geöffnet. Melde dich dort mit dem gewünschten Konto an – danach geht es hier automatisch weiter. Die App sieht und speichert dabei keine Zugangsdaten.'),
+      el('p', { class: 'hint' }, 'Tipp: Ist im Browser schon ein anderes Claude-Konto angemeldet, nutze ein privates Fenster oder melde dich dort vorher ab.'),
+      el('div', { class: 'row', style: 'margin-top:14px' },
+        el('button', { class: 'ghost', title: 'Öffnet ein Konsolenfenster mit „claude auth login“ – dort den Code selbst eingeben', onclick: () => { api.profiles.loginConsole(p.id); loginState[p.id] = { state: 'console' }; renderLoginModal(); } }, 'Code verlangt? Im Konsolenfenster anmelden'),
+        el('button', { class: 'ghost danger', onclick: () => cancelLoginUI(p.id) }, 'Abbrechen')));
+  }
+  if (ls.state === 'console') {
+    parts.push(
+      el('div', { class: 'login-state' }, 'Anmeldung läuft im Konsolenfenster'),
+      el('p', { class: 'hint' }, 'Folge den Anweisungen im Konsolenfenster von Claude Code und gib den Code dort ein. Danach hier auf „Status prüfen“ klicken.'),
+      el('div', { class: 'row', style: 'margin-top:14px' },
+        el('button', { class: 'primary', onclick: async () => {
+          const st = await api.profiles.status(p.id);
+          status[p.id] = st;
+          loginState[p.id] = st.loggedIn ? { state: 'done', status: st } : { state: 'console', notYet: true };
+          renderRail(); renderAccountsList(); renderLoginModal();
+        } }, 'Status prüfen'),
+        el('button', { class: 'ghost', onclick: openAccounts }, 'Zurück')),
+      ls.notYet ? el('p', { class: 'hint', style: 'color:var(--danger)' }, 'Noch nicht angemeldet.') : null);
   }
   if (ls.state === 'done') {
     parts.push(el('div', { class: 'login-state ok' }, '✓ Angemeldet', ls.status?.email ? el('span', { class: 'muted' }, ' als ' + ls.status.email) : ''),
@@ -1052,46 +1056,27 @@ function renderLoginModal() {
   }
   if (ls.state === 'error' || ls.state === 'cancelled') {
     parts.push(el('div', { class: 'login-state err' }, ls.state === 'cancelled' ? 'Anmeldung abgebrochen.' : 'Anmeldung fehlgeschlagen.'),
-      ls.error ? el('pre', { class: 'hint mono', style: 'white-space:pre-wrap' }, ls.error) : null,
+      ls.error ? el('p', { class: 'hint' }, ls.error) : null,
       el('div', { class: 'row', style: 'margin-top:14px' },
         el('button', { class: 'primary', onclick: () => startLogin(p) }, 'Erneut versuchen'),
-        el('button', { class: 'ghost', onclick: () => startLogin(p, true) }, 'Mit normalem Browser'),
+        el('button', { class: 'ghost', onclick: () => { api.profiles.loginConsole(p.id); loginState[p.id] = { state: 'console' }; renderLoginModal(); } }, 'Im Konsolenfenster anmelden'),
         el('button', { class: 'ghost', onclick: openAccounts }, 'Zurück')));
   }
   box.replaceChildren(...parts);
-  syncLoginBounds();
 }
 function cancelLoginUI(id) { api.profiles.loginCancel(id); loginState[id] = { state: 'cancelled' }; renderLoginModal(); }
-
-// Platz für die eingebettete Anmeldeseite an den Hauptprozess melden
-function syncLoginBounds() {
-  for (const [id, ls] of Object.entries(loginState)) {
-    if (ls.state !== 'waiting' && ls.state !== 'starting') continue;
-    const box = $('#login-body');
-    const f = box?.dataset.id === id ? $('#login-frame') : null;
-    const r = f?.getBoundingClientRect();
-    api.profiles.loginBounds(id, r && r.width > 0 ? { x: r.x, y: r.y, width: r.width, height: r.height } : null);
-  }
-}
-window.addEventListener('resize', syncLoginBounds);
 // Dialog geschlossen (×, Hintergrund, Esc) -> laufende Anmeldung abbrechen
 new MutationObserver(() => {
   const open = $('#login-body')?.dataset.id;
   for (const [id, ls] of Object.entries(loginState)) {
-    if ((ls.state === 'waiting' || ls.state === 'starting') && id !== open) { api.profiles.loginCancel(id); loginState[id] = { state: 'cancelled' }; }
+    if (ls.state === 'waiting' && id !== open) { api.profiles.loginCancel(id); loginState[id] = { state: 'cancelled' }; }
   }
-  syncLoginBounds();
 }).observe($('#modal-root'), { childList: true, subtree: true });
 
 api.onLogin(d => {
   const prev = loginState[d.id] || {};
-  loginState[d.id] = { ...prev, ...d };
-  if (!d.state) { // nur Ladezustand der Seite
-    const spin = $('#login-spin'); if (spin) spin.hidden = !d.loading;
-    const back = $('#login-back'); if (back && 'canGoBack' in d) back.disabled = !d.canGoBack;
-    return;
-  }
   if (prev.state === 'cancelled' && d.state === 'error') return;
+  loginState[d.id] = { ...prev, ...d };
   if (d.state === 'done') { status[d.id] = d.status; renderRail(); renderAccountsList(); toast(`✓ ${profile(d.id)?.name} angemeldet`); }
   renderLoginModal();
 });
@@ -1105,7 +1090,7 @@ function profileForm(initial, onSave, saveLabel) {
   const m = modal('profile', initial.id ? 'Konto bearbeiten' : 'Neues Konto',
     el('label', { class: 'field' }, el('span', {}, 'Name'), name),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Farbe'), colors),
-    initial.id ? null : el('div', { class: 'hint' }, 'Danach öffnet sich ein Anmeldefenster in der App. Es hat einen eigenen Speicher pro Konto, du kannst also ein anderes Claude-Konto als im Browser verwenden.'),
+    initial.id ? null : el('div', { class: 'hint' }, 'Danach öffnet Claude Code deinen Browser mit der Anmeldeseite von Anthropic. Ist dort schon ein anderes Claude-Konto angemeldet, nutze ein privates Fenster.'),
     el('div', { class: 'row', style: 'margin-top:16px' },
       el('button', { class: 'primary', onclick: async () => { if (!name.value.trim()) return name.focus(); await onSave({ name: name.value.trim(), color }); m.close(); } }, saveLabel)));
   name.focus();

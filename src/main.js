@@ -1,5 +1,5 @@
 // ConsoleAI – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -295,130 +295,55 @@ ipcMain.handle('profiles:remove', (_e, id) => updateStore(s => {
 ipcMain.handle('profiles:setActive', (_e, id) => updateStore(s => { s.activeProfileId = id; }));
 ipcMain.handle('profiles:status', (_e, id) => { const p = profileById(id); return p ? authStatus(p) : { loggedIn: false }; });
 
-// ---------- Anmeldung in der App ----------
-// `claude auth login` öffnet den Link über die Variable BROWSER. Wir setzen dafür ein kleines
-// Hilfsskript, das den Link in eine Datei schreibt, und öffnen ihn in einem eigenen Fenster.
-// Jedes Konto hat dort einen eigenen Cookie-Speicher, damit sich die Konten nicht vermischen.
-// Nach dem Login leitet die Seite auf localhost um – die CLI nimmt den Code selbst entgegen.
-const logins = new Map(); // profileId -> { proc, win, url }
-
-function loginHelper() {
-  const file = path.join(app.getPath('userData'), 'login-browser.cmd');
-  const body = '@echo %*> "%CONSOLEAI_LOGIN_URL_FILE%"\r\n';
-  try { if (fs.readFileSync(file, 'utf8') === body) return file; } catch {}
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, body);
-  return file;
-}
+// ---------- Anmeldung ----------
+// Nur Anthropics eigener Ablauf: `claude auth login` öffnet selbst den System-Browser und nimmt die
+// Rückmeldung selbst entgegen. Die App liest dabei keine Ausgabe, sieht keine URL, keinen Code und
+// kein Token und speichert nichts – sie wartet nur auf das Ende des Prozesses und fragt dann
+// `claude auth status` ab.
+const logins = new Map(); // profileId -> { proc }
 function loginEvent(id, data) { if (win && !win.isDestroyed()) win.webContents.send('login:update', { id, ...data }); }
-
-function removeLoginView(l) {
-  if (!l.view) return;
-  try { win.contentView.removeChildView(l.view); } catch {}
-  try { l.view.webContents.close(); } catch {}
-  l.view = null;
-}
 
 function cancelLogin(id) {
   const l = logins.get(id);
   if (!l) return;
   logins.delete(id);
   try { l.proc.kill(); } catch {}
-  removeLoginView(l);
-  clearInterval(l.poll);
 }
 
-// Die Anmeldeseite wird im Hauptfenster angezeigt (kein zweites Fenster). Die Oberfläche meldet,
-// wo im Dialog der Platz dafür ist (login:bounds); dort wird die Ansicht eingeblendet.
-function openLoginView(id, url) {
-  const l = logins.get(id);
-  if (!l || !url) return;
-  l.url = url;
-  if (!l.view) {
-    l.view = new WebContentsView({ webPreferences: { partition: 'persist:login-' + id, contextIsolation: true, nodeIntegration: false, sandbox: true } });
-    l.view.setBackgroundColor('#FFFFFF');
-    l.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-    win.contentView.addChildView(l.view);
-    const wc = l.view.webContents;
-    wc.setUserAgent(wc.getUserAgent().replace(/\s(Electron|ConsoleAI|consoleai)\/\S+/g, ''));
-    // Popups (Google, Apple, SSO) in derselben Ansicht laden statt in einem neuen Fenster
-    wc.setWindowOpenHandler(({ url: u }) => { wc.loadURL(u); return { action: 'deny' }; });
-    wc.on('did-start-loading', () => loginEvent(id, { loading: true }));
-    wc.on('did-stop-loading', () => loginEvent(id, { loading: false, canGoBack: wc.navigationHistory.canGoBack() }));
-    if (process.env.CONSOLEAI_SCREENSHOT) wc.once('did-finish-load', async () => {
-      await new Promise(r => setTimeout(r, 5000));
-      // ganzes Fenster inkl. eingebetteter Ansicht aufnehmen
-      const { desktopCapturer } = require('electron');
-      const [w, h] = win.getContentSize();
-      const src = (await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: w, height: h + 40 } })).find(x => x.id === win.getMediaSourceId());
-      if (src) fs.writeFileSync(process.env.CONSOLEAI_SCREENSHOT.replace(/\.png$/, '-login.png'), src.thumbnail.toPNG());
-    });
-  }
-  if (l.bounds) l.view.setBounds(l.bounds);
-  l.view.webContents.loadURL(url);
-}
-ipcMain.handle('login:bounds', (_e, { id, rect }) => {
-  const l = logins.get(id);
-  if (!l) return;
-  l.bounds = rect ? { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) } : { x: 0, y: 0, width: 0, height: 0 };
-  if (l.view) l.view.setBounds(l.bounds);
-});
-ipcMain.handle('login:back', (_e, id) => { const wc = logins.get(id)?.view?.webContents; if (wc?.navigationHistory.canGoBack()) wc.navigationHistory.goBack(); });
-ipcMain.handle('login:reload', (_e, id) => { const l = logins.get(id); if (l?.view && l.url) l.view.webContents.loadURL(l.url); });
-
-ipcMain.handle('profiles:login', (_e, { id, external }) => {
+ipcMain.handle('profiles:login', (_e, id) => {
   const p = profileById(id);
   if (!p) return false;
   cancelLogin(id);
-  const urlFile = path.join(app.getPath('temp'), `consoleai-login-${id}-${Date.now()}.txt`);
-  const env = { ...envFor(p), BROWSER: loginHelper(), CONSOLEAI_LOGIN_URL_FILE: urlFile };
   const exe = claudeExe();
-  const proc = spawn(exe, ['auth', 'login'], { env, shell: exe === 'claude', windowsHide: true });
-  const l = { proc, external, out: '' };
+  // stdin bleibt offen (die CLI wartet sonst nicht auf die Browser-Rückmeldung), wird aber nie beschrieben;
+  // stdout/stderr werden verworfen, nicht gelesen.
+  const proc = spawn(exe, ['auth', 'login'], { env: envFor(p), windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
+  const l = { proc };
   logins.set(id, l);
-  loginEvent(id, { state: 'starting' });
-
-  const useUrl = url => {
-    if (l.url || !url) return;
-    l.url = url;
-    loginEvent(id, { state: 'waiting', url });
-    if (external) shell.openExternal(url); else openLoginView(id, url);
-  };
-  // 1. Weg: Link über das Hilfsskript (mit automatischer Rückmeldung an localhost)
-  l.poll = setInterval(() => {
-    try {
-      const url = fs.readFileSync(urlFile, 'utf8').trim().replace(/^"|"$/g, '');
-      if (url.startsWith('http')) { clearInterval(l.poll); fs.rmSync(urlFile, { force: true }); useUrl(url); }
-    } catch {}
-  }, 250);
-  // 2. Weg (Rückfall): Link aus der Ausgabe – dann muss der Code eingefügt werden
-  proc.stdout.on('data', d => {
-    l.out += d;
-    const m = l.out.match(/https:\/\/\S+oauth\/authorize\S+/);
-    if (m) l.manualUrl = m[0];
-    setTimeout(() => { if (!l.url && l.manualUrl) { l.manual = true; useUrl(l.manualUrl); loginEvent(id, { state: 'waiting', url: l.manualUrl, needsCode: true }); } }, 4000);
-  });
-  proc.stderr.on('data', d => { l.out += d; });
-  proc.on('error', e => { cancelLogin(id); loginEvent(id, { state: 'error', error: e.message }); });
+  loginEvent(id, { state: 'waiting' });
+  proc.on('error', e => { if (logins.get(id) === l) logins.delete(id); loginEvent(id, { state: 'error', error: e.message }); });
   proc.on('close', async code => {
-    clearInterval(l.poll);
-    if (logins.get(id) !== l) return;
-    l.done = true;
+    if (logins.get(id) !== l) return; // abgebrochen
     logins.delete(id);
-    removeLoginView(l);
     modelCache.delete(id);
     const st = await authStatus(p);
-    if (code === 0 && st.loggedIn) loginEvent(id, { state: 'done', status: st });
-    else loginEvent(id, { state: 'error', error: (l.out.split('\n').filter(Boolean).pop() || `Abbruch (Code ${code})`).slice(0, 300) });
+    if (st.loggedIn) loginEvent(id, { state: 'done', status: st });
+    else loginEvent(id, { state: 'error', error: `Anmeldung nicht abgeschlossen (Code ${code}).` });
   });
   return true;
 });
-ipcMain.handle('profiles:loginCode', (_e, { id, code }) => {
-  const l = logins.get(id);
-  if (l && l.proc.stdin.writable) l.proc.stdin.write(code.trim() + '\n');
+// Falls die CLI einen Code verlangt: sichtbares Konsolenfenster mit `claude auth login`.
+// Kein cmd-String – die exe wird direkt mit Argument-Array gestartet; der Nutzer tippt den Code dort selbst ein.
+ipcMain.handle('profiles:loginConsole', (_e, id) => {
+  const p = profileById(id);
+  const exe = claudeExe();
+  if (!p || !exe) return false;
+  cancelLogin(id);
+  const proc = spawn(exe, ['auth', 'login'], { env: envFor(p), detached: true, windowsHide: false, stdio: 'ignore' });
+  proc.unref();
+  return true;
 });
 ipcMain.handle('profiles:loginCancel', (_e, id) => cancelLogin(id));
-ipcMain.handle('profiles:loginExternal', (_e, id) => { const l = logins.get(id); if (!l?.url) return; removeLoginView(l); shell.openExternal(l.url); });
 ipcMain.handle('profiles:logout', (_e, id) => new Promise(res => {
   const p = profileById(id); if (!p) return res(false);
   spawnClaude(['auth', 'logout'], p).on('close', () => res(true));
@@ -540,7 +465,23 @@ function createWindow() {
 // Testprofil: CONSOLEAI_PROFILE=<name> nutzt einen eigenen Datenordner (echte Einstellungen bleiben unberührt)
 if (process.env.CONSOLEAI_PROFILE) app.setPath('userData', path.join(app.getPath('appData'), 'ConsoleAI-' + process.env.CONSOLEAI_PROFILE));
 
+// Früher (bis Auftrag 2) zeigte die App die Anmeldeseite eingebettet an und legte dabei Browser-Daten
+// unter userData/Partitions/login-* sowie ein Hilfsskript login-browser.cmd ab. Beides wird beim Start
+// ungelesen gelöscht.
+function purgeEmbeddedLoginData(dir) {
+  let removed = 0;
+  try {
+    const parts = path.join(dir, 'Partitions');
+    for (const d of fs.existsSync(parts) ? fs.readdirSync(parts) : []) {
+      if (d.startsWith('login-')) { fs.rmSync(path.join(parts, d), { recursive: true, force: true }); removed++; }
+    }
+    fs.rmSync(path.join(dir, 'login-browser.cmd'), { force: true });
+  } catch (e) { logError('Login-Daten löschen: ' + e.message); }
+  return removed;
+}
+
 app.whenReady().then(() => {
+  purgeEmbeddedLoginData(app.getPath('userData'));
   STORE_FILE = path.join(app.getPath('userData'), 'consoleai.json');
   createWindow();
   // CONSOLEAI_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
