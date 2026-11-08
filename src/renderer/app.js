@@ -34,7 +34,20 @@ const ICONS = {
 };
 
 marked.setOptions({ gfm: true, breaks: true });
-const md = text => DOMPurify.sanitize(marked.parse(text || ''));
+// Links in Claude-Antworten: nur https (öffnet im Browser). file:, UNC (//host), relative und andere
+// Ziele werden entfernt. Bilder nur als data:-URL – keine Remote- oder Datei-Bilder.
+DOMPurify.addHook('afterSanitizeAttributes', node => {
+  if (node.hasAttribute('href')) {
+    const href = node.getAttribute('href').trim();
+    if (/^https:\/\/[^/\\]/i.test(href)) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
+    else { node.removeAttribute('href'); node.setAttribute('title', 'Link entfernt: ' + href.slice(0, 120)); }
+  }
+  if (node.tagName === 'IMG' && !/^data:image\//i.test(node.getAttribute('src') || '')) node.remove();
+  for (const attr of ['src', 'srcset', 'action', 'formaction', 'xlink:href', 'poster', 'background']) {
+    if (node.tagName !== 'IMG' && node.hasAttribute(attr)) node.removeAttribute(attr);
+  }
+});
+const md = text => DOMPurify.sanitize(marked.parse(text || ''), { FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe', 'object', 'embed', 'video', 'audio', 'source'] });
 
 // ---------- Zustand ----------
 let store = null;              // aus dem Hauptprozess

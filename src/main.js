@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const readline = require('node:readline');
 const crypto = require('node:crypto');
+const { pathToFileURL } = require('node:url');
 
 const HOME = os.homedir();
 const DEFAULT_CONFIG_DIR = path.join(HOME, '.claude');
@@ -428,6 +429,15 @@ ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toPr
 });
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
 
+// Externe Links nur über https in den Standard-Browser
+function openExternalSafe(url) {
+  let u;
+  try { u = new URL(url); } catch { logError('Link abgelehnt (ungültig): ' + String(url).slice(0, 200)); return false; }
+  if (u.protocol !== 'https:') { logError('Link abgelehnt (nur https erlaubt): ' + u.protocol); return false; }
+  shell.openExternal(u.href);
+  return true;
+}
+
 // ---------- Fehlerprotokoll (userData/consoleai.log) ----------
 function logError(msg) {
   try {
@@ -458,8 +468,19 @@ function createWindow() {
   win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
     if (level >= 3) logError(`Renderer: ${message} (${path.basename(sourceId || '')}:${line})`);
   });
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file:')) { e.preventDefault(); shell.openExternal(url); } });
+  // Das Fenster zeigt nur die eigene index.html. Jede andere Navigation (file:, UNC, http, relative Links …)
+  // wird blockiert; https-Links öffnen sich im Standard-Browser, alles andere wird abgelehnt.
+  const indexUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
+  win.webContents.setWindowOpenHandler(({ url }) => { openExternalSafe(url); return { action: 'deny' }; });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url.split('#')[0] === indexUrl) return;
+    e.preventDefault();
+    openExternalSafe(url);
+  });
+  win.webContents.on('will-redirect', (e, url) => { if (url.split('#')[0] !== indexUrl) e.preventDefault(); });
+  win.webContents.on('will-attach-webview', e => e.preventDefault());
+  // Keine Gerätezugriffe (Kamera, Mikrofon, Standort, Benachrichtigungen ausgenommen)
+  win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'notifications'));
 }
 
 // Testprofil: CONSOLEAI_PROFILE=<name> nutzt einen eigenen Datenordner (echte Einstellungen bleiben unberührt)
