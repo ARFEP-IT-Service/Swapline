@@ -33,7 +33,15 @@ Erste Version.
 - Plan-Modus: Plan als Karte mit „Plan annehmen“, „Überarbeiten lassen“ und „Ablehnen“.
 - Recap (Zusammenfassung „während du weg warst“) aus Claude Code wird angezeigt.
 - Erweiterungen-Fenster (Puzzle-Symbol, /plugins, /skills): installierte Plugins aktivieren/deaktivieren/entfernen, Plugins aus den Marktplätzen suchen und installieren (über `claude plugin …`), Skills und Befehle des Kontos anzeigen.
-- Sicherheitsabfrage beim Schließen, solange Claude arbeitet.
+- Sicherheitsabfrage beim Schließen, solange Claude arbeitet oder eine Hintergrund-Aufgabe läuft; solche Chats
+  bleiben in Liste und Projektleiste als aktiv markiert.
+- Automatische Updates aus den GitHub-Releases (nur installierte App, abschaltbar); Hinweis „Update bereit – Neu starten“.
+- Oberfläche auf Deutsch und Englisch (Einstellung „Sprache“, Standard: wie System).
+- Automatische Tests (`npm test`), GitHub-Workflows für Tests/Build und Release-Entwürfe, Code-Signierung über
+  SignPath vorbereitet (noch nicht aktiv).
+- Sicherheitsprüfung 2: Antworten können keine Dateien außerhalb der App oder Netzwerkfreigaben laden, Ausgaben von
+  Hintergrund-Aufgaben nur aus von Claude Code gemeldeten Dateien, Bestätigung für jede Plugin-Änderung,
+  Volltextsuche ohne Einfrieren.
 - Anmeldung nur über `claude auth login` (System-Browser); keine Zugangsdaten in Swapline.
 - Installer `SWAP-Installer.exe` (pro Benutzer, ohne Admin-Rechte) und ZIP; Übernahme der Einstellungen aus
   ConsoleAI/Switchdesk.

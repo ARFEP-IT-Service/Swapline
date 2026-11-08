@@ -15,6 +15,18 @@ Drittkomponenten; die vollständigen Lizenztexte liegen im Ordner `licenses/` ne
 | marked | 18.1.3 | Markdown rendering of chat messages | MIT | `licenses/marked-18.1.3.txt` |
 | DOMPurify | 3.4.17 | Sanitizing rendered Markdown | Apache-2.0 OR MPL-2.0 (used under Apache-2.0) | `licenses/dompurify-3.4.17-LICENSE.txt`, `licenses/dompurify-3.4.17-LICENSE-MPL.txt` |
 | @types/trusted-types | 2.0.7 | Type definitions pulled in by DOMPurify (no runtime code) | MIT | `licenses/types__trusted-types-2.0.7.txt` |
+| electron-updater | 6.8.11 | Automatic updates from GitHub releases | MIT | `licenses/electron-updater-6.8.11.txt` |
+| builder-util-runtime | 9.7.0 | Used by electron-updater | MIT | `licenses/builder-util-runtime-9.7.0.txt` |
+| debug, ms | 4.4.3, 2.1.3 | Used by electron-updater | MIT | `licenses/debug-4.4.3.txt`, `licenses/ms-2.1.3.txt` |
+| fs-extra, jsonfile, universalify | 10.1.0, 6.2.1, 2.0.1 | Used by electron-updater | MIT | `licenses/fs-extra-10.1.0.txt`, `licenses/jsonfile-6.2.1.txt`, `licenses/universalify-2.0.1.txt` |
+| graceful-fs | 4.2.11 | Used by electron-updater | ISC | `licenses/graceful-fs-4.2.11.txt` |
+| js-yaml | 4.3.2 | Reading `latest.yml` (electron-updater) | MIT | `licenses/js-yaml-4.3.2.txt` |
+| argparse | 2.0.1 | Used by js-yaml | Python-2.0 | `licenses/argparse-2.0.1.txt` |
+| lazy-val | 1.0.5 | Used by electron-updater (the package ships no license file; text from its declared MIT license) | MIT | `licenses/lazy-val-1.0.5.txt` |
+| lodash.escaperegexp, lodash.isequal | 4.1.2, 4.5.0 | Used by electron-updater | MIT | `licenses/lodash.escaperegexp-4.1.2.txt`, `licenses/lodash.isequal-4.5.0.txt` |
+| sax | 1.6.1 | Reading the GitHub release feed (electron-updater) | BlueOak-1.0.0 | `licenses/sax-1.6.1.txt` |
+| semver | 7.7.4 | Version comparison (electron-updater) | ISC | `licenses/semver-7.7.4.txt` |
+| tiny-typed-emitter | 2.1.0 | Used by electron-updater | MIT | `licenses/tiny-typed-emitter-2.1.0.txt` |
 
 Installer only (`SWAP-Installer.exe`, not part of the installed app) / nur im Installer:
 
