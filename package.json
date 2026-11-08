@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Messenger-artige Oberfläche für Claude Code mit Kontowechsel",
   "main": "src/main.js",
-  "author": "ARFEP - IT Service",
+  "author": "ARFEP – IT-Service",
   "scripts": {
     "start": "electron .",
     "licenses": "node tools/collect-licenses.js",
