@@ -1,0 +1,149 @@
+name: Release
+
+# Builds a release for a version tag (v0.1.0, v0.2.0 …) and creates a DRAFT release on GitHub with
+# SWAP-Installer.exe, the ZIP, latest.yml (for the in-app auto-update) and SHA-256 checksums.
+# Nothing reaches users until the draft is published by hand: the auto-update only sees published releases.
+#
+# Code signing (optional, SignPath Foundation – see CODE_SIGNING_POLICY.md) runs only when the
+# repository variable SIGNPATH_ORGANIZATION_ID and the secret SIGNPATH_API_TOKEN are set:
+#   1. Swapline.exe is signed before it is packed into the installer and the ZIP,
+#   2. SWAP-Installer.exe is signed afterwards, then latest.yml gets the new checksum.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the draft release
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SIGN: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      - name: Tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$v" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match package.json version $v" }
+
+      - name: Collect licenses
+        run: node tools/collect-licenses.js
+
+      - name: Build app folder
+        run: npx electron-builder --win --dir --publish never
+
+      # ---- optional: sign Swapline.exe before packaging ----
+      - name: Upload unsigned app for signing
+        if: env.SIGN == 'true'
+        id: unsigned-app
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-app
+          path: dist/win-unpacked
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign app (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: swapline
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.unsigned-app.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/win-unpacked-signed
+
+      - name: Use signed app
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist/win-unpacked
+          Move-Item dist/win-unpacked-signed dist/win-unpacked
+
+      - name: Build installer and ZIP
+        run: npx electron-builder --win --prepackaged dist/win-unpacked --publish never
+
+      # ---- optional: sign the installer, then update latest.yml ----
+      - name: Upload unsigned installer for signing
+        if: env.SIGN == 'true'
+        id: unsigned-installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-installer
+          path: dist/SWAP-Installer.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign installer (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: swapline
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signed
+
+      - name: Use signed installer and update latest.yml
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          Move-Item -Force dist/signed/SWAP-Installer.exe dist/SWAP-Installer.exe
+          node tools/update-latest-yml.js
+
+      - name: Check bundle (licenses, ffmpeg.dll, notices)
+        run: node tools/check-bundle.js
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/SWAP-Installer.exe, dist/Swapline-*-windows.zip | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: swapline-${{ github.ref_name }}
+          path: |
+            dist/SWAP-Installer.exe
+            dist/Swapline-*-windows.zip
+            dist/latest.yml
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node tools/release-notes.js $env:GITHUB_REF_NAME > dist/notes.md
+          $zip = (Get-ChildItem dist/Swapline-*-windows.zip).FullName
+          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --title "Swapline $env:GITHUB_REF_NAME" --notes-file dist/notes.md `
+            dist/SWAP-Installer.exe $zip dist/latest.yml dist/SHA256SUMS.txt
