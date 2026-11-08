@@ -384,3 +384,7 @@ button.link:hover { color: var(--accent); }
 .tool-group .tg-state.run::after { content: ""; display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
 .tool-group[open] > summary { margin-bottom: 4px; }
 .tool-group .tg-body { padding-left: 10px; border-left: 2px solid var(--line); }
+
+/* Chat umbenennen: Titel oben direkt bearbeiten */
+#ch-title { cursor: text; }
+#ch-title .title-edit { width: 100%; max-width: 520px; font: 600 16px var(--font-display); color: var(--text); background: var(--raised); border: 1px solid var(--accent); border-radius: 8px; padding: 2px 8px; outline: none; }

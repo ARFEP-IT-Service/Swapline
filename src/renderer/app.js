@@ -280,7 +280,8 @@ function openChatMenu(e, t) {
   for (const pr of store.projects || []) items.push(el('button', { class: 'pm-item' + (t.projectId === pr.id ? ' sel' : ''), onclick: () => { closeMenus(); moveChatToProject(t.id, pr.id); } },
     el('span', { class: 'pm-av' }, avatar(pr, 'sm')), pr.name));
   items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), 'Neues Projekt …'));
-  items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), 'Chat schließen'));
+  items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), 'Umbenennen …'));
+  items.push(el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), 'Chat schließen'));
   const menu = el('div', { class: 'popmenu', style: `left:${e.clientX}px; top:${e.clientY}px` }, ...items);
   document.body.append(menu);
   const r = menu.getBoundingClientRect();
@@ -1341,6 +1342,27 @@ $('#btn-send').onclick = sendMessage;
 $('#btn-stop').onclick = () => { const t = currentTab(); if (t) api.session.interrupt(t.id); };
 $('#input').addEventListener('input', autosize);
 $('#input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); } });
+// Chat umbenennen: Titel oben direkt bearbeiten (Enter speichert, Esc bricht ab). Gilt in Swapline;
+// die Sitzungsdateien von Claude Code bleiben unverändert.
+function renameChat() {
+  const t = currentTab(); if (!t) return;
+  const title = $('#ch-title');
+  if (title.querySelector('input')) return;
+  const input = el('input', { type: 'text', class: 'title-edit', value: t.title || '', maxlength: '80', placeholder: 'Name des Chats' });
+  let done = false;
+  const finish = save => {
+    if (done) return; done = true;
+    const v = input.value.replace(/\s+/g, ' ').trim();
+    if (save && v && v !== t.title) { t.title = v; saveTabs(); renderList(); toast('Chat umbenannt'); }
+    title.textContent = t.title || 'Neuer Chat';
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') { e.stopPropagation(); finish(false); } });
+  input.addEventListener('blur', () => finish(true));
+  title.replaceChildren(input);
+  input.focus(); input.select();
+}
+$('#ch-title').ondblclick = renameChat;
+$('#ch-title').title = 'Doppelklick zum Umbenennen';
 $('#ch-cwd').onclick = () => { const t = currentTab(); if (t?.cwd) api.openPath(t.cwd); };
 $('#ch-settings').onclick = () => ($('#chat-menu') ? closeMenus() : openChatSettingsMenu());
 document.addEventListener('keydown', e => {

@@ -5,6 +5,12 @@ Alle nennenswerten Änderungen an Swapline. Versionen folgen [Semantic Versionin
 Major = nicht rückwärtskompatible Änderungen. Die Versionsnummer steht nur in `package.json` und gilt für
 exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
+## [0.7.0] – 2026-11-08
+
+### Neu
+- Chats umbenennen: Doppelklick auf den Titel oben (Enter speichert, Esc bricht ab) oder Rechtsklick auf den
+  Chat → „Umbenennen …“. Der Name gilt in Swapline; die Sitzungsdateien von Claude Code bleiben unverändert.
+
 ## [0.6.0] – 2026-11-08
 
 ### Neu
