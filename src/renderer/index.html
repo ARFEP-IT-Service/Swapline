@@ -74,8 +74,12 @@
         <div id="messages"></div>
 
         <div id="bgbar" hidden></div>
+        <div id="attachbar" hidden></div>
         <footer id="composer">
-          <textarea id="input" rows="1" placeholder="Nachricht an Claude …  (Enter = senden, Shift+Enter = neue Zeile)"></textarea>
+          <button id="btn-attach" class="icon-btn attach" title="Bilder oder Dateien anhängen (auch per Strg+V oder Ziehen ins Fenster)">
+            <svg viewBox="0 0 24 24"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg>
+          </button>
+          <textarea id="input" rows="1" placeholder="Nachricht an Claude …  (Enter = senden, Shift+Enter = neue Zeile, / = Befehle, ↑ = letzte Nachricht)"></textarea>
           <button id="btn-stop" class="icon-btn danger" title="Stoppen (Esc)" hidden>
             <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
           </button>

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const invoke = (ch, arg) => ipcRenderer.invoke(ch, arg);
 
@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   history: {
     list: profileId => invoke('history:list', profileId),
     loadSession: data => invoke('history:loadSession', data),
+    search: (profileId, query) => invoke('history:search', { profileId, query }),
   },
   session: {
     send: (tab, content) => invoke('session:send', { tab, content }),
@@ -51,6 +52,9 @@ contextBridge.exposeInMainWorld('api', {
   attention: () => invoke('app:attention'),
   readTaskOutput: file => invoke('task:readOutput', file),
   copyText: text => invoke('clipboard:write', text),
+  pickAttachments: () => invoke('attach:pick'),
+  // Pfad einer per Drag & Drop abgelegten Datei (nur für vom Nutzer abgelegte File-Objekte)
+  pathForFile: file => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   onEvent: cb => ipcRenderer.on('claude:event', (_e, d) => cb(d)),
   onUsage: cb => ipcRenderer.on('usage:update', (_e, d) => cb(d)),
   onLogin: cb => ipcRenderer.on('login:update', (_e, d) => cb(d)),

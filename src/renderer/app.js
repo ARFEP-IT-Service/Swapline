@@ -486,6 +486,16 @@ function openChatSettingsMenu() {
 }
 
 // ---------- Seitenleiste ----------
+let searchState = { key: '', loading: false, results: [] };
+// Suchbegriff im Ausschnitt hervorheben (als Text-Knoten, kein HTML)
+function highlight(text, q) {
+  const out = el('span');
+  const lower = (text || '').toLowerCase();
+  let i = 0, j;
+  while ((j = lower.indexOf(q, i)) >= 0) { out.append(text.slice(i, j), el('mark', {}, text.slice(j, j + q.length))); i = j + q.length; }
+  out.append(text.slice(i));
+  return out;
+}
 function renderList() {
   const q = $('#search').value.trim().toLowerCase();
   const list = $('#list');
@@ -494,7 +504,9 @@ function renderList() {
 
   if (view === 'chats') {
     const pid = activeProjectId();
-    const items = tabs.filter(t => tabInProject(t, pid) && match(t.title, t.cwd, t.preview)).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    // Suche: Titel, Ordner, Vorschau und der Text der Nachrichten offener Chats
+    const inMessages = t => q && t.items.some(it => (it.kind === 'me' || it.kind === 'ai') && (it.text || '').toLowerCase().includes(q));
+    const items = tabs.filter(t => tabInProject(t, pid) && (match(t.title, t.cwd, t.preview) || inMessages(t))).sort((a, b) => (b.updated || 0) - (a.updated || 0));
     nodes = items.map(t => {
       const p = profile(t.profileId);
       const pr = pid === 'all' ? project(t.projectId) : null;
@@ -508,7 +520,8 @@ function renderList() {
         t.running ? el('span', { class: 'busy', title: 'arbeitet …' }) : t.unread ? el('span', { class: 'unread' }) : null,
         el('button', { class: 'close', title: 'Chat schließen', onclick: e => { e.stopPropagation(); closeTab(t.id); } }, icon(ICONS.x)));
     });
-    if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, q ? 'Keine Treffer.' : pid === 'all' ? 'Noch keine Chats. Klicke auf + für einen neuen Chat.' : 'Noch keine Chats in diesem Projekt. Klicke auf + oder ziehe einen Chat auf das Projekt links.')];
+    if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, q ? 'Keine Treffer in offenen Chats.' : pid === 'all' ? 'Noch keine Chats. Klicke auf + für einen neuen Chat.' : 'Noch keine Chats in diesem Projekt. Klicke auf + oder ziehe einen Chat auf das Projekt links.')];
+    if (q.length >= 2) nodes.push(el('button', { class: 'search-all', onclick: () => { view = 'history'; setSeg(); renderList(); } }, `🔎 „${q}“ in allen Sitzungen suchen`));
   }
 
   if (view === 'favorites') {
@@ -522,13 +535,34 @@ function renderList() {
 
   if (view === 'history') {
     const pid = store.activeProfileId;
+    const pr = project(activeProjectId());
+    const inProject = h => !pr?.cwd || (h.cwd || '').toLowerCase().startsWith(pr.cwd.toLowerCase());
+    // Volltextsuche (ab 2 Zeichen): durchsucht die Nachrichten aller Sitzungen des Kontos im Hauptprozess
+    if (q.length >= 2) {
+      const key = pid + '|' + q;
+      if (searchState.key !== key) {
+        searchState = { key, loading: true, results: [] };
+        const s0 = searchState;
+        setTimeout(async () => { const r = await api.history.search(pid, q); if (searchState === s0) { s0.results = r; s0.loading = false; if (view === 'history') renderList(); } }, 250);
+      }
+      if (searchState.loading) { list.replaceChildren(el('div', { class: 'list-empty' }, 'Durchsuche alle Sitzungen …')); return; }
+      const hits = searchState.results.filter(inProject);
+      nodes = hits.map(h => el('div', { class: 'item search-hit', onclick: () => resumeFromHistory(h), title: h.cwd },
+        el('div', { class: 'folder-ic' }, icon(ICONS.clock)),
+        el('div', { class: 'meta' },
+          el('div', { class: 'row1' }, el('span', { class: 'title' }, h.title), el('span', { class: 'time' }, fmtTime(h.when || h.mtime))),
+          el('div', { class: 'snippet' }, highlight(h.snippet, q)),
+          el('div', { class: 'sub mono' }, `${h.hits} Treffer · ${baseName(h.cwd)}`))));
+      if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, `Keine Nachricht mit „${q}“ gefunden.`)];
+      list.replaceChildren(...nodes);
+      renderRail();
+      return;
+    }
     if (!historyCache[pid]) {
       list.replaceChildren(el('div', { class: 'list-empty' }, 'Verlauf wird geladen …'));
       api.history.list(pid).then(h => { historyCache[pid] = h; if (view === 'history') renderList(); });
       return;
     }
-    const pr = project(activeProjectId());
-    const inProject = h => !pr?.cwd || (h.cwd || '').toLowerCase().startsWith(pr.cwd.toLowerCase());
     const items = historyCache[pid].filter(h => inProject(h) && match(h.title, h.cwd));
     let lastGroup = '';
     for (const h of items) {
@@ -761,7 +795,10 @@ function setTyping(t) {
 
 function renderItem(t, it) {
   switch (it.kind) {
-    case 'me': return el('div', {}, el('div', { class: 'msg me' }, el('div', { class: 'bubble' }, it.text)),
+    case 'me': return el('div', {}, el('div', { class: 'msg me' }, el('div', { class: 'bubble' },
+      it.images?.length ? el('div', { class: 'bubble-imgs' }, it.images.map(src => el('img', { src, alt: 'Bild' }))) : null,
+      it.files?.length ? el('div', { class: 'bubble-files' }, it.files.map(n => el('span', {}, '📄 ' + n))) : null,
+      it.text)),
       it.time ? el('div', { class: 'msg-time' }, msgTime(it.time)) : null);
     case 'ai': {
       const b = el('div', { class: 'bubble md' + (it.streaming ? ' streaming' : ''), html: md(it.streaming ? streamingMarkdown(it.text) : it.text) });
@@ -775,6 +812,8 @@ function renderItem(t, it) {
     case 'tool': return renderTool(it);
     case 'perm': return renderPerm(t, it);
     case 'question': return renderQuestion(t, it);
+    case 'plan': return renderPlan(t, it);
+    case 'recap': return el('div', { class: 'recap' }, el('div', { class: 'recap-head' }, '※ Recap', it.time ? el('span', { class: 'muted' }, ' · ' + msgTime(it.time)) : null), el('div', { class: 'recap-body' }, it.text));
     case 'sys': return el('div', { class: 'sys' + (it.error ? ' err' : '') }, el('span', {}, it.text));
     case 'result': return el('div', { class: 'result-line' }, it.text);
   }
@@ -863,6 +902,26 @@ function answerPerm(t, it, how) {
   refreshItem(t, it);
 }
 
+// Plan-Karte (Modus „Nur planen“): Plan als Markdown, annehmen / überarbeiten lassen / ablehnen.
+// Annehmen beendet in Claude Code den Plan-Modus; Swapline stellt den Chat dann auf „Nachfragen“.
+function renderPlan(t, it) {
+  const card = el('div', { class: 'card plan' + (it.answered ? ' done' : '') }, el('h4', {}, '📋 Plan von Claude'));
+  const body = el('div', { class: 'md plan-body', html: md(it.input?.plan || '') });
+  card.append(body);
+  if (it.answered) { card.append(el('div', { class: 'muted', style: 'margin-top:8px' }, it.answered)); return card; }
+  const feedback = el('textarea', { class: 'plan-feedback', rows: '2', placeholder: 'Optional: Was soll Claude am Plan ändern?' });
+  const answer = (resp, label, mode) => {
+    api.session.respond(t.id, it.requestId, resp);
+    it.answered = label;
+    if (mode) { t.permissionMode = mode; saveTabs(); renderChatChip(t); }
+    refreshItem(t, it);
+  };
+  card.append(feedback, el('div', { class: 'actions', style: 'margin-top:10px' },
+    el('button', { class: 'primary', onclick: () => answer({ behavior: 'allow', updatedInput: it.input }, '✓ Plan angenommen – Claude setzt ihn um (Berechtigungen: Nachfragen)', 'default') }, 'Plan annehmen'),
+    el('button', { class: 'ghost', onclick: () => { if (!feedback.value.trim()) return feedback.focus(); answer({ behavior: 'deny', message: 'Bitte überarbeite den Plan: ' + feedback.value.trim() }, '✎ Überarbeitung gewünscht: ' + feedback.value.trim()); } }, 'Überarbeiten lassen'),
+    el('button', { class: 'ghost danger', onclick: () => answer({ behavior: 'deny', message: 'Der Nutzer hat den Plan abgelehnt.' }, '✕ Plan abgelehnt') }, 'Ablehnen')));
+  return card;
+}
 function renderQuestion(t, it) {
   const card = el('div', { class: 'card' + (it.answered ? ' done' : '') }, el('h4', {}, 'Claude hat eine Frage'));
   if (it.answered) { card.append(el('div', { class: 'muted' }, it.answered)); return card; }
@@ -915,6 +974,7 @@ function ingest(t, m, fromHistory = false) {
         if (changed) saveTabs();
       } else if (m.subtype === 'compact_boundary') add({ kind: 'sys', text: 'Unterhaltung wurde zusammengefasst' });
       else if (['task_started', 'task_updated', 'task_notification', 'background_tasks_changed'].includes(m.subtype)) trackTask(t, m);
+      else if (m.subtype === 'away_summary' && m.content) add({ kind: 'recap', text: m.content, time: Date.parse(m.timestamp) || Date.now() });
       break;
 
     case 'stream_event': {
@@ -961,7 +1021,9 @@ function ingest(t, m, fromHistory = false) {
             if (!fromHistory) refreshItem(t, tool);
           }
         } else if (block.type === 'text' && fromHistory && !hiddenUserText(block.text)) {
-          add({ kind: 'me', text: block.text, time: Date.parse(m.timestamp) || null });
+          // Bilder derselben Nachricht (aus dem Verlauf) mit anzeigen
+          const images = c.filter(b => b.type === 'image' && b.source?.type === 'base64' && IMG_TYPES.includes(b.source.media_type)).map(b => `data:${b.source.media_type};base64,${b.source.data}`);
+          add({ kind: 'me', text: block.text, time: Date.parse(m.timestamp) || null, images });
         }
       }
       break;
@@ -971,8 +1033,9 @@ function ingest(t, m, fromHistory = false) {
       const r = m.request;
       if (r?.subtype !== 'can_use_tool') break;
       if (r.tool_name === 'AskUserQuestion') add({ kind: 'question', requestId: m.request_id, input: r.input });
+      else if (r.tool_name === 'ExitPlanMode') add({ kind: 'plan', requestId: m.request_id, input: r.input });
       else add({ kind: 'perm', requestId: m.request_id, toolName: r.tool_name, input: r.input, description: r.description, suggestions: r.permission_suggestions });
-      notifyIfHidden(t, r.tool_name === 'AskUserQuestion' ? 'Claude hat eine Frage' : 'Claude braucht deine Erlaubnis');
+      notifyIfHidden(t, r.tool_name === 'AskUserQuestion' ? 'Claude hat eine Frage' : r.tool_name === 'ExitPlanMode' ? 'Claude hat einen Plan vorgelegt' : 'Claude braucht deine Erlaubnis');
       break;
     }
 
@@ -1146,26 +1209,131 @@ api.onEvent(({ tabId, msg }) => {
 api.onUsage(u => { store.usage = u; renderUsage(); });
 
 // ---------- Senden ----------
+// ---------- Eingabefeld: /-Befehle, Eingabe-Verlauf, Anhänge ----------
+// Befehle, die im Chat-Modus von Claude Code nicht laufen (sie brauchen das Terminal), führt Swapline selbst aus.
+const LOCAL_COMMANDS = [
+  { name: 'clear', description: 'Neuen Chat beginnen', run: () => newChat() },
+  { name: 'new', description: 'Neuen Chat beginnen', run: () => newChat() },
+  { name: 'model', description: 'Modell, Aufwand und Berechtigungen wählen', run: () => openChatSettingsMenu() },
+  { name: 'rename', description: 'Chat umbenennen', run: () => renameChat() },
+  { name: 'login', description: 'Konten verwalten und anmelden', run: () => openAccounts() },
+  { name: 'config', description: 'Einstellungen von Swapline', run: () => openSettings() },
+  { name: 'settings', description: 'Einstellungen von Swapline', run: () => openSettings() },
+];
+function commandList() {
+  const t = currentTab();
+  const cli = (modelInfo[t?.profileId]?.commands || []).filter(c => !LOCAL_COMMANDS.some(l => l.name === c.name));
+  return [...LOCAL_COMMANDS.map(c => ({ ...c, local: true })), ...cli];
+}
+let cmdState = { open: false, items: [], index: 0 };
+function updateCommandPopup() {
+  const input = $('#input');
+  const v = input.value, caret = input.selectionStart;
+  const m = /^\/(\S*)$/.exec(v.slice(0, caret));
+  if (!m || v.slice(0, caret).includes('\n')) return closeCommandPopup();
+  const q = m[1].toLowerCase();
+  const all = commandList();
+  const items = all.filter(c => c.name.toLowerCase().startsWith(q))
+    .concat(all.filter(c => !c.name.toLowerCase().startsWith(q) && (c.name + ' ' + c.description).toLowerCase().includes(q))).slice(0, 9);
+  if (!items.length) return closeCommandPopup();
+  cmdState = { open: true, items, index: Math.min(cmdState.index, items.length - 1) };
+  let pop = $('#cmd-popup');
+  if (!pop) { pop = el('div', { class: 'popmenu cmd-popup', id: 'cmd-popup' }); document.body.append(pop); }
+  const r = input.getBoundingClientRect();
+  pop.style.left = r.left + 'px'; pop.style.bottom = (window.innerHeight - r.top + 8) + 'px'; pop.style.width = Math.min(560, r.width) + 'px';
+  fill(pop, el('div', { class: 'pm-title' }, 'Befehle · ↑↓ wählen · Enter/Tab übernehmen · Esc schließen'),
+    items.map((c, i) => el('button', { class: 'pm-item' + (i === cmdState.index ? ' sel' : ''), onmousedown: e => { e.preventDefault(); applyCommand(c); } },
+      el('span', { class: 'cmd-name' }, '/' + c.name, c.argumentHint ? el('span', { class: 'muted' }, ' ' + c.argumentHint) : null),
+      el('span', { class: 'cmd-desc' }, c.description || ''),
+      c.local ? el('span', { class: 'cmd-badge' }, 'Swapline') : null)));
+}
+function closeCommandPopup() { cmdState.open = false; $('#cmd-popup')?.remove(); }
+function applyCommand(c) {
+  const input = $('#input');
+  closeCommandPopup();
+  if (c.local) { input.value = ''; autosize(); return c.run(); }
+  input.value = '/' + c.name + ' ';
+  input.focus(); input.setSelectionRange(input.value.length, input.value.length); autosize();
+}
+// Eingabe-Verlauf: ↑/↓ blättert durch die letzten eigenen Nachrichten (gespeichert, höchstens 100)
+const LS_HISTORY = 'swapline.inputHistory';
+let inputHistory = (() => { try { return JSON.parse(localStorage.getItem(LS_HISTORY)) || []; } catch { return []; } })();
+let historyPos = -1, historyDraft = '';
+function rememberInput(text) {
+  inputHistory = [text, ...inputHistory.filter(x => x !== text)].slice(0, 100);
+  historyPos = -1;
+  try { localStorage.setItem(LS_HISTORY, JSON.stringify(inputHistory)); } catch {}
+}
+function browseHistory(dir) {
+  const input = $('#input');
+  if (historyPos === -1) historyDraft = input.value;
+  const next = historyPos + dir;
+  if (next < -1 || next >= inputHistory.length) return false;
+  historyPos = next;
+  input.value = historyPos === -1 ? historyDraft : inputHistory[historyPos];
+  autosize(); input.setSelectionRange(input.value.length, input.value.length);
+  return true;
+}
+// Anhänge: Bilder (png/jpg/gif/webp bis 5 MB) gehen als Bild an Claude, andere Dateien als Pfad
+let attachments = [];
+const IMG_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+function renderAttachments() {
+  const bar = $('#attachbar');
+  bar.hidden = !attachments.length;
+  fill(bar, attachments.map((a, i) => el('div', { class: 'att-chip', title: a.path || a.name },
+    a.kind === 'image' ? el('img', { src: `data:${a.media};base64,${a.data}`, alt: '' }) : el('span', { class: 'att-file' }, '📄'),
+    el('span', { class: 'att-name' }, a.name),
+    el('button', { class: 'att-x', title: 'Entfernen', onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, '×'))));
+}
+function readImageFile(file) {
+  return new Promise(res => {
+    const fr = new FileReader();
+    fr.onload = () => res({ kind: 'image', name: file.name || 'Bild.png', media: file.type, data: String(fr.result).split(',')[1] });
+    fr.onerror = () => res(null);
+    fr.readAsDataURL(file);
+  });
+}
+async function addFiles(fileList) {
+  for (const f of [...fileList].slice(0, 10)) {
+    if (IMG_TYPES.includes(f.type) && f.size <= 5 * 1024 * 1024) { const a = await readImageFile(f); if (a) attachments.push(a); continue; }
+    const p = api.pathForFile(f);
+    if (p) attachments.push({ kind: 'file', name: f.name, path: p, size: f.size });
+    else if (IMG_TYPES.includes(f.type)) toast('Bild ist größer als 5 MB');
+  }
+  renderAttachments();
+}
+
 async function sendMessage() {
   const t = currentTab(); if (!t) return;
   const input = $('#input');
-  const text = input.value.trim();
-  if (!text) return;
+  let text = input.value.trim();
+  // Swapline-eigene Befehle (/clear, /model …) direkt ausführen
+  const local = /^\/(\S+)\s*$/.exec(text) && LOCAL_COMMANDS.find(c => c.name === text.slice(1).trim());
+  if (local && !attachments.length) { input.value = ''; autosize(); closeCommandPopup(); return local.run(); }
+  if (!text && !attachments.length) return;
   const st = status[t.profileId];
   if (st && !st.loggedIn) {
     if (st.claudeMissing) { toast(CLAUDE_MISSING_TEXT + ' – bitte installieren oder Pfad in den Einstellungen angeben'); return openSettings(); }
     toast('Dieses Konto ist nicht angemeldet');
     return openAccounts();
   }
+  closeCommandPopup();
+  if (text) rememberInput(text);
+  // Anhänge: Bilder als Bild-Blöcke, Dateien als Pfadliste im Text (Claude liest sie selbst)
+  const imgs = attachments.filter(a => a.kind === 'image'), files = attachments.filter(a => a.kind === 'file');
+  attachments = []; renderAttachments();
+  if (!text) text = imgs.length ? 'Siehe angehängtes Bild.' : 'Siehe angehängte Datei.';
+  const fullText = files.length ? `${text}\n\nAngehängte Dateien:\n${files.map(f => '- ' + f.path).join('\n')}` : text;
+  const content = imgs.length ? [...imgs.map(a => ({ type: 'image', source: { type: 'base64', media_type: a.media, data: a.data } })), { type: 'text', text: fullText }] : fullText;
   input.value = ''; autosize();
   if (!t.title) t.title = text.replace(/\s+/g, ' ').slice(0, 60);
   t.preview = text.replace(/\s+/g, ' ').slice(0, 90);
   t.updated = Date.now();
-  appendItem(t, { kind: 'me', text, time: Date.now() });
+  appendItem(t, { kind: 'me', text, time: Date.now(), images: imgs.map(a => `data:${a.media};base64,${a.data}`), files: files.map(f => f.name) });
   t.running = true; setTyping(t); updateComposer();
   saveTabs(); renderList();
   $('#ch-title').textContent = t.title;
-  await api.session.send(plainTab(t), text);
+  await api.session.send(plainTab(t), content);
 }
 const plainTab = t => ({ id: t.id, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode });
 
@@ -1430,7 +1598,32 @@ document.querySelectorAll('#seg button').forEach(b => b.onclick = () => { view =
 $('#btn-send').onclick = sendMessage;
 $('#btn-stop').onclick = () => { const t = currentTab(); if (t) api.session.interrupt(t.id); };
 $('#input').addEventListener('input', autosize);
-$('#input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); } });
+$('#input').addEventListener('keydown', e => {
+  const input = e.currentTarget;
+  if (cmdState.open) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); cmdState.index = (cmdState.index + (e.key === 'ArrowDown' ? 1 : -1) + cmdState.items.length) % cmdState.items.length; return updateCommandPopup(); }
+    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { e.preventDefault(); return applyCommand(cmdState.items[cmdState.index]); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); return closeCommandPopup(); }
+  }
+  // ↑ am Anfang des Feldes (bzw. leeres Feld) = vorherige Nachricht, ↓ am Ende = nächste
+  // beim Blättern (Feld zeigt noch einen Verlaufseintrag) blättern ↑/↓ unabhängig von der Cursorposition weiter
+  const browsing = historyPos >= 0 && input.value === inputHistory[historyPos];
+  if (e.key === 'ArrowUp' && !e.shiftKey && (browsing || (input.selectionStart === 0 && input.selectionEnd === 0)) && browseHistory(1)) { e.preventDefault(); return; }
+  if (e.key === 'ArrowUp' && !input.value && browseHistory(1)) { e.preventDefault(); return; }
+  if (e.key === 'ArrowDown' && historyPos >= 0 && (browsing || input.selectionStart === input.value.length) && browseHistory(-1)) { e.preventDefault(); return; }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
+});
+$('#input').addEventListener('input', () => { cmdState.index = cmdState.open ? cmdState.index : 0; updateCommandPopup(); });
+$('#input').addEventListener('blur', () => setTimeout(closeCommandPopup, 150));
+// Anhänge: Knopf, Einfügen (Strg+V mit Bild) und Ziehen ins Fenster
+$('#btn-attach').onclick = async () => { const r = await api.pickAttachments(); if (r?.length) { attachments.push(...r); renderAttachments(); } };
+$('#input').addEventListener('paste', e => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+$('#chat-view').addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); $('#chat-view').classList.add('dropping'); } });
+$('#chat-view').addEventListener('dragleave', e => { if (e.target === $('#chat-view') || !e.relatedTarget) $('#chat-view').classList.remove('dropping'); });
+$('#chat-view').addEventListener('drop', e => { $('#chat-view').classList.remove('dropping'); if (e.dataTransfer.files.length) { e.preventDefault(); addFiles(e.dataTransfer.files); } });
 // Chat umbenennen: Titel oben direkt bearbeiten (Enter speichert, Esc bricht ab). Gilt in Swapline;
 // die Sitzungsdateien von Claude Code bleiben unverändert.
 function renameChat() {

@@ -26,6 +26,12 @@ Erste Version.
 - Werkzeug-Aufrufe im Chat: alle, kompakt oder ausgeblendet.
 - Antworten von Claude und Code-Blöcke per Knopf kopieren (Markdown), ebenso die Ausgabe von Hintergrund-Aufgaben.
 - Hintergrund-Aufgaben (z. B. Befehle mit `run_in_background`) als Leiste über dem Eingabefeld, mit Status und Ausgabe.
+- /-Befehle mit Auswahlliste (Befehle und Skills des Kontos; /clear, /model, /rename, /login, /config führt Swapline selbst aus).
+- Bilder und Dateien anhängen: Büroklammer, Strg+V (Bild) oder Ziehen ins Fenster; Bilder gehen als Bild an Claude, Dateien als Pfad.
+- Eingabe-Verlauf: ↑/↓ blättert durch die letzten eigenen Nachrichten.
+- Suche: offene Chats inklusive Nachrichtentext, im Verlauf Volltextsuche durch alle Sitzungen mit Ausschnitt.
+- Plan-Modus: Plan als Karte mit „Plan annehmen“, „Überarbeiten lassen“ und „Ablehnen“.
+- Recap (Zusammenfassung „während du weg warst“) aus Claude Code wird angezeigt.
 - Sicherheitsabfrage beim Schließen, solange Claude arbeitet.
 - Anmeldung nur über `claude auth login` (System-Browser); keine Zugangsdaten in Swapline.
 - Installer `SWAP-Installer.exe` (pro Benutzer, ohne Admin-Rechte) und ZIP; Übernahme der Einstellungen aus

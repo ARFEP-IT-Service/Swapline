@@ -120,6 +120,8 @@ function envFor(profile) {
   const env = { ...process.env };
   // Variablen einer eventuell umgebenden Claude-Sitzung nicht vererben
   delete env.CLAUDECODE; delete env.CLAUDE_CODE_ENTRYPOINT; delete env.CLAUDE_CODE_SSE_PORT;
+  // Recaps (Zusammenfassung „während du weg warst“) auch im Chat-Modus erzeugen lassen – offizieller Schalter der CLI
+  env.CLAUDE_CODE_ENABLE_AWAY_SUMMARY = '1';
   if (profile && !profile.isDefault) env.CLAUDE_CONFIG_DIR = profile.configDir;
   else delete env.CLAUDE_CONFIG_DIR;
   return env;
@@ -161,7 +163,10 @@ function probeModels(profile) {
       let m; try { m = JSON.parse(line); } catch { return; }
       if (m.type === 'control_response' && m.response?.request_id === 'models') {
         const r = m.response.response || {};
-        finish({ ...base, models: r.models || [], account: r.account || null });
+        // commands: /-Befehle und Skills des Kontos (Name, Beschreibung, Argument-Hinweis) für die Auswahl im Eingabefeld
+        const commands = (r.commands || []).filter(c => c && typeof c.name === 'string')
+          .map(c => ({ name: c.name, description: String(c.description || '').slice(0, 300), argumentHint: String(c.argumentHint || '').slice(0, 80) }));
+        finish({ ...base, models: r.models || [], account: r.account || null, commands });
       }
     });
     p.on('error', () => finish(base));
@@ -323,6 +328,8 @@ function loadTranscript(file) {
     let o; try { o = JSON.parse(line); } catch { continue; }
     if ((o.type === 'user' || o.type === 'assistant') && o.message && !o.isSidechain && !o.isMeta) {
       out.push({ type: o.type, message: o.message, timestamp: o.timestamp, fromHistory: true });
+    } else if (o.type === 'system' && o.subtype === 'away_summary' && typeof o.content === 'string') {
+      out.push({ type: 'system', subtype: 'away_summary', content: o.content, timestamp: o.timestamp, fromHistory: true });
     }
   }
   return out;
@@ -538,6 +545,38 @@ ipcMain.handle('projects:reorder', (_e, ids) => updateStore(s => {
   s.projects.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 }));
 
+// Volltextsuche in den Sitzungen eines Kontos: Nachrichten von dir und Claude (keine Werkzeug-Ausgaben).
+// Liefert je Sitzung die Anzahl Treffer und einen Ausschnitt um den ersten Treffer.
+ipcMain.handle('history:search', async (_e, { profileId, query } = {}) => {
+  const p = profileById(profileId);
+  const q = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  if (!p || q.length < 2) return [];
+  const textOfMsg = m => {
+    const c = m?.content;
+    if (typeof c === 'string') return c.startsWith('<') ? '' : c;
+    return Array.isArray(c) ? c.filter(b => b.type === 'text' && !String(b.text).startsWith('<')).map(b => b.text).join('\n') : '';
+  };
+  const results = [];
+  for (const h of listHistory(p, 400)) {
+    let raw;
+    try { raw = await fs.promises.readFile(h.file, 'utf8'); } catch { continue; }
+    if (!raw.toLowerCase().includes(q)) continue;
+    let hits = 0, snippet = '', when = 0;
+    for (const line of raw.split('\n')) {
+      if (!line.toLowerCase().includes(q)) continue;
+      let o; try { o = JSON.parse(line); } catch { continue; }
+      if ((o.type !== 'user' && o.type !== 'assistant') || o.isSidechain || o.isMeta) continue;
+      const text = textOfMsg(o.message), i = text.toLowerCase().indexOf(q);
+      if (i < 0) continue;
+      hits++;
+      if (!snippet) { snippet = (i > 40 ? '…' : '') + text.slice(Math.max(0, i - 40), i + q.length + 80).replace(/\s+/g, ' ') + '…'; when = Date.parse(o.timestamp) || h.mtime; }
+    }
+    if (hits) results.push({ ...h, hits, snippet, when });
+    if (results.length >= 60) break;
+  }
+  for (const r of results) if (r.cwd) rememberFolder(r.cwd);
+  return results;
+});
 ipcMain.handle('history:list', (_e, profileId) => {
   const p = profileById(profileId);
   if (!p) return [];
@@ -566,9 +605,33 @@ function validTab(t) {
 ipcMain.handle('session:confirmBypass', () => confirmBypass());
 // Warnung zu „Alles erlauben“ wieder einschalten (nur in diese sichere Richtung von der Oberfläche aus möglich)
 ipcMain.handle('settings:resetBypassWarning', () => updateStore(s => { delete s.bypassAcknowledged; }));
+// Nachrichteninhalt: Text oder Liste aus Text- und Bild-Blöcken (Bilder als base64, nur png/jpeg/gif/webp, je max. 5 MB)
+const IMAGE_MEDIA = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+function validContent(c) {
+  if (typeof c === 'string') return c.length <= 2e6;
+  if (!Array.isArray(c) || !c.length || c.length > 20) return false;
+  return c.every(b => (b?.type === 'text' && typeof b.text === 'string' && b.text.length <= 2e6)
+    || (b?.type === 'image' && b.source?.type === 'base64' && IMAGE_MEDIA.includes(b.source.media_type)
+      && typeof b.source.data === 'string' && b.source.data.length <= 7e6 && /^[A-Za-z0-9+/]+=*$/.test(b.source.data)));
+}
+// Anhänge über den Datei-Dialog: Bilder werden eingelesen (base64), andere Dateien nur als Pfad übergeben
+ipcMain.handle('attach:pick', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Dateien anhängen', properties: ['openFile', 'multiSelections'] });
+  if (r.canceled) return [];
+  const out = [];
+  for (const file of r.filePaths.slice(0, 10)) {
+    if (isUnc(file)) continue;
+    const ext = path.extname(file).slice(1).toLowerCase();
+    const media = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext];
+    const size = fs.statSync(file).size;
+    if (media && size <= 5 * 1024 * 1024) out.push({ kind: 'image', name: path.basename(file), media, data: fs.readFileSync(file).toString('base64') });
+    else out.push({ kind: 'file', name: path.basename(file), path: file, size });
+  }
+  return out;
+});
 ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
   const tab = validTab(rawTab);
-  if (!tab || typeof content !== 'string') {
+  if (!tab || !validContent(content)) {
     logError('session:send abgelehnt: ungültige Tab-Daten');
     if (rawTab?.cwd && typeof rawTab.id === 'string') send(rawTab.id, { type: 'app_error', message: 'Dieser Arbeitsordner ist nicht freigegeben. Bitte den Ordner über „Neuer Chat“ oder ein Projekt neu wählen.' });
     return false;
