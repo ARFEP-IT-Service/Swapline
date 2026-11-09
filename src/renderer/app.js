@@ -150,6 +150,36 @@ const initials = name => (name || '?').trim().split(/\s+/).map(w => w[0]).join('
 const avatar = (p, cls = '') => p?.icon
   ? el('div', { class: 'avatar img ' + cls }, el('img', { src: p.icon, alt: '' }))
   : el('div', { class: 'avatar ' + cls, style: `background:${p?.color || '#64748B'}` }, initials(p?.name));
+// Eigenes Bild je Chat: verkleinert (96 px) und nur auf diesem PC gespeichert – auch für Chats von Haupt-PCs
+const LS_CHAT_ICONS = 'swapline.chatIcons.v1';
+const chatIcons = (() => { try { return JSON.parse(localStorage.getItem(LS_CHAT_ICONS)) || {}; } catch { return {}; } })();
+const chatIconKey = t => (t.mirror ? t.host + '|m|' + t.hostTab : t.id);
+const chatIcon = t => chatIcons[chatIconKey(t)] || null;
+const chatAvatar = (t, cls = '') => (chatIcon(t) ? avatar({ icon: chatIcon(t) }, cls) : avatar(profileOf(t), cls));
+function saveChatIcons() { try { localStorage.setItem(LS_CHAT_ICONS, JSON.stringify(chatIcons)); } catch { toast(_('Bild konnte nicht gespeichert werden (Speicher voll)')); } }
+function shrinkIcon(src, size = 96) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      const s = Math.min(img.naturalWidth || size, img.naturalHeight || size);
+      c.getContext('2d').drawImage(img, ((img.naturalWidth || size) - s) / 2, ((img.naturalHeight || size) - s) / 2, s, s, 0, 0, size, size);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+async function pickChatIcon(t) {
+  const r = await api.projects.pickIcon();
+  if (r?.error) return toast(r.error);
+  if (!r?.icon) return;
+  const small = await shrinkIcon(r.icon);
+  if (!small) return toast(_('Bild konnte nicht gelesen werden'));
+  chatIcons[chatIconKey(t)] = small; saveChatIcons();
+  renderList(); rerenderTab(t);
+}
+function removeChatIcon(t) { delete chatIcons[chatIconKey(t)]; saveChatIcons(); renderList(); rerenderTab(t); }
 const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p || 'Home';
 
 // Uhrzeit an Nachrichten: heute nur HH:MM, sonst mit Datum
@@ -200,6 +230,12 @@ const hostProfiles = host => (host ? hostStores[host]?.profiles || [] : store.pr
 const profileOf = t => hostProfiles(t.host).find(p => p.id === t.profileId);
 const hostInfo = id => remoteState?.hosts?.find(h => h.id === id);
 const hostName = id => hostInfo(id)?.name || hostStores[id]?.hostName || _('Haupt-PC');
+// Symbol eines Haupt-PCs: eigenes Bild oder Initialen auf Farbe, mit kleinem Bildschirm-Zeichen
+const hostAvatar = (h, cls = '') => {
+  const a = h?.icon ? avatar({ icon: h.icon }, 'host ' + cls) : el('div', { class: 'avatar host ' + cls, style: `background:${h?.color || '#475569'}` }, initials(h?.name));
+  a.append(el('span', { class: 'host-mark' }, icon(MONITOR)));
+  return a;
+};
 const hostConnected = id => hostInfo(id)?.state === 'connected';
 function tapi(x) {
   const host = typeof x === 'string' ? x : x?.host;
@@ -312,7 +348,7 @@ function renderRail() {
 function renderProjectHead() {
   const pid = activeProjectId(), pr = project(pid), hv = hostOfView(pid);
   if (hv) {
-    const av = el('div', { class: 'avatar lg host' }, initials(hostName(hv)), el('span', { class: 'host-mark' }, icon(MONITOR)));
+    const av = hostAvatar(hostInfo(hv) || { name: hostName(hv) }, 'lg');
     av.id = 'ph-avatar';
     $('#ph-avatar').replaceWith(av);
     $('#ph-name').textContent = hostName(hv);
@@ -399,8 +435,32 @@ function renderRailHosts() {
     class: 'rail-profile' + (pid === 'host:' + h.id ? ' active' : ''),
     title: _('Haupt-PC: {name}', { name: h.name }) + '\n' + h.address + ':' + h.port + '\n' + (h.state === 'connected' ? _('verbunden') : _('nicht verbunden')),
     onclick: () => switchProject('host:' + h.id),
-  }, el('div', { class: 'avatar host' }, initials(h.name), el('span', { class: 'host-mark' }, icon(MONITOR))),
+    oncontextmenu: e => { e.preventDefault(); openHostForm(h); },
+  }, hostAvatar(h),
     el('span', { class: 'badge ' + (h.state === 'connected' ? (tabs.some(t => t.host === h.id && (t.running || t.unread)) ? 'on busy' : 'on') : 'off') }))));
+}
+
+function openHostForm(h) {
+  let color = h.color || '#475569', img = h.icon || null;
+  const name = el('input', { type: 'text', value: h.name });
+  const colors = el('div', { class: 'colors' });
+  const preview = el('div', { class: 'folder-row' });
+  const draw = () => {
+    colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; draw(); } })));
+    fill(preview, hostAvatar({ name: name.value || h.name, color, icon: img }, 'lg'),
+      el('span', { class: 'hint', style: 'flex:1' }, img ? _('eigenes Bild') : _('Initialen auf Farbe')),
+      el('button', { class: 'ghost', onclick: async () => { const r = await api.projects.pickIcon(); if (r?.error) return toast(r.error); if (r?.icon) { img = r.icon; draw(); } } }, _('Bild wählen …')),
+      img ? el('button', { class: 'ghost', onclick: () => { img = null; draw(); } }, _('Entfernen')) : null);
+  };
+  draw();
+  name.addEventListener('input', draw);
+  const save = async () => { remoteState = await api.remote.hostUpdate({ id: h.id, name: name.value.trim() || h.name, color, icon: img }); m.close(); renderRail(); renderList(); };
+  const m = modal('project', _('Haupt-PC anpassen'),
+    el('p', { class: 'hint' }, _('Name, Farbe und Bild gelten nur für die Anzeige auf diesem PC.')),
+    el('label', { class: 'field' }, el('span', {}, _('Name')), name),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Bild (optional)')), preview),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
+    el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: save }, _('Speichern'))));
 }
 
 async function onRailDrop(e, targetId) {
@@ -513,6 +573,8 @@ function openChatMenu(e, t) {
   items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: () => { closeMenus(); openBeside(t.id); } }, el('span', { class: 'pm-ic' }, '◫'), _('Daneben öffnen')));
   items.push(el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), _('Umbenennen …')));
   if (!t.host && t.sessionId && remoteState?.host?.devices.length) items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openShareChat(t); } }, el('span', { class: 'pm-ic' }, '🖥'), _('Für Gerät freigeben …')));
+  items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); pickChatIcon(t); } }, el('span', { class: 'pm-ic' }, '🖼'), _('Bild für den Chat wählen …')));
+  if (chatIcon(t)) items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); removeChatIcon(t); } }, el('span', { class: 'pm-ic' }, '⌫'), _('Bild entfernen')));
   items.push(el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), _('Chat schließen')));
   const menu = el('div', { class: 'popmenu', style: `left:${e.clientX}px; top:${e.clientY}px` }, ...items);
   document.body.append(menu);
@@ -765,10 +827,11 @@ function renderList() {
     nodes = items.map(t => {
       const p = profileOf(t);
       const pr = pid === 'all' ? project(t.projectId) : null;
+      const av = chatAvatar(t);
       return el('div', { class: 'item' + (t.id === activeTabId ? ' active' : shownInPane(t.id) ? ' active-other' : ''), onclick: () => openTab(t.id),
         oncontextmenu: e => openChatMenu(e, t), draggable: 'true', ondragstart: e => e.dataTransfer.setData('text/chat', t.id),
         title: _('Konto: {name}', { name: p?.name || '?' }) + (pr ? '\n' + _('Projekt: {name}', { name: pr.name }) : '') + '\n' + _('Rechtsklick oder auf ein Projekt ziehen zum Verschieben') },
-        avatar(p),
+        av,
         el('div', { class: 'meta' },
           el('div', { class: 'row1' }, el('span', { class: 'title' }, t.title || _('Neuer Chat')), el('span', { class: 'time' }, fmtTime(t.updated))),
           el('div', { class: 'sub' }, t.host ? el('span', { class: 'host-tag' }, '🖥 ' + hostName(t.host) + ' · ') : '', t.preview || baseName(t.cwd))),
@@ -973,7 +1036,7 @@ function renderChat() {
   if (!t) return;
   renderBgBar(t);
   const p = profileOf(t);
-  const chAv = avatar(p); chAv.id = 'ch-avatar'; chAv.dataset.pid = 'ch-avatar';
+  const chAv = chatAvatar(t); chAv.id = 'ch-avatar'; chAv.dataset.pid = 'ch-avatar';
   $('#ch-avatar').replaceWith(chAv);
   $('#ch-title').textContent = t.title || _('Neuer Chat');
   $('#ch-cwd').textContent = t.cwd || _('~ (Benutzerordner)');

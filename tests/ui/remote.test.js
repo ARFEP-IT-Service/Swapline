@@ -91,6 +91,10 @@
   await switchProject('all');
   tabs.splice(tabs.indexOf(lt), 1); tabs.splice(tabs.indexOf(ht), 1); renderList();
 
+  // Haupt-PC-Eintrag anpassen (nur Anzeige auf diesem PC)
+  const hu = await api.remote.hostUpdate({ id: hostId, name: 'Büro', color: '#E5007E', icon: 'data:text/html;base64,PGI+' });
+  check('Haupt-PC umbenennen und Farbe; ungültiges Bild verworfen', hu.hosts[0].name === 'Büro' && hu.hosts[0].color === '#E5007E' && !hu.hosts[0].icon, JSON.stringify(hu.hosts[0]));
+
   // Offene Chats des Haupt-PCs: Gerät sieht sie live und tritt bei (statt zweiten Claude-Prozess zu starten)
   const open = makeTab({ title: 'Offen am Haupt-PC', profileId: 'test', cwd: WORK, sessionId: U1 });
   tabs.push(open); renderList();

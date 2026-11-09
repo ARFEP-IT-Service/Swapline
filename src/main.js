@@ -1267,7 +1267,7 @@ function remoteInfo() {
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
       devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
-    hosts: remoteHosts().map(h => ({ id: h.id, name: h.name, address: h.address, port: h.port, state: clients.get(h.id)?.state || 'off' })),
+    hosts: remoteHosts().map(h => ({ id: h.id, name: h.name, address: h.address, port: h.port, color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
   };
 }
 function pushRemoteStatus() { if (win && !win.isDestroyed()) win.webContents.send('remote:status', remoteInfo()); }
@@ -1333,6 +1333,18 @@ handle('remote:pair', async (_e, { address, port, code } = {}) => {
       || tr('Code falsch oder abgelaufen', 'Code wrong or expired');
     return { ...remoteInfo(), error: msg };
   }
+});
+// Name, Farbe und Bild eines Haupt-PCs in der Leiste (nur Anzeige auf diesem PC)
+handle('remote:hostUpdate', (_e, { id, name, color, icon } = {}) => {
+  updateStore(s => {
+    const h = (s.remoteHosts || []).find(x => x.id === id);
+    if (!h) return;
+    if (name !== undefined) h.name = cleanName(name, h.name) || h.name;
+    if (color !== undefined) h.color = cleanColor(color, h.color || '#475569');
+    if (icon !== undefined) { if (cleanIcon(icon)) h.icon = cleanIcon(icon); else delete h.icon; }
+  });
+  pushRemoteStatus();
+  return remoteInfo();
 });
 handle('remote:hostRemove', (_e, id) => {
   clients.get(id)?.use(null);

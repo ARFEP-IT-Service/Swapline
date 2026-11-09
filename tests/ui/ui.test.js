@@ -142,6 +142,18 @@
   // Updates: neuer Standard „Nur benachrichtigen“, alte Einstellung „Automatisch“ wurde umgestellt
   check('Update-Standard: alte Einstellung autoUpdate → „Nur benachrichtigen“', store.settings.updateMode === 'notify' && !('autoUpdate' in store.settings), JSON.stringify(store.settings));
 
+  // Eigenes Bild für einen Chat (verkleinert, nur lokal)
+  const ic = makeTab({ title: 'Mit Bild' }); tabs.push(ic);
+  const big = document.createElement('canvas'); big.width = 400; big.height = 300; big.getContext('2d').fillRect(0, 0, 400, 300);
+  const small = await shrinkIcon(big.toDataURL('image/png'));
+  const probe = await new Promise(r => { const i = new Image(); i.onload = () => r(i.naturalWidth + 'x' + i.naturalHeight); i.src = small; });
+  check('Chat-Bild wird auf 96 px verkleinert', probe === '96x96', probe);
+  chatIcons[chatIconKey(ic)] = small; renderList();
+  check('Chat-Bild erscheint in der Liste', [...document.querySelectorAll('#list .item')].some(x => x.textContent.includes('Mit Bild') && x.querySelector('.avatar.img img')));
+  removeChatIcon(ic);
+  check('Chat-Bild entfernen', !chatIcon(ic));
+  tabs.splice(tabs.indexOf(ic), 1); renderList();
+
   // Geteilte Ansicht: zwei Chats nebeneinander
   const s1 = makeTab({ title: 'Links' }), s2 = makeTab({ title: 'Rechts' }); tabs.push(s1, s2);
   await openTab(s1.id); openSplit(s2.id); await sleep(80);

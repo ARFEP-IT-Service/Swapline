@@ -456,6 +456,13 @@ const EN = {
   'Diese Hälfte schließen': 'Close this half',
   'Zweiten Chat daneben öffnen (Strg+#)': 'Open a second chat side by side (Ctrl+#)',
   'Daneben öffnen': 'Open side by side',
+  // Bilder für Chats und Haupt-PCs
+  'Bild konnte nicht gespeichert werden (Speicher voll)': 'Image could not be saved (storage full)',
+  'Bild konnte nicht gelesen werden': 'Image could not be read',
+  'Haupt-PC anpassen': 'Customize host PC',
+  'Name, Farbe und Bild gelten nur für die Anzeige auf diesem PC.': 'Name, color and image only apply to how it is shown on this PC.',
+  'Bild für den Chat wählen …': 'Choose image for chat …',
+  'Bild entfernen': 'Remove image',
   'Update ist nicht mehr verfügbar': 'The update is no longer available',
   'Version {v} ist verfügbar.': 'Version {v} is available.',
   'Version {v} verfügbar': 'Version {v} available',

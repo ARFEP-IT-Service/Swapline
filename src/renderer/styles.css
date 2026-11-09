@@ -516,3 +516,5 @@ button.link:hover { color: var(--accent); }
 .item.active-other { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .pane-btn { flex: none; }
 #chat.split .chat-chip { max-width: 100%; }
+.avatar.img.host { overflow: visible; }
+.avatar.img.host img { border-radius: inherit; }
