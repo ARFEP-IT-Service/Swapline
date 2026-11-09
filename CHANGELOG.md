@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.7.0] – 2026-11-09
 
 - Fernzugriff: Änderungen am Haupt-PC (Freigaben, Projekte, Ordner, Konten) kommen sofort beim Gerät an – kein
   Neuverbinden mehr nötig. „+“ in der Leiste bietet in der Haupt-PC-Ansicht „Neues Projekt auf …“ an.
