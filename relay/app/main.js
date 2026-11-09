@@ -13,7 +13,7 @@ const DEV = !app.isPackaged;
 const de = () => (app.getLocale() || '').toLowerCase().startsWith('de');
 const tr = (d, e) => (de() ? d : e);
 app.setAppUserModelId(DEV ? 'de.arfep.swapline.relay.dev' : 'de.arfep.swapline.relay');
-if (!app.requestSingleInstanceLock()) app.quit();
+if (!process.argv.includes('--repair-service') && !app.requestSingleInstanceLock()) app.quit();
 
 let win = null;
 function createWindow() {
@@ -47,11 +47,17 @@ function relaunchElevated() {
   });
 }
 app.whenReady().then(async () => {
+  // Aufruf aus dem Installer (läuft dort schon als Administrator): Aufgabe nach einem Update angleichen, ohne Fenster
+  if (process.argv.includes('--repair-service')) {
+    try { await M.repair(); } catch {}
+    return app.exit(0);
+  }
   if (!DEV && !process.argv.includes('--elevated') && !(await M.isAdmin())) {
     if (await relaunchElevated()) return app.quit();
     app.requestSingleInstanceLock();
   }
   try { P.ensureConfig(); } catch {}
+  if (await M.isAdmin()) M.repair().catch(() => {});
   createWindow();
 });
 app.on('window-all-closed', () => app.quit());

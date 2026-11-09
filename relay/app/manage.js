@@ -35,13 +35,14 @@ async function serviceState() {
 }
 
 // Wie der Dienst gestartet wird: Node der App (ELECTRON_RUN_AS_NODE) mit service.js – ohne Fenster, ohne Chromium
-function launcher() {
-  const exe = process.execPath;
+function launcher(exe = process.execPath) {
   const svc = process.resourcesPath && fs.existsSync(path.join(process.resourcesPath, 'app.asar.unpacked', 'service.js'))
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'service.js')
     : path.join(__dirname, 'service.js');
   const q = s => "'" + s.replace(/'/g, "''") + "'";
-  return { exe, svc, arg: `-NoProfile -NonInteractive -WindowStyle Hidden -Command "& { $env:ELECTRON_RUN_AS_NODE='1'; & ${q(exe)} ${q(svc)} }"` };
+  // „| Out-Null“: die .exe ist ein Fensterprogramm – ohne Pipe wartet PowerShell nicht, die Aufgabe endet sofort
+  // und der Dienst beendet sich mit ihr (Neustart-Schleife alle 3 s in 0.1.0)
+  return { exe, svc, arg: `-NoProfile -NonInteractive -WindowStyle Hidden -Command "& { $env:ELECTRON_RUN_AS_NODE='1'; & ${q(exe)} ${q(svc)} | Out-Null }"` };
 }
 
 async function setFirewall(port) {
@@ -75,6 +76,18 @@ async function install() {
   await setFirewall(cfg.port);
 }
 
+// Ältere Versionen haben die Aufgabe mit einem anderen Startbefehl eingerichtet: dann neu einrichten
+// (Kennwort, Port und Protokoll bleiben). Ergebnis: 'none' (keine Aufgabe), 'ok' oder 'repaired'.
+async function repair() {
+  const cur = await ps(`
+    $t = Get-ScheduledTask -TaskName $env:SR_TASK -ErrorAction SilentlyContinue
+    if ($t) { [string]$t.Actions[0].Execute + [char]10 + [string]$t.Actions[0].Arguments } else { '-' }`, { SR_TASK: TASK });
+  if (cur === '-') return 'none';
+  if (cur === PS + '\n' + launcher().arg) return 'ok';
+  await install();
+  return 'repaired';
+}
+
 function statusPid() {
   try { const s = JSON.parse(fs.readFileSync(P.file('status.json'), 'utf8')); return Number.isInteger(s.pid) ? s.pid : null; } catch { return null; }
 }
@@ -99,4 +112,4 @@ async function uninstall() {
     Get-NetFirewallRule -DisplayName $env:SR_RULE -ErrorAction SilentlyContinue | Remove-NetFirewallRule`, { SR_TASK: TASK, SR_RULE: RULE });
 }
 
-module.exports = { TASK, RULE, isAdmin, serviceState, install, uninstall, start, stop, restart, setFirewall, removeFirewall, launcher };
+module.exports = { TASK, RULE, isAdmin, serviceState, install, repair, uninstall, start, stop, restart, setFirewall, removeFirewall, launcher };

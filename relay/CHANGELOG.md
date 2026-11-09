@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC und der Android-App.
 Tags: `relay-v<Version>`.
 
+## [0.1.1] – 2026-11-09
+
+- Behoben: Der Dienst startete alle paar Sekunden neu („Beendet (Aufgabe gestoppt)“ im Protokoll) – PowerShell wartete
+  in der Aufgabe nicht auf die App und beendete sich sofort. Jetzt bleibt der Dienst dauerhaft an.
+- Das Update gleicht eine bereits eingerichtete Aufgabe automatisch an (auch beim Öffnen der App); Kennwort, Port und
+  Protokoll bleiben erhalten.
+
 ## [0.1.0] – 2026-11-09
 
 Erste Version.

@@ -48,7 +48,8 @@ setInterval(() => writeStatus(relay), 2000).unref?.();
 
 // Beendet sich mit dem Elternprozess (Aufgabe gestoppt), damit kein verwaister Dienst weiterläuft
 const parent = process.ppid;
-setInterval(() => { try { process.kill(parent, 0); } catch { log('Beendet (Aufgabe gestoppt)'); process.exit(0); } }, 3000);
+// (nur „Prozess gibt es nicht“ zählt – z. B. fehlende Berechtigung heißt: läuft noch)
+setInterval(() => { try { process.kill(parent, 0); } catch (e) { if (e.code === 'ESRCH') { log('Beendet (Aufgabe gestoppt)'); process.exit(0); } } }, 3000);
 
 const stop = () => { log('Beendet'); listening = false; writeStatus(relay); process.exit(0); };
 process.on('SIGTERM', stop);

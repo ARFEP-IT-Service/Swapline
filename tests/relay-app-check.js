@@ -50,6 +50,23 @@ const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } c
     proc.kill();
     check('Relay-App: Dienst endet sauber', await until(() => proc.exitCode !== null || proc.signalCode !== null, 5000));
 
+    // genau wie die Windows-Aufgabe: PowerShell mit dem Startbefehl aus manage.js. Die exe ist ein Fensterprogramm –
+    // der Dienst muss trotzdem weiterlaufen (0.1.0: PowerShell endete sofort, Dienst beendete sich nach 3 s)
+    if (process.platform === 'win32') {
+      const M = require(path.join(root, 'relay', 'app', 'manage.js'));
+      fs.rmSync(path.join(dir, 'status.json'), { force: true });
+      const psExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const task = spawn(psExe, [M.launcher(electron).arg], { windowsVerbatimArguments: true, env: { ...process.env, SWAPLINE_RELAY_DIR: dir }, stdio: 'ignore', windowsHide: true });
+      const up = await until(() => readJson(path.join(dir, 'status.json'))?.listening === true, 15000);
+      const svcPid = readJson(path.join(dir, 'status.json'))?.pid;
+      await new Promise(r => setTimeout(r, 7000));
+      const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      check('Relay-App: Start wie die Aufgabe – Dienst läuft nach 7 s noch', up && svcPid && alive(svcPid) && task.exitCode === null, `pid ${svcPid}, ps ${task.exitCode}`);
+      task.kill();
+      check('Relay-App: Aufgabe gestoppt → Dienst endet mit', await until(() => !alive(svcPid), 8000));
+      if (svcPid && alive(svcPid)) process.kill(svcPid);
+    }
+
     // ohne gültige Einstellungen: Dienst startet nicht und meldet es
     fs.writeFileSync(path.join(dir, 'relay.json'), '{"port":1,"secret":"kurz"}');
     const p2 = spawn(electron, [path.join(root, 'relay', 'app', 'service.js')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SWAPLINE_RELAY_DIR: dir }, stdio: 'ignore', windowsHide: true });
