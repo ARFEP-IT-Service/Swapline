@@ -34,7 +34,7 @@ Zum Ausprobieren ein eigenes Testprofil verwenden, dann bleiben die echten Einst
   oder Cookies und zeigt keine Anmeldeseiten an.
 - **Der Hauptprozess prüft alles, was aus der Oberfläche kommt** (Pfade, IDs, Einstellungen, Inhalte).
   Neue IPC-Kanäle brauchen eine Prüfung und einen Test in `tests/ui/security.test.js`.
-- **Keine eigenen Netzverbindungen** außer der dokumentierten Update-Prüfung bei GitHub. Anfragen an Claude laufen
+- **Keine eigenen Netzverbindungen** außer der dokumentierten Update-Prüfung bei GitHub und dem Fernzugriff (`src/remote.js`). Neue Kanäle für Geräte im Fernzugriff nur über die Freigabeliste in `hostDispatch` (`src/main.js`) und mit Test in `tests/ui/remote.test.js`. Anfragen an Claude laufen
   immer über die installierte Claude-Code-CLI.
 - **Keine Shell:** Prozesse nur mit Argument-Liste starten (`spawn(exe, args)`), nie `shell: true`.
 - **Neue npm-Abhängigkeiten** nur, wenn nötig. `npm run dist` bricht ab, wenn ein gebündeltes Paket keinen

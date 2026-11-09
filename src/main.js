@@ -1,5 +1,5 @@
 // Swapline – Hauptprozess: Fenster, Konten (Profile), Claude-Prozesse, Verlauf.
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Notification, safeStorage } = require('electron');
 const { spawn, execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -15,6 +15,11 @@ let STORE_FILE; // wird nach app.ready gesetzt
 
 let win;
 const sessions = new Map(); // tabId -> { proc, profileId, ... }
+
+// IPC: jeder Kanal wird hier registriert. Ist dieses Swapline mit einem Haupt-PC verbunden (Fernzugriff),
+// gehen die Chat-Kanäle dorthin (routeIpc, siehe Abschnitt Fernzugriff); sonst läuft alles lokal.
+const H = new Map(); // Kanal -> Funktion (auch vom Fernzugriff des Haupt-PCs genutzt)
+function handle(ch, fn) { H.set(ch, fn); ipcMain.handle(ch, (e, ...args) => routeIpc(ch, e, args)); }
 
 // ---------- Persistenter Speicher ----------
 function loadStore() {
@@ -85,7 +90,8 @@ const cleanColor = (v, fallback) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.
 // "Alles erlauben" muss einmal im Hauptprozess bestätigt werden (nativer Dialog) – die Oberfläche allein reicht
 // nicht. Die Zustimmung wird dauerhaft gespeichert (bypassAcknowledged, nur hier gesetzt); in den Einstellungen
 // lässt sich die Warnung wieder einschalten.
-function confirmBypass() {
+function confirmBypass(e) {
+  if (e?.remote) return !!e.remote.allowBypass; // gekoppeltes Gerät: Freigabe aus der Geräteliste
   if (getStore().bypassAcknowledged) return true;
   const ok = dialog.showMessageBoxSync(win, {
     type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Alles erlauben', 'Allow everything')], defaultId: 0, cancelId: 0, noLink: true,
@@ -197,7 +203,7 @@ function probeModels(profile) {
     setTimeout(() => finish(base), 45000);
   });
 }
-ipcMain.handle('profiles:models', (_e, { id, refresh }) => {
+handle('profiles:models', (_e, { id, refresh }) => {
   const p = profileById(id);
   if (!p) return null;
   if (refresh || !modelCache.has(id)) {
@@ -222,7 +228,7 @@ function runClaude(profile, args, timeoutMs = 120000) {
     p.on('close', code => { clearTimeout(timer); resolve({ code, out, err }); });
   });
 }
-ipcMain.handle('ext:list', async (_e, profileId) => {
+handle('ext:list', async (_e, profileId) => {
   const p = profileById(profileId);
   if (!p) return { error: tr('Konto unbekannt', 'Unknown account') };
   const r = await runClaude(p, ['plugin', 'list', '--json', '--available'], 60000);
@@ -234,7 +240,7 @@ ipcMain.handle('ext:list', async (_e, profileId) => {
   } catch { return { error: (r.err || r.out || tr('Keine Antwort von Claude Code', 'No response from Claude Code')).trim().split('\n').pop().slice(0, 300) }; }
 });
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9._-]{0,100}@[a-z0-9][a-z0-9._-]{0,100}$/i;
-ipcMain.handle('ext:action', async (_e, { profileId, action, id } = {}) => {
+handle('ext:action', async (_e, { profileId, action, id } = {}) => {
   const p = profileById(profileId);
   if (!p || !['install', 'uninstall', 'enable', 'disable'].includes(action) || typeof id !== 'string' || !PLUGIN_ID_RE.test(id)) return { ok: false, error: tr('Ungültige Anfrage', 'Invalid request') };
   // Jede Änderung bestätigt der Nutzer im nativen Dialog – Aktivieren startet Hooks/MCP-Server, Deaktivieren kann Schutz-Hooks abschalten
@@ -262,7 +268,11 @@ ipcMain.handle('ext:action', async (_e, { profileId, action, id } = {}) => {
 });
 
 // ---------- Sitzungen (ein Claude-Prozess pro Chat-Tab) ----------
-function send(tabId, msg) { if (win && !win.isDestroyed()) win.webContents.send('claude:event', { tabId, msg }); }
+function send(tabId, msg) {
+  const r = remoteTabs.get(tabId);
+  if (r) return remoteHost?.push(r.deviceId, 'claude', { tabId: r.tabId, msg });
+  if (win && !win.isDestroyed()) win.webContents.send('claude:event', { tabId, msg });
+}
 
 // Ausgabedateien von Hintergrund-Aufgaben, die die CLI im Stream gemeldet hat – nur diese darf task:readOutput lesen
 const seenOutputs = new Set();
@@ -367,7 +377,10 @@ function recordLimits(profileId, info) {
   updateStore(st => { (st.usage[profileId] ||= {}).limits = { ...info, seenAt: Date.now() }; });
   pushUsage();
 }
-function pushUsage() { if (win && !win.isDestroyed()) win.webContents.send('usage:update', getStore().usage); }
+function pushUsage() {
+  remoteHost?.broadcast('usage', getStore().usage);
+  if (!remoteActive() && win && !win.isDestroyed()) win.webContents.send('usage:update', getStore().usage);
+}
 
 // ---------- Verlauf aus <configDir>/projects lesen ----------
 function encodeCwd(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
@@ -473,9 +486,9 @@ function copySessionToProfile(sessionId, cwd, fromProfile, toProfile) {
 
 // ---------- IPC ----------
 // appVersion kommt aus package.json (einzige Quelle der Versionsnummer) und wird nicht gespeichert
-ipcMain.handle('store:get', () => ({ ...getStore(), appVersion: app.getVersion() }));
+handle('store:get', () => ({ ...getStore(), appVersion: app.getVersion() }));
 
-ipcMain.handle('profiles:add', (_e, { name, color } = {}) => {
+handle('profiles:add', (_e, { name, color } = {}) => {
   name = cleanName(name, 'Neues Konto'); color = cleanColor(color, '#22c55e');
   const slug = (name || 'konto').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'konto';
   const id = slug + '-' + crypto.randomBytes(3).toString('hex');
@@ -483,17 +496,17 @@ ipcMain.handle('profiles:add', (_e, { name, color } = {}) => {
   fs.mkdirSync(configDir, { recursive: true });
   return updateStore(s => { s.profiles.push({ id, name: name || 'Neues Konto', color: color || '#22c55e', configDir }); });
 });
-ipcMain.handle('profiles:update', (_e, { id, patch }) => updateStore(s => {
+handle('profiles:update', (_e, { id, patch }) => updateStore(s => {
   const p = s.profiles.find(x => x.id === id); if (p && patch) Object.assign(p, { name: cleanName(patch.name, p.name), color: cleanColor(patch.color, p.color) });
 }));
-ipcMain.handle('profiles:remove', (_e, id) => updateStore(s => {
+handle('profiles:remove', (_e, id) => updateStore(s => {
   const p = s.profiles.find(x => x.id === id);
   if (!p || p.isDefault) return;
   s.profiles = s.profiles.filter(x => x.id !== id);
   if (s.activeProfileId === id) s.activeProfileId = 'default';
 }));
-ipcMain.handle('profiles:setActive', (_e, id) => updateStore(s => { s.activeProfileId = id; }));
-ipcMain.handle('profiles:status', (_e, id) => { const p = profileById(id); return p ? authStatus(p) : { loggedIn: false }; });
+handle('profiles:setActive', (_e, id) => updateStore(s => { s.activeProfileId = id; }));
+handle('profiles:status', (_e, id) => { const p = profileById(id); return p ? authStatus(p) : { loggedIn: false }; });
 
 // ---------- Anmeldung ----------
 // Nur Anthropics eigener Ablauf: `claude auth login` öffnet selbst den System-Browser und nimmt die
@@ -510,7 +523,7 @@ function cancelLogin(id) {
   try { l.proc.kill(); } catch {}
 }
 
-ipcMain.handle('profiles:login', (_e, id) => {
+handle('profiles:login', (_e, id) => {
   const p = profileById(id);
   if (!p) return false;
   cancelLogin(id);
@@ -535,7 +548,7 @@ ipcMain.handle('profiles:login', (_e, id) => {
 });
 // Falls die CLI einen Code verlangt: sichtbares Konsolenfenster mit `claude auth login`.
 // Kein cmd-String – die exe wird direkt mit Argument-Array gestartet; der Nutzer tippt den Code dort selbst ein.
-ipcMain.handle('profiles:loginConsole', (_e, id) => {
+handle('profiles:loginConsole', (_e, id) => {
   const p = profileById(id);
   const exe = claudeExe();
   if (!p || !exe) return false;
@@ -544,13 +557,13 @@ ipcMain.handle('profiles:loginConsole', (_e, id) => {
   proc.unref();
   return true;
 });
-ipcMain.handle('profiles:loginCancel', (_e, id) => cancelLogin(id));
-ipcMain.handle('profiles:logout', (_e, id) => new Promise(res => {
+handle('profiles:loginCancel', (_e, id) => cancelLogin(id));
+handle('profiles:logout', (_e, id) => new Promise(res => {
   const p = profileById(id); if (!p || !claudeExe()) return res(false);
   spawnClaude(['auth', 'logout'], p).on('close', () => res(true));
 }));
 // claude.exe direkt in einem eigenen Konsolenfenster starten (Argument-Array, keine Shell, kein Kontoname in Befehlszeilen)
-ipcMain.handle('profiles:openTerminal', (_e, { id, cwd }) => {
+handle('profiles:openTerminal', (_e, { id, cwd }) => {
   const p = profileById(id);
   const exe = claudeExe();
   if (!p || !exe) return false;
@@ -558,14 +571,14 @@ ipcMain.handle('profiles:openTerminal', (_e, { id, cwd }) => {
   return true;
 });
 
-ipcMain.handle('favorites:add', async () => {
+handle('favorites:add', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: tr('Projektordner als Favorit hinzufügen', 'Add project folder as favorite') });
   if (r.canceled || !r.filePaths[0]) return getStore();
   const dir = r.filePaths[0];
   return updateStore(s => { if (!s.favorites.some(f => f.path === dir)) s.favorites.push({ path: dir, name: path.basename(dir) }); });
 });
-ipcMain.handle('favorites:remove', (_e, dir) => updateStore(s => { s.favorites = s.favorites.filter(f => f.path !== dir); }));
-ipcMain.handle('dialog:pickFolder', async () => {
+handle('favorites:remove', (_e, dir) => updateStore(s => { s.favorites = s.favorites.filter(f => f.path !== dir); }));
+handle('dialog:pickFolder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
   if (isUnc(r.filePaths[0])) return null;
@@ -573,7 +586,7 @@ ipcMain.handle('dialog:pickFolder', async () => {
   return r.filePaths[0];
 });
 // Nur bekannte Schlüssel mit gültigen Werten; alles andere wird abgelehnt.
-ipcMain.handle('settings:set', (_e, patch) => {
+handle('settings:set', (_e, patch) => {
   const ok = {};
   const reject = why => { logError('settings:set abgelehnt: ' + why); return { ...getStore(), rejected: why }; };
   if (!patch || typeof patch !== 'object') return reject('kein Objekt');
@@ -598,7 +611,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
   return r;
 });
 // claudePath nur über einen Datei-Dialog im Hauptprozess
-ipcMain.handle('settings:pickClaude', async () => {
+handle('settings:pickClaude', async () => {
   const r = await dialog.showOpenDialog(win, { title: tr('claude.exe auswählen', 'Choose claude.exe'), properties: ['openFile'], filters: [{ name: 'claude.exe', extensions: ['exe'] }] });
   if (r.canceled || !r.filePaths[0]) return getStore();
   if (!isClaudeExePath(r.filePaths[0])) return { ...getStore(), rejected: tr('Datei heißt nicht claude.exe', 'The file is not named claude.exe') };
@@ -625,7 +638,7 @@ function looksLikeImage(buf, ext) {
   if (ext === 'svg') return /<svg[\s>]/i.test(buf.subarray(0, 4096).toString('utf8'));
   return false;
 }
-ipcMain.handle('projects:pickIcon', async () => {
+handle('projects:pickIcon', async () => {
   const r = await dialog.showOpenDialog(win, { title: tr('Bild für das Projekt wählen', 'Choose an image for the project'), properties: ['openFile'], filters: [{ name: tr('Bilder', 'Images'), extensions: Object.keys(ICON_TYPES) }] });
   const file = r.filePaths?.[0];
   if (r.canceled || !file) return null;
@@ -636,7 +649,7 @@ ipcMain.handle('projects:pickIcon', async () => {
   if (!looksLikeImage(buf, ext)) return { error: tr('Datei ist kein gültiges Bild', 'The file is not a valid image') };
   return { icon: `data:${ICON_TYPES[ext]};base64,${buf.toString('base64')}` };
 });
-ipcMain.handle('projects:add', (_e, { name, color, cwd, icon } = {}) => updateStore(s => {
+handle('projects:add', (_e, { name, color, cwd, icon } = {}) => updateStore(s => {
   if (s.projects.length >= PROJECTS_MAX) return;
   name = cleanName(name, 'Projekt'); color = cleanColor(color, '#1581FF'); cwd = isAllowedCwd(cwd) ? cwd : ''; // nur per Dialog gesehene Ordner
   const id = 'p-' + crypto.randomBytes(4).toString('hex');
@@ -645,7 +658,7 @@ ipcMain.handle('projects:add', (_e, { name, color, cwd, icon } = {}) => updateSt
   s.projects.push(pr);
   s.activeProjectId = id;
 }));
-ipcMain.handle('projects:update', (_e, { id, patch }) => updateStore(s => {
+handle('projects:update', (_e, { id, patch }) => updateStore(s => {
   const p = s.projects.find(x => x.id === id);
   if (p && patch) {
     if ('name' in patch) p.name = cleanName(patch.name, p.name);
@@ -654,12 +667,12 @@ ipcMain.handle('projects:update', (_e, { id, patch }) => updateStore(s => {
     if ('icon' in patch) { if (cleanIcon(patch.icon)) p.icon = cleanIcon(patch.icon); else delete p.icon; }
   }
 }));
-ipcMain.handle('projects:remove', (_e, id) => updateStore(s => {
+handle('projects:remove', (_e, id) => updateStore(s => {
   s.projects = s.projects.filter(x => x.id !== id);
   if (s.activeProjectId === id) s.activeProjectId = 'all';
 }));
-ipcMain.handle('projects:setActive', (_e, id) => updateStore(s => { s.activeProjectId = id; }));
-ipcMain.handle('projects:reorder', (_e, ids) => updateStore(s => {
+handle('projects:setActive', (_e, id) => updateStore(s => { s.activeProjectId = id; }));
+handle('projects:reorder', (_e, ids) => updateStore(s => {
   s.projects.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 }));
 
@@ -667,7 +680,7 @@ ipcMain.handle('projects:reorder', (_e, ids) => updateStore(s => {
 // Liefert je Sitzung die Anzahl Treffer und einen Ausschnitt um den ersten Treffer.
 let searchGen = 0;
 const SEARCH_FILE_MAX = 50 * 1024 * 1024;
-ipcMain.handle('history:search', async (_e, { profileId, query } = {}) => {
+handle('history:search', async (_e, { profileId, query } = {}) => {
   const gen = ++searchGen; // eine neuere Suche bricht diese ab
   const p = profileById(profileId);
   const q = typeof query === 'string' ? query.trim().toLowerCase() : '';
@@ -699,14 +712,14 @@ ipcMain.handle('history:search', async (_e, { profileId, query } = {}) => {
   for (const r of results) if (r.cwd) rememberFolder(r.cwd);
   return results;
 });
-ipcMain.handle('history:list', (_e, profileId) => {
+handle('history:list', (_e, profileId) => {
   const p = profileById(profileId);
   if (!p) return [];
   const list = listHistory(p);
   for (const h of list) if (h.cwd) rememberFolder(h.cwd); // Ordner aus Claude Codes eigenem Verlauf
   return list;
 });
-ipcMain.handle('history:loadSession', (_e, { profileId, sessionId, cwd } = {}) => {
+handle('history:loadSession', (_e, { profileId, sessionId, cwd } = {}) => {
   const p = profileById(profileId);
   if (!p) return [];
   const file = findSessionFile(p, sessionId, cwd);
@@ -724,9 +737,9 @@ function validTab(t) {
   if (t.cwd && !isAllowedCwd(t.cwd)) return null;
   return { id: t.id, profileId: t.profileId, cwd: t.cwd || '', sessionId: t.sessionId || null, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode || 'default' };
 }
-ipcMain.handle('session:confirmBypass', () => confirmBypass());
+handle('session:confirmBypass', e => confirmBypass(e));
 // Warnung zu „Alles erlauben“ wieder einschalten (nur in diese sichere Richtung von der Oberfläche aus möglich)
-ipcMain.handle('settings:resetBypassWarning', () => updateStore(s => { delete s.bypassAcknowledged; }));
+handle('settings:resetBypassWarning', () => updateStore(s => { delete s.bypassAcknowledged; }));
 // Nachrichteninhalt: Text oder Liste aus Text- und Bild-Blöcken (Bilder als base64, nur png/jpeg/gif/webp, je max. 5 MB)
 const IMAGE_MEDIA = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 function validContent(c) {
@@ -737,7 +750,7 @@ function validContent(c) {
       && typeof b.source.data === 'string' && b.source.data.length <= 7e6 && /^[A-Za-z0-9+/]+=*$/.test(b.source.data)));
 }
 // Anhänge über den Datei-Dialog: Bilder werden eingelesen (base64), andere Dateien nur als Pfad übergeben
-ipcMain.handle('attach:pick', async () => {
+handle('attach:pick', async () => {
   const r = await dialog.showOpenDialog(win, { title: tr('Dateien anhängen', 'Attach files'), properties: ['openFile', 'multiSelections'] });
   if (r.canceled) return [];
   const out = [];
@@ -753,14 +766,14 @@ ipcMain.handle('attach:pick', async () => {
   }
   return out;
 });
-ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
+handle('session:send', (_e, { tab: rawTab, content }) => {
   const tab = validTab(rawTab);
   if (!tab || !validContent(content)) {
     logError('session:send abgelehnt: ungültige Tab-Daten');
     if (rawTab?.cwd && typeof rawTab.id === 'string') send(rawTab.id, { type: 'app_error', message: tr('Dieser Arbeitsordner ist nicht freigegeben. Bitte den Ordner über „Neuer Chat“ oder ein Projekt neu wählen.', 'This working folder is not approved. Please choose the folder again via “New chat” or a project.') });
     return false;
   }
-  if (tab.permissionMode === 'bypassPermissions' && !confirmBypass()) {
+  if (tab.permissionMode === 'bypassPermissions' && !confirmBypass(_e)) {
     send(tab.id, { type: 'app_error', message: tr('„Alles erlauben“ wurde nicht bestätigt – Nachricht nicht gesendet.', '“Allow everything” was not confirmed – message not sent.') });
     return false;
   }
@@ -775,7 +788,7 @@ ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
 // Werkzeugs darf nicht verändert werden (Ausnahme: Antworten auf eine Frage), Regeln nur exakt so, wie die CLI
 // sie vorgeschlagen hat, und nie ein Moduswechsel.
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-ipcMain.handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
+handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
   const s = sessions.get(tabId);
   const req = s?.pending.get(requestId);
   const reject = why => { logError('session:respond abgelehnt: ' + why); return false; };
@@ -805,14 +818,14 @@ ipcMain.handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
   writeTo(tabId, { type: 'control_response', response: { subtype: 'success', request_id: requestId, response: out } });
   return true;
 });
-ipcMain.handle('session:interrupt', (_e, tabId) => {
+handle('session:interrupt', (_e, tabId) => {
   writeTo(tabId, { type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'interrupt' } });
 });
 // Einstellungen ändern -> Prozess beenden; die nächste Nachricht startet mit --resume neu
-ipcMain.handle('session:restart', (_e, tabId) => { stopSession(tabId); return true; });
-ipcMain.handle('session:close', (_e, tabId) => { stopSession(tabId); return true; });
+handle('session:restart', (_e, tabId) => { stopSession(tabId); return true; });
+handle('session:close', (_e, tabId) => { stopSession(tabId); return true; });
 // Übertragung eines Chats in ein anderes Konto – nur nach ausdrücklicher Bestätigung im Hauptprozess
-ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId } = {}) => {
+handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId } = {}) => {
   const from = profileById(fromProfileId), to = profileById(toProfileId);
   if (!from || !to) return { ok: false, error: tr('Konto unbekannt', 'Unknown account') };
   if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) { logError('session:moveProfile abgelehnt: ungültige Session-ID'); return { ok: false, error: tr('ungültige Session-ID', 'invalid session ID') }; }
@@ -832,7 +845,7 @@ ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toPr
 // Windows-Benachrichtigung über Electron: kann bis zum Klick stehen bleiben (timeoutType 'never').
 // Klick holt Swapline nach vorne und meldet der Oberfläche, welcher Chat geöffnet werden soll.
 const liveNotes = new Set(); // Referenzen halten, sonst räumt der Garbage Collector die Klick-Behandlung weg
-ipcMain.handle('notify:show', (_e, { title, body, tabId, silent } = {}) => {
+handle('notify:show', (_e, { title, body, tabId, silent } = {}) => {
   if (!Notification.isSupported()) return false;
   const sticky = (getStore().settings.notifyStay || 'sticky') === 'sticky';
   const n = new Notification({
@@ -849,7 +862,7 @@ ipcMain.handle('notify:show', (_e, { title, body, tabId, silent } = {}) => {
   n.show();
   return true;
 });
-ipcMain.handle('app:focus', () => {
+handle('app:focus', () => {
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
   win.show(); win.focus();
@@ -866,7 +879,7 @@ function decodeConsole(buf) {
 }
 // Ausgabe einer Hintergrund-Aufgabe lesen – nur *.output-Dateien, die Claude Code in seinem eigenen
 // Temp-Ordner (%TEMP%\claude\…\tasks\) anlegt; höchstens die letzten 64 KB
-ipcMain.handle('task:readOutput', (_e, file) => {
+handle('task:readOutput', (_e, file) => {
   if (typeof file !== 'string' || isUnc(file) || !file.toLowerCase().endsWith('.output')) return { error: tr('Keine Ausgabedatei', 'Not an output file') };
   if (!seenOutputs.has(path.resolve(file).toLowerCase())) return { error: tr('Pfad nicht erlaubt', 'Path not allowed') };
   let p, st;
@@ -888,9 +901,9 @@ ipcMain.handle('task:readOutput', (_e, file) => {
   } catch { return { error: tr('Ausgabe nicht (mehr) vorhanden', 'Output no longer available') }; }
 });
 // Text in die Zwischenablage (Kopieren-Knöpfe) – nur Schreiben, höchstens 5 MB; Lesen gibt es nicht
-ipcMain.handle('clipboard:write', (_e, text) => { if (typeof text !== 'string') return false; clipboard.writeText(text.slice(0, 5 * 1024 * 1024)); return true; });
-ipcMain.handle('app:attention', () => { if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true); });
-ipcMain.handle('shell:openPath', (_e, p) => {
+handle('clipboard:write', (_e, text) => { if (typeof text !== 'string') return false; clipboard.writeText(text.slice(0, 5 * 1024 * 1024)); return true; });
+handle('app:attention', () => { if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true); });
+handle('shell:openPath', (_e, p) => {
   if (!isDir(p)) { logError('openPath abgelehnt (kein Ordner): ' + String(p).slice(0, 200)); return false; }
   shell.openPath(p);
   return true;
@@ -903,6 +916,277 @@ function openExternalSafe(url) {
   if (u.protocol !== 'https:') { logError('Link abgelehnt (nur https erlaubt): ' + u.protocol); return false; }
   shell.openExternal(u.href);
   return true;
+}
+
+// ---------- Fernzugriff (Swapline ↔ Swapline, siehe src/remote.js) ----------
+// Haupt-PC: nimmt Verbindungen gekoppelter Geräte an und führt deren Anfragen mit denselben Prüfungen aus wie
+// lokale Eingaben – aber nur Chat-Kanäle; Konten, Projekte, Plugins und Einstellungen des Haupt-PCs bleiben
+// unverändert. Gerät: reicht die Chat-Kanäle an den gewählten Haupt-PC weiter; Darstellung, Sprache, Töne,
+// Benachrichtigungen und Updates bleiben lokal.
+const remote = require('./remote');
+let remoteHost = null, remoteClient = null;
+const remoteTabs = new Map(); // interne Tab-ID auf dem Haupt-PC -> { deviceId, tabId } (Chats von Geräten)
+
+// Kanäle, die ein Gerät an den Haupt-PC weiterreicht
+const FORWARD = new Set(['store:get', 'profiles:setActive', 'profiles:status', 'profiles:models', 'profiles:add', 'profiles:update', 'profiles:remove',
+  'profiles:login', 'profiles:loginConsole', 'profiles:loginCancel', 'profiles:logout', 'profiles:openTerminal', 'favorites:add', 'favorites:remove',
+  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder',
+  'history:list', 'history:loadSession', 'history:search', 'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close',
+  'session:confirmBypass', 'session:moveProfile', 'task:readOutput', 'ext:list', 'ext:action']);
+// Kanäle, deren Ergebnis der ganze Speicherstand ist (bei Fehlern trotzdem einen Stand zurückgeben)
+const STORE_RESULT = new Set(['store:get', 'profiles:setActive', 'profiles:add', 'profiles:update', 'profiles:remove', 'favorites:add', 'favorites:remove',
+  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder']);
+// Einstellungen, die auf dem Gerät bleiben
+const LOCAL_SETTINGS = ['theme', 'language', 'notify', 'sound', 'notifyStay', 'toolView', 'updateMode'];
+const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && k in o).map(k => [k, o[k]]));
+const remoteActive = () => !!remoteClient?.target;
+
+// --- Haupt-PC ---
+const getDevices = () => getStore().remoteHost?.devices || [];
+const saveDevices = list => updateStore(s => { (s.remoteHost ||= { enabled: false, port: remote.DEFAULT_PORT }).devices = list; });
+const encryptSecret = str => safeStorage.encryptString(str).toString('base64');
+const decryptSecret = b64 => safeStorage.decryptString(Buffer.from(b64, 'base64'));
+function allowedFolders() {
+  const s = getStore(), seen = new Set(), out = [];
+  for (const p of [...(s.knownFolders || []), ...s.projects.map(x => x.cwd), ...s.favorites.map(x => x.path)]) {
+    if (!p || seen.has(folderKey(p)) || !isDir(p)) continue;
+    seen.add(folderKey(p)); out.push(p);
+    if (out.length >= 300) break;
+  }
+  return out;
+}
+// Was ein Gerät vom Haupt-PC sieht: keine Konfigurationsordner, keine Gerätelisten; Auswahl (Konto, Projekt,
+// Modell …) je Gerät getrennt, damit das Gerät die Ansicht am Haupt-PC nicht verstellt
+function remoteStoreFor(dev) {
+  const s = getStore(), v = dev.view || {};
+  return {
+    profiles: s.profiles.map(({ configDir, ...p }) => p),
+    activeProfileId: profileById(v.activeProfileId) ? v.activeProfileId : s.activeProfileId,
+    favorites: s.favorites, projects: s.projects,
+    activeProjectId: v.activeProjectId && (v.activeProjectId === 'all' || s.projects.some(p => p.id === v.activeProjectId)) ? v.activeProjectId : 'all',
+    usage: s.usage,
+    settings: { model: v.model ?? s.settings.model ?? '', effort: v.effort ?? s.settings.effort ?? '', permissionMode: v.permissionMode ?? s.settings.permissionMode ?? 'default' },
+    allowedFolders: allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass,
+  };
+}
+const setView = (dev, patch) => saveDevices(getDevices().map(d => (d.id === dev.id ? { ...d, view: { ...d.view, ...patch } } : d)));
+function hostTabId(dev, id) {
+  if (typeof id !== 'string' || !/^[a-z0-9]{6,23}$/i.test(id)) return null; // mit Präfix höchstens 40 Zeichen (validTab)
+  const h = 'r' + dev.id + id;
+  remoteTabs.set(h, { deviceId: dev.id, tabId: id });
+  return h;
+}
+const notAllowed = () => { throw new Error(tr('Auf dem Haupt-PC nicht erlaubt (nur Chats)', 'Not allowed on the host PC (chats only)')); };
+async function hostDispatch(dev, ch, args) {
+  const e = { remote: dev };
+  const call = (c, ...a) => H.get(c)(e, ...a);
+  const a0 = args[0];
+  switch (ch) {
+    case 'store:get': return remoteStoreFor(dev);
+    case 'profiles:setActive': if (profileById(a0)) setView(dev, { activeProfileId: a0 }); return remoteStoreFor(dev);
+    case 'projects:setActive': if (a0 === 'all' || getStore().projects.some(p => p.id === a0)) setView(dev, { activeProjectId: a0 }); return remoteStoreFor(dev);
+    case 'settings:set': {
+      const patch = a0 && typeof a0 === 'object' ? a0 : {}, ok = {};
+      for (const [k, v] of Object.entries(patch)) {
+        if (k === 'model' && isModel(v)) ok.model = v;
+        else if (k === 'effort' && EFFORTS.includes(v)) ok.effort = v;
+        else if (k === 'permissionMode' && MODES.includes(v) && (v !== 'bypassPermissions' || dev.allowBypass)) ok.permissionMode = v;
+        else notAllowed();
+      }
+      setView(dev, ok);
+      return remoteStoreFor(getDevices().find(d => d.id === dev.id) || dev);
+    }
+    case 'profiles:status': case 'profiles:models': case 'history:list': case 'history:loadSession': case 'history:search': case 'task:readOutput': case 'ext:list':
+      return call(ch, ...args);
+    case 'session:send': { const id = hostTabId(dev, a0?.tab?.id); return id ? call(ch, { ...a0, tab: { ...a0.tab, id } }) : false; }
+    case 'session:respond': { const id = hostTabId(dev, a0?.tabId); return id ? call(ch, { ...a0, tabId: id }) : false; }
+    case 'session:interrupt': case 'session:restart': case 'session:confirmBypass': { const id = hostTabId(dev, a0); return id ? call(ch, id) : false; }
+    case 'session:close': { const id = hostTabId(dev, a0); if (!id) return false; const r = call(ch, id); remoteTabs.delete(id); return r; }
+    default: return notAllowed();
+  }
+}
+async function confirmPairing({ name, address }) {
+  if (DEV && process.env.SWAPLINE_TEST_AUTOPAIR === '1') return true; // nur Testlauf aus dem Quellcode
+  if (!win || win.isDestroyed()) return false;
+  if (win.isMinimized()) win.restore();
+  win.show(); win.focus();
+  const r = await dialog.showMessageBox(win, {
+    type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Koppeln', 'Pair')], defaultId: 0, cancelId: 0, noLink: true,
+    title: tr('Gerät koppeln', 'Pair device'),
+    message: tr(`Gerät „${name}“ koppeln?`, `Pair device “${name}”?`),
+    detail: tr(`Adresse: ${address}\n\nDas Gerät kann danach alle Chats und Konten dieses PCs nutzen, Claude hier Befehle ausführen lassen und – solange in der Geräteliste erlaubt – „Alles erlauben“ verwenden. Nur eigene Geräte koppeln.`,
+      `Address: ${address}\n\nThe device can then use all chats and accounts of this PC, let Claude run commands here and – as long as allowed in the device list – use “Allow everything”. Only pair your own devices.`),
+  });
+  return r.response === 1;
+}
+async function startRemoteHost() {
+  const cfg = getStore().remoteHost || {};
+  if (!safeStorage.isEncryptionAvailable()) throw new Error(tr('Verschlüsselter Speicher nicht verfügbar', 'Encrypted storage not available'));
+  remoteHost ||= remote.createHost({
+    getDevices, saveDevices, encrypt: encryptSecret, decrypt: decryptSecret, confirmPair: confirmPairing,
+    dispatch: hostDispatch, log: logError, onChange: pushRemoteStatus,
+  });
+  // Testlauf: nur auf diesem Rechner lauschen (keine Firewall-Abfrage)
+  const bind = DEV && process.env.SWAPLINE_TEST_JS ? '127.0.0.1' : '0.0.0.0';
+  await remoteHost.start(cfg.port || remote.DEFAULT_PORT, bind);
+}
+
+// --- Gerät ---
+let lastRemoteStore = null;
+const remoteHosts = () => getStore().remoteHosts || [];
+function useRemoteTarget(id) {
+  const h = id ? remoteHosts().find(x => x.id === id) : null;
+  updateStore(s => { s.remoteTarget = h ? h.id : null; });
+  lastRemoteStore = null;
+  remoteClient.use(h ? { id: h.id, address: h.address, port: h.port, deviceId: h.deviceId, key: Buffer.from(decryptSecret(h.keyEnc), 'base64') } : null);
+}
+function waitRemote(ms) {
+  return new Promise(resolve => {
+    const end = Date.now() + ms;
+    const tick = () => (remoteClient.state === 'connected' || Date.now() > end ? resolve(remoteClient.state === 'connected') : setTimeout(tick, 150));
+    tick();
+  });
+}
+// Stand vom Haupt-PC + lokale Einstellungen; Namen und Bilder vom Haupt-PC werden wie lokale Eingaben geprüft
+function mergeRemoteStore(v) {
+  if (v && typeof v === 'object') lastRemoteStore = v;
+  const r = lastRemoteStore || {}, local = getStore(), h = remoteHosts().find(x => x.id === remoteClient.target?.id);
+  return {
+    ...r,
+    profiles: (r.profiles || []).map(p => ({ id: String(p.id), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), isDefault: !!p.isDefault })),
+    projects: (r.projects || []).map(p => ({ id: String(p.id), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), cwd: typeof p.cwd === 'string' ? p.cwd : '', ...(cleanIcon(p.icon) ? { icon: cleanIcon(p.icon) } : {}) })),
+    favorites: (r.favorites || []).filter(f => typeof f?.path === 'string').map(f => ({ path: f.path, name: cleanName(f.name, '?') })),
+    allowedFolders: (r.allowedFolders || []).filter(x => typeof x === 'string'),
+    settings: { ...pick(local.settings, LOCAL_SETTINGS), ...pick(r.settings, ['model', 'effort', 'permissionMode']) },
+    appVersion: app.getVersion(), bypassAcknowledged: local.bypassAcknowledged,
+    remote: { id: h?.id, name: h?.name || r.hostName || '', address: h?.address, state: remoteClient.state, allowBypass: !!r.allowBypass, hostVersion: r.hostVersion || '' },
+  };
+}
+const REMOTE_FALLBACK = { 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'ext:list': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
+async function routeIpc(ch, e, args) {
+  const fn = H.get(ch);
+  if (!remoteActive()) return fn(e, ...args);
+  // lokal auch im Fernzugriff – Dateien und Ordner dieses PCs haben auf dem Haupt-PC keine Bedeutung
+  if (ch === 'dialog:pickFolder' || ch === 'projects:pickIcon') return null;
+  if (ch === 'shell:openPath') return false;
+  if (ch === 'attach:pick') return (await fn(e, ...args)).filter(a => a.kind === 'image');
+  if (!FORWARD.has(ch)) return fn(e, ...args);
+  if (ch === 'store:get' && !(await waitRemote(10000))) {
+    // Haupt-PC nicht erreichbar: zurück auf diesen PC, damit die Oberfläche bedienbar bleibt
+    const name = remoteHosts().find(x => x.id === remoteClient.target?.id)?.name || '';
+    useRemoteTarget(null);
+    return { ...(await fn(e)), remoteError: name };
+  }
+  // „Alles erlauben“ zuerst auf diesem Gerät bestätigen (einmalig, wie lokal) – der Haupt-PC prüft die Gerätefreigabe
+  if (ch === 'session:confirmBypass' && !confirmBypass()) return false;
+  if (ch === 'session:send' && args[0]?.tab?.permissionMode === 'bypassPermissions' && !confirmBypass()) return false;
+  if (ch === 'settings:set') {
+    const patch = args[0] && typeof args[0] === 'object' ? args[0] : {};
+    const localPart = pick(patch, LOCAL_SETTINGS), remotePart = Object.fromEntries(Object.entries(patch).filter(([k]) => !LOCAL_SETTINGS.includes(k)));
+    if (remotePart.permissionMode === 'bypassPermissions' && !confirmBypass()) return { ...mergeRemoteStore(null), rejected: 'Bypass nicht bestätigt' };
+    if (Object.keys(localPart).length) { const r = await fn(e, localPart); if (r?.rejected) return { ...mergeRemoteStore(null), rejected: r.rejected }; }
+    if (!Object.keys(remotePart).length) return mergeRemoteStore(null);
+    args = [remotePart];
+  }
+  try {
+    const v = await remoteClient.call(ch, args);
+    return STORE_RESULT.has(ch) ? mergeRemoteStore(v) : v;
+  } catch (err) {
+    if (STORE_RESULT.has(ch)) return { ...mergeRemoteStore(null), rejected: err.message };
+    if (ch === 'session:send' && typeof args[0]?.tab?.id === 'string') {
+      win?.webContents.send('claude:event', { tabId: args[0].tab.id, msg: { type: 'app_error', message: tr('Haupt-PC: ', 'Host PC: ') + err.message } });
+      return false;
+    }
+    if (ch === 'ext:action' || ch === 'session:moveProfile') return { ok: false, error: err.message };
+    return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
+  }
+}
+
+// --- Status und Einstellungen ---
+function remoteInfo() {
+  const cfg = getStore().remoteHost || {};
+  return {
+    available: safeStorage.isEncryptionAvailable(),
+    host: {
+      enabled: !!cfg.enabled, port: cfg.port || remote.DEFAULT_PORT, running: !!remoteHost?.running, listenPort: remoteHost?.port || null,
+      pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
+      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, connected: !!remoteHost?.connected(d.id) })),
+    },
+    hosts: remoteHosts().map(h => ({ id: h.id, name: h.name, address: h.address, port: h.port })),
+    target: remoteClient?.target?.id || null, state: remoteClient?.state || 'off',
+  };
+}
+function pushRemoteStatus() { if (win && !win.isDestroyed()) win.webContents.send('remote:status', remoteInfo()); }
+const validPort = p => Number.isInteger(p) && p >= 1024 && p <= 65535;
+// Adresse eines Haupt-PCs: IPv4/IPv6 oder Rechnername (z. B. Tailscale-Name, DynDNS) – keine Pfade, keine Ports darin
+const validAddress = a => typeof a === 'string' && a.length <= 253 && !isUnc(a) && (require('node:net').isIP(a) > 0 || /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(a));
+
+handle('remote:info', () => remoteInfo());
+handle('remote:hostSet', async (_e, { enabled, port } = {}) => {
+  if (typeof enabled !== 'boolean' || (port !== undefined && !validPort(port))) return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') };
+  updateStore(s => { s.remoteHost = { ...(s.remoteHost || { devices: [] }), enabled, port: port || s.remoteHost?.port || remote.DEFAULT_PORT }; });
+  remoteHost?.stop();
+  let error;
+  if (enabled) { try { await startRemoteHost(); } catch (err) { error = err.code === 'EADDRINUSE' ? tr('Port ist belegt', 'Port is in use') : err.message; logError('Fernzugriff: ' + err.message); } }
+  pushRemoteStatus();
+  return { ...remoteInfo(), error };
+});
+handle('remote:pairStart', () => (remoteHost?.running ? remoteHost.startPairing() : { error: tr('Fernzugriff ist aus', 'Remote access is off') }));
+handle('remote:pairCancel', () => { remoteHost?.cancelPairing(); return true; });
+handle('remote:deviceSet', (_e, { id, allowBypass } = {}) => {
+  if (typeof allowBypass !== 'boolean' || !getDevices().some(d => d.id === id)) return remoteInfo();
+  saveDevices(getDevices().map(d => (d.id === id ? { ...d, allowBypass } : d)));
+  return remoteInfo();
+});
+handle('remote:deviceRemove', (_e, id) => {
+  if (!getDevices().some(d => d.id === id)) return remoteInfo();
+  saveDevices(getDevices().filter(d => d.id !== id));
+  remoteHost?.disconnect(id);
+  for (const [k, v] of remoteTabs) if (v.deviceId === id) { stopSession(k); remoteTabs.delete(k); }
+  logError(`Fernzugriff: Gerät ${id} entfernt`);
+  return remoteInfo();
+});
+handle('remote:pair', async (_e, { address, port, code } = {}) => {
+  address = typeof address === 'string' ? address.trim() : '';
+  if (!validAddress(address) || !validPort(port) || typeof code !== 'string' || code.length > 64) return { ...remoteInfo(), error: tr('Adresse, Port oder Code ungültig', 'Invalid address, port or code') };
+  if (!safeStorage.isEncryptionAvailable()) return { ...remoteInfo(), error: tr('Verschlüsselter Speicher nicht verfügbar', 'Encrypted storage not available') };
+  try {
+    const r = await remote.pair({ address, port, code, name: os.hostname().slice(0, 40) });
+    updateStore(s => { s.remoteHosts = [...(s.remoteHosts || []).filter(h => !(h.address === address && h.port === port)), { id: r.deviceId, name: cleanName(r.hostName, address) || address, address, port, deviceId: r.deviceId, keyEnc: encryptSecret(r.key) }]; });
+    logError(`Fernzugriff: mit Haupt-PC ${address}:${port} gekoppelt`);
+    return { ...remoteInfo(), paired: r.deviceId };
+  } catch (err) {
+    const msg = { code: tr('Code ungültig', 'Invalid code'), denied: tr('Am Haupt-PC abgelehnt', 'Declined on the host PC'), closed: tr('Code falsch oder abgelaufen', 'Code wrong or expired'), timeout: tr('Zeitüberschreitung', 'Timed out') }[err.message]
+      || ({ ECONNREFUSED: tr('Keine Verbindung – Fernzugriff am Haupt-PC an?', 'No connection – is remote access on at the host PC?'), ETIMEDOUT: tr('Zeitüberschreitung', 'Timed out'), ENOTFOUND: tr('Adresse nicht gefunden', 'Address not found') }[err.code])
+      || tr('Code falsch oder abgelaufen', 'Code wrong or expired');
+    return { ...remoteInfo(), error: msg };
+  }
+});
+handle('remote:hostRemove', (_e, id) => {
+  if (remoteClient?.target?.id === id) useRemoteTarget(null);
+  updateStore(s => { s.remoteHosts = (s.remoteHosts || []).filter(h => h.id !== id); });
+  return remoteInfo();
+});
+// Ziel wechseln (Haupt-PC oder dieser PC); die Oberfläche lädt danach neu
+handle('remote:use', (_e, id) => {
+  if (id !== null && !remoteHosts().some(h => h.id === id)) return remoteInfo();
+  useRemoteTarget(id);
+  return remoteInfo();
+});
+
+function initRemote() {
+  remoteClient = remote.createClient({
+    onEvent: (kind, data) => {
+      if (!win || win.isDestroyed()) return;
+      if (kind === 'claude' && typeof data?.tabId === 'string' && data.msg && typeof data.msg === 'object') win.webContents.send('claude:event', { tabId: data.tabId, msg: data.msg });
+      else if (kind === 'usage' && data && typeof data === 'object') win.webContents.send('usage:update', data);
+    },
+    onStatus: () => pushRemoteStatus(),
+    log: logError,
+  });
+  const s = getStore();
+  if (s.remoteTarget && safeStorage.isEncryptionAvailable()) { try { useRemoteTarget(s.remoteTarget); } catch (e) { logError('Fernzugriff: ' + e.message); useRemoteTarget(null); } }
+  if (s.remoteHost?.enabled) startRemoteHost().catch(e => logError('Fernzugriff: ' + e.message));
 }
 
 // ---------- Automatische Updates (nur die installierte App) ----------
@@ -951,11 +1235,11 @@ function checkForUpdates(manual = false) {
   u.checkForUpdates().catch(() => {}); // Fehler kommen über das 'error'-Ereignis
   return true;
 }
-ipcMain.handle('update:state', () => ({ ...updateState, supported: UPDATE_SUPPORTED }));
-ipcMain.handle('update:check', () => checkForUpdates(true));
+handle('update:state', () => ({ ...updateState, supported: UPDATE_SUPPORTED }));
+handle('update:check', () => checkForUpdates(true));
 // Laden auf Klick („Herunterladen“). Danach fragt die Oberfläche, ob jetzt neu gestartet werden soll;
 // ohne Neustart wird das Update beim nächsten Beenden installiert.
-ipcMain.handle('update:download', () => {
+handle('update:download', () => {
   if (!updater || updateState.status !== 'available') return false;
   userDownloaded = true;
   applyUpdateMode();
@@ -964,7 +1248,7 @@ ipcMain.handle('update:download', () => {
   return true;
 });
 // Neu starten und installieren – nur auf ausdrücklichen Klick; läuft noch eine Antwort, fragt das Schließen-Fenster nach
-ipcMain.handle('update:install', () => {
+handle('update:install', () => {
   if (!updater || updateState.status !== 'ready') return false;
   setImmediate(() => updater.quitAndInstall(true, true));
   return true;
@@ -1107,6 +1391,7 @@ app.whenReady().then(() => {
   }, 1500);
   STORE_FILE = path.join(app.getPath('userData'), 'swapline.json');
   createWindow();
+  initRemote();
   if (UPDATE_SUPPORTED) { setTimeout(checkForUpdates, 15000); setInterval(checkForUpdates, UPDATE_INTERVAL); }
   // SWAPLINE_SCREENSHOT=<datei.png>: nach dem Laden Bildschirmfoto speichern und beenden (für Tests)
   // Testlauf (nur unverpackt): SWAPLINE_TEST_JS wird in der Oberfläche ausgeführt, das Ergebnis landet in

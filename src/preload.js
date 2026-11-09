@@ -63,6 +63,18 @@ contextBridge.exposeInMainWorld('api', {
     list: profileId => invoke('ext:list', profileId),
     action: (profileId, action, id) => invoke('ext:action', { profileId, action, id }),
   },
+  remote: {
+    info: () => invoke('remote:info'),
+    hostSet: data => invoke('remote:hostSet', data),
+    pairStart: () => invoke('remote:pairStart'),
+    pairCancel: () => invoke('remote:pairCancel'),
+    deviceSet: data => invoke('remote:deviceSet', data),
+    deviceRemove: id => invoke('remote:deviceRemove', id),
+    pair: data => invoke('remote:pair', data),
+    hostRemove: id => invoke('remote:hostRemove', id),
+    use: id => invoke('remote:use', id),
+    onStatus: cb => ipcRenderer.on('remote:status', (_e, d) => cb(d)),
+  },
   onNotifyClick: cb => ipcRenderer.on('notify:click', (_e, tabId) => cb(tabId)),
   update: {
     state: () => ipcRenderer.invoke('update:state'),

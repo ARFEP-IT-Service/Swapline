@@ -7,6 +7,14 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Neu: **Fernzugriff** – ein anderer eigener PC mit Swapline nutzt Chats und Konten dieses PCs, im Netzwerk oder
+  übers Internet (Tailscale/VPN oder Portweiterleitung). Kopplung per Einmal-Code mit Bestätigung am Haupt-PC,
+  verschlüsselt per TLS-PSK mit eigenem Schlüssel je Gerät; „Alles erlauben“ je Gerät freigebbar; Geräte entfernbar.
+  Auswahl von Konto, Projekt und Modell je Gerät getrennt; Konten, Projekte, Plugins und Einstellungen des Haupt-PCs
+  bleiben vom Gerät aus unverändert.
+
 ## [0.1.3] – 2026-11-09
 
 - Update: „Herunterladen“ lädt nur noch. Danach fragt Swapline „Jetzt neu starten“ oder „Später“ und startet nie

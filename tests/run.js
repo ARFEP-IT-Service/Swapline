@@ -73,6 +73,8 @@ for (const file of files) {
     favorites: [], usage: {}, projects: [], activeProjectId: 'all', costFixV1: true, costFixV2: true, knownFoldersSeeded: true, knownFolders: [work],
     // language: 'de' – die Prüfungen erwarten deutsche Texte, auch auf Rechnern mit englischem System
     settings: { model: '', permissionMode: 'default', claudePath: '', theme: 'system', notify: 'off', sound: 'off', autoUpdate: true, language: 'de' },
+    // Fernzugriff-Test: Warnung zu „Alles erlauben“ schon bestätigt (sonst blockiert der native Dialog den Testlauf)
+    ...(name === 'remote' ? { bypassAcknowledged: true } : {}),
   }));
   // kleines Bild außerhalb des App-Ordners: die Oberfläche darf es nicht laden
   fs.writeFileSync(path.join(work, 'probe.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
@@ -84,7 +86,7 @@ for (const file of files) {
   const t0 = Date.now();
   spawnSync(electron, ['.'], {
     cwd: root, timeout: 180000, stdio: 'ignore',
-    env: { ...process.env, SWAPLINE_PROFILE: profile, SWAPLINE_TEST_JS: script, SWAPLINE_TEST_OUT: out, SWAPLINE_SCREENSHOT_DELAY: '1500' },
+    env: { ...process.env, SWAPLINE_PROFILE: profile, SWAPLINE_TEST_JS: script, SWAPLINE_TEST_OUT: out, SWAPLINE_SCREENSHOT_DELAY: '1500', SWAPLINE_TEST_AUTOPAIR: '1' },
   });
   let result;
   try { result = JSON.parse(fs.readFileSync(out, 'utf8')); } catch { result = { error: 'Kein Ergebnis (App abgestürzt oder Zeitüberschreitung)' }; }

@@ -61,7 +61,7 @@ let lastOpened = {}; // projectId (oder "all") -> zuletzt geöffneter Chat
 let historyCache = {};         // profileId -> Liste
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const LS_TABS = 'swapline.tabs.v1';
+let LS_TABS = 'swapline.tabs.v1'; // im Fernzugriff eigene Chat-Liste je Haupt-PC (Schlüssel + ':' + Haupt-PC)
 function saveTabs() {
   try {
     localStorage.setItem(LS_TABS, JSON.stringify({
@@ -270,7 +270,7 @@ function openAccountMenu() {
   document.body.append(menu);
 }
 function closeMenus() { document.querySelectorAll('.popmenu').forEach(x => x.remove()); }
-document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#ch-settings') && !e.target.closest('#bgbar')) closeMenus(); });
+document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#btn-remote') && !e.target.closest('#ch-settings') && !e.target.closest('#bgbar')) closeMenus(); });
 
 // Rechtsklick auf einen Chat: in Projekt verschieben / schließen
 function openChatMenu(e, t) {
@@ -1452,7 +1452,9 @@ function pickFolderModal() {
       el('div', { class: 'pick' },
         project(activeProjectId())?.cwd ? el('button', { class: 'proj-folder', onclick: () => finish(project(activeProjectId()).cwd) }, avatar(project(activeProjectId()), 'sm'), el('div', {}, _('Projektordner'), el('small', {}, project(activeProjectId()).cwd))) : null,
         ...store.favorites.map(f => el('button', { onclick: () => finish(f.path) }, el('div', { class: 'folder-ic' }, icon(ICONS.star)), el('div', {}, f.name, el('small', {}, f.path)))),
-        el('button', { onclick: async () => { const d = await api.pickFolder(); if (d) finish(d); } }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, _('Ordner auswählen …'), el('small', {}, _('beliebiges Projekt')))),
+        // Fernzugriff: Ordner des Haupt-PCs zur Auswahl (ein Datei-Dialog dort ginge ins Leere)
+        ...(store.remote ? (store.allowedFolders || []).filter(p => !store.favorites.some(f => f.path === p)).slice(0, 40).map(p => el('button', { onclick: () => finish(p) }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, baseName(p), el('small', {}, p))))
+          : [el('button', { onclick: async () => { const d = await api.pickFolder(); if (d) finish(d); } }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, _('Ordner auswählen …'), el('small', {}, _('beliebiges Projekt'))))]),
         el('button', { onclick: () => finish('') }, el('div', { class: 'folder-ic' }, '~'), el('div', {}, _('Ohne Projekt'), el('small', {}, _('im Benutzerordner'))))));
     // Schließen über × oder Hintergrund = abbrechen
     new MutationObserver((_, obs) => { if (!$('.modal.pickfolder')) { obs.disconnect(); if (!done) { done = true; resolve(null); } } }).observe($('#modal-root'), { childList: true });
@@ -1746,6 +1748,110 @@ function openSettings() {
     el('p', { class: 'hint' }, _('Inoffizielles Projekt, nicht mit Anthropic verbunden. „Claude“ ist eine Marke von Anthropic.')));
 }
 
+// ---------- Fernzugriff ----------
+// Dieser PC als Haupt-PC (andere Geräte verbinden sich) bzw. Verbindung zu einem Haupt-PC. Im Fernzugriff
+// zeigt Swapline Chats und Konten des Haupt-PCs; Claude läuft dort.
+let remoteState = null, pairCode = null, remoteTimer = null;
+function renderRemoteBar() {
+  const r = store.remote, bar = $('#remote-bar');
+  document.body.classList.toggle('remote', !!r);
+  $('#btn-remote').classList.toggle('active', !!r);
+  $('#btn-remote').title = r ? _('Fernzugriff – verbunden mit {name}', { name: r.name }) : _('Fernzugriff');
+  if (!r) { bar.hidden = true; return; }
+  const st = remoteState?.state || r.state;
+  bar.hidden = false;
+  fill(bar, el('span', { class: 'dot' + (st === 'connected' ? ' on' : '') }),
+    el('span', { class: 'grow', title: r.address || '' }, _('Haupt-PC: {name}', { name: r.name }), st === 'connected' ? '' : ' · ' + _('verbinde neu …')),
+    el('button', { class: 'link', onclick: () => switchTarget(null) }, _('Zurück zu diesem PC')));
+}
+async function switchTarget(id) {
+  if (tabs.some(t => t.running || bgRunning(t)) && !confirm(_('Claude arbeitet noch. Trotzdem wechseln? Die Antwort läuft im Hintergrund weiter.'))) return;
+  await api.remote.use(id);
+  location.reload();
+}
+async function openRemoteMenu() {
+  closeMenus();
+  remoteState = await api.remote.info();
+  const r = $('#btn-remote').getBoundingClientRect(), cur = store.remote?.id || null;
+  const menu = el('div', { class: 'popmenu', id: 'remote-menu', style: `left:${r.right + 10}px; bottom:${window.innerHeight - r.bottom}px` },
+    el('div', { class: 'pm-title' }, _('Chats und Konten von')),
+    el('button', { class: 'pm-item' + (!cur ? ' sel' : ''), onclick: () => { closeMenus(); if (cur) switchTarget(null); } },
+      el('span', { class: 'pm-ic' }, '💻'), el('span', { class: 'pm-text' }, el('b', {}, _('Diesem PC'))), !cur ? el('span', { class: 'pm-check' }, '✓') : null),
+    ...remoteState.hosts.map(x => el('button', { class: 'pm-item' + (x.id === cur ? ' sel' : ''), onclick: () => { closeMenus(); if (x.id !== cur) switchTarget(x.id); } },
+      el('span', { class: 'pm-ic' }, '🖥'), el('span', { class: 'pm-text' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port}`)), x.id === cur ? el('span', { class: 'pm-check' }, '✓') : null)),
+    el('div', { class: 'pm-sep' }),
+    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openRemote(); } }, el('span', { class: 'pm-ic' }, '⚙'), _('Fernzugriff einrichten …')));
+  document.body.append(menu);
+}
+async function openRemote() {
+  remoteState = await api.remote.info();
+  modal('remote', _('Fernzugriff'), el('div', { id: 'remote-body' }));
+  drawRemote();
+  clearInterval(remoteTimer);
+  // Countdown des Kopplungscodes; endet, sobald das Fenster zu ist
+  remoteTimer = setInterval(() => { if (!$('.modal.remote')) { clearInterval(remoteTimer); if (pairCode) api.remote.pairCancel(); pairCode = null; return; } if (pairCode) drawRemote(); }, 1000);
+}
+function drawRemote() {
+  const box = $('#remote-body'); if (!box || !remoteState) return;
+  const r = remoteState, h = r.host;
+  if (!r.available) return fill(box, el('p', { class: 'hint' }, _('Fernzugriff braucht den verschlüsselten Windows-Speicher – er ist auf diesem PC nicht verfügbar.')));
+  if (!h.pairingExpires) pairCode = null;
+  const portIn = el('input', { type: 'number', min: '1024', max: '65535', value: String(h.port), style: 'width:100px' });
+  const setHost = async enabled => { remoteState = await api.remote.hostSet({ enabled, port: Number(portIn.value) }); if (remoteState.error) toast(remoteState.error); drawRemote(); };
+  const toggle = el('input', { type: 'checkbox', checked: h.enabled });
+  toggle.onchange = () => setHost(toggle.checked);
+  portIn.onchange = () => { if (h.enabled) setHost(true); };
+  const left = h.pairingExpires ? Math.max(0, Math.round((h.pairingExpires - Date.now()) / 1000)) : 0;
+  const host = [
+    el('h3', {}, _('Dieser PC als Haupt-PC')),
+    el('p', { class: 'hint' }, _('Andere eigene Geräte mit Swapline können sich verbinden und alle Chats und Konten dieses PCs nutzen; Claude läuft dabei hier. Die Verbindung ist verschlüsselt, jedes Gerät wird einmal mit einem Code gekoppelt.')),
+    el('div', { class: 'row' }, el('label', { class: 'row' }, toggle, _('Fernzugriff erlauben')), el('span', { class: 'hint' }, _('Port')), portIn,
+      h.enabled && !h.running ? el('span', { class: 'hint', style: 'color:var(--danger)' }, _('nicht gestartet')) : null),
+    h.running ? el('p', { class: 'hint' }, _('Erreichbar unter: {list} · Port {port}', { list: h.addresses.map(a => a.address + (a.tailscale ? ' (Tailscale)' : '')).join(', ') || '–', port: h.listenPort })) : null,
+    h.running ? el('p', { class: 'hint' }, _('Übers Internet: am besten mit Tailscale (beide PCs im selben Tailnet, Adresse 100.x.x.x). Alternativ am Router den Port weiterleiten und die öffentliche Adresse oder einen DynDNS-Namen verwenden.')) : null,
+    h.running ? (pairCode && left > 0
+      ? el('div', {}, el('p', { class: 'hint' }, _('Auf dem anderen Gerät unter „Mit einem Haupt-PC verbinden“ eingeben (noch {s} s gültig, nur einmal):', { s: left })),
+        el('div', { class: 'row' }, el('div', { class: 'pair-code' }, pairCode), el('button', { class: 'ghost', onclick: () => { api.copyText(pairCode); toast(_('Code kopiert')); } }, _('Kopieren')),
+          el('button', { class: 'ghost', onclick: async () => { await api.remote.pairCancel(); pairCode = null; remoteState = await api.remote.info(); drawRemote(); } }, _('Abbrechen'))))
+      : el('button', { class: 'primary', onclick: async () => { const p = await api.remote.pairStart(); if (p.error) return toast(p.error); pairCode = p.code; remoteState = await api.remote.info(); drawRemote(); } }, _('Gerät koppeln …'))) : null,
+    ...h.devices.map(d => {
+      const bypass = el('input', { type: 'checkbox', checked: d.allowBypass });
+      bypass.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBypass: bypass.checked }); drawRemote(); };
+      return el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (d.connected ? ' on' : '') }),
+        el('div', { class: 'grow' }, el('b', {}, d.name), el('small', {}, d.connected ? _('verbunden') : d.lastSeen ? _('zuletzt {t}', { t: new Date(d.lastSeen).toLocaleString(locale()) }) : _('noch nie verbunden'), d.lastAddress ? ' · ' + d.lastAddress : '')),
+        el('label', { class: 'row', title: _('Darf Chats mit „Alles erlauben“ (--dangerously-skip-permissions) starten') }, bypass, _('„Alles erlauben“')),
+        el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Gerät „{name}“ entfernen? Es kann sich danach nicht mehr verbinden.', { name: d.name }))) return; remoteState = await api.remote.deviceRemove(d.id); drawRemote(); } }, _('Entfernen')));
+    }),
+  ];
+  const addr = el('input', { type: 'text', placeholder: _('Adresse (IP oder Name)'), style: 'flex:1' });
+  const port = el('input', { type: 'number', min: '1024', max: '65535', value: '47820', style: 'width:100px' });
+  const code = el('input', { type: 'text', placeholder: _('Kopplungscode'), style: 'flex:1;font-family:ui-monospace,Consolas,monospace' });
+  const pairBtn = el('button', { class: 'primary', onclick: async () => {
+    pairBtn.disabled = true; pairBtn.textContent = _('Warte auf Bestätigung am Haupt-PC …');
+    const res = await api.remote.pair({ address: addr.value, port: Number(port.value), code: code.value });
+    remoteState = res;
+    if (res.error) { toast(res.error); drawRemote(); return; }
+    toast(_('Gekoppelt'));
+    drawRemote();
+  } }, _('Koppeln'));
+  const client = [
+    el('h3', { style: 'margin-top:16px' }, _('Mit einem Haupt-PC verbinden')),
+    ...r.hosts.map(x => el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (x.id === r.target && r.state === 'connected' ? ' on' : '') }),
+      el('div', { class: 'grow' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port}`)),
+      x.id === r.target ? el('button', { class: 'ghost', onclick: () => switchTarget(null) }, _('Trennen')) : el('button', { class: 'primary', onclick: () => switchTarget(x.id) }, _('Verbinden')),
+      el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Haupt-PC „{name}“ entfernen?', { name: x.name }))) return; const wasTarget = x.id === r.target; remoteState = await api.remote.hostRemove(x.id); if (wasTarget) location.reload(); else drawRemote(); } }, _('Entfernen')))),
+    el('p', { class: 'hint' }, _('Am Haupt-PC unter Fernzugriff „Gerät koppeln …“ wählen und den Code hier eingeben.')),
+    el('div', { class: 'row' }, addr, port), el('div', { class: 'row', style: 'margin-top:6px' }, code, pairBtn),
+  ];
+  fill(box, ...host, ...client);
+}
+api.remote.onStatus(info => {
+  remoteState = info;
+  if (store.remote) store.remote.state = info.state;
+  renderRemoteBar();
+  if ($('.modal.remote')) drawRemote();
+});
+
 // ---------- Ereignisse ----------
 $('#btn-new-chat').onclick = () => newChat();
 $('#btn-empty-new').onclick = () => newChat();
@@ -1758,6 +1864,7 @@ $('#btn-account').onclick = () => ($('#account-menu') ? closeMenus() : openAccou
 $('#btn-project-edit').onclick = () => { const pr = project(activeProjectId()); if (pr) openProjectForm(pr); };
 $('#btn-settings').onclick = openSettings;
 $('#btn-extensions').onclick = () => openExtensions();
+$('#btn-remote').onclick = () => ($('#remote-menu') ? closeMenus() : openRemoteMenu());
 $('#search').oninput = renderList;
 document.querySelectorAll('#seg button').forEach(b => b.onclick = () => { view = b.dataset.view; setSeg(); renderList(); });
 $('#btn-send').onclick = sendMessage;
@@ -1825,6 +1932,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
 (async function init() {
   store = await api.getStore();
   VERSION = store.appVersion || '';
+  if (store.remote?.id) LS_TABS += ':' + store.remote.id;
   // Sprache vor dem ersten Zeichnen festlegen und die festen Texte aus index.html übersetzen
   setLang(store.settings.language || 'auto');
   translateStatic();
@@ -1833,7 +1941,8 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
   tabs = (saved.tabs || []).map(t => makeTab({ ...t, loaded: !t.sessionId }));
   activeTabId = tabs.some(t => t.id === saved.activeTabId) ? saved.activeTabId : null;
   lastOpened = saved.lastOpened || {};
-  renderRail(); renderList(); renderUsage();
+  renderRail(); renderList(); renderUsage(); renderRemoteBar();
+  if (store.remoteError) toast(_('Haupt-PC „{name}“ nicht erreichbar – Swapline zeigt wieder diesen PC', { name: store.remoteError }));
   if (activeTabId) openTab(activeTabId); else renderChat();
   refreshStatus();
   for (const p of store.profiles) loadModels(p.id).then(() => { const t = currentTab(); if (t?.profileId === p.id) renderChatChip(t); });
