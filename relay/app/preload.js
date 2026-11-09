@@ -19,4 +19,6 @@ contextBridge.exposeInMainWorld('relay', {
   openDir: () => call('dir:open'),
   checkUpdate: () => call('update:check'),
   openUpdate: url => call('update:open', url),
+  installUpdate: () => call('update:install'),
+  onUpdateProgress: fn => ipcRenderer.on('update:progress', (_e, p) => fn(Number(p) || 0)),
 });

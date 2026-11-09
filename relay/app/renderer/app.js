@@ -118,6 +118,28 @@ async function refresh(force) {
   logText = await window.relay.log(); render();
   setInterval(() => refresh(false), 3000);
   setInterval(async () => { logText = await window.relay.log(); if (document.activeElement?.tagName !== 'INPUT') render(); }, 10000);
-  const u = await window.relay.checkUpdate();
-  if (u) { const b = $('#update'); b.textContent = tr(`Version ${u.version} verfügbar`, `Version ${u.version} available`); b.hidden = false; b.onclick = () => window.relay.openUpdate(u.url); }
+  checkUpdate();
+  setInterval(checkUpdate, 6 * 3600e3);
 })();
+
+// Update: Banner oben rechts; Klick lädt, prüft und installiert (ohne Setup im Release: Release-Seite öffnen)
+let installing = false;
+async function checkUpdate() {
+  if (installing) return;
+  const u = await window.relay.checkUpdate();
+  const b = $('#update');
+  if (!u || u.error) { b.hidden = true; return; }
+  b.textContent = u.installable ? tr(`Version ${u.version} verfügbar – jetzt aktualisieren`, `Version ${u.version} available – update now`) : tr(`Version ${u.version} verfügbar`, `Version ${u.version} available`);
+  b.hidden = false;
+  b.onclick = async () => {
+    if (installing) return;
+    if (!u.installable) return window.relay.openUpdate(u.url);
+    installing = true;
+    const r = await window.relay.installUpdate();
+    if (r === true) { b.textContent = tr('Installiere … die App startet gleich neu', 'Installing … the app restarts shortly'); return; }
+    installing = false;
+    b.textContent = tr(`Version ${u.version} verfügbar – jetzt aktualisieren`, `Version ${u.version} available – update now`);
+    if (r?.error) toast(r.error);
+  };
+}
+window.relay.onUpdateProgress(p => { if (installing) $('#update').textContent = tr(`Lade Update … ${Math.round(p * 100)} %`, `Downloading update … ${Math.round(p * 100)} %`); });

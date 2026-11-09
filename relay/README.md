@@ -21,8 +21,10 @@ Handy ──TLS-PSK (Ende-zu-Ende)──▶ Swapline Relay (eigener Server) ◀�
    Daten automatisch, neue Geräte über den QR-Code.
 
 Das Fenster zeigt außerdem, welche Swapline-PCs angemeldet sind, wie viele Verbindungen laufen, das Protokoll, Port
-und Firewall. **Neues Kennwort** trennt alle PCs, bis dort der neue Einrichtungscode eingefügt ist. Ein Update wird oben
-angezeigt; der Installer hält den Dienst währenddessen an und startet ihn danach wieder. Beim Deinstallieren werden
+und Firewall. **Neues Kennwort** trennt alle PCs, bis dort der neue Einrichtungscode eingefügt ist. **Updates** sucht die App
+beim Öffnen und alle 6 Stunden; ein Klick auf „Jetzt aktualisieren“ lädt das Setup von GitHub, vergleicht es mit
+`SHA256SUMS.txt` aus demselben Release und installiert es still. Der Dienst ist dabei nur wenige Sekunden weg, Kennwort,
+Port und Protokoll bleiben, die App öffnet sich danach wieder. Beim Deinstallieren werden
 Dienst und Firewall-Regel entfernt, Kennwort und Protokoll bleiben in `C:\ProgramData\SwaplineRelay`.
 
 ## Sicherheit

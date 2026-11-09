@@ -5,9 +5,9 @@ const { app, BrowserWindow, ipcMain, dialog, clipboard, shell, Menu } = require(
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const https = require('node:https');
 const P = require('./paths.js');
 const M = require('./manage.js');
+const U = require('./update.js');
 
 const DEV = !app.isPackaged;
 const de = () => (app.getLocale() || '').toLowerCase().startsWith('de');
@@ -154,21 +154,37 @@ handle('log:tail', () => {
 });
 handle('dir:open', () => shell.openPath(P.dataDir()));
 
-// Update-Hinweis: neuere Version unter den Releases „relay-v…“ (öffentliche GitHub-API, keine Anmeldung)
-handle('update:check', () => new Promise(resolve => {
-  const req = https.get('https://api.github.com/repos/ARFEP-IT-Service/Swapline/releases?per_page=30', { headers: { 'User-Agent': 'Swapline-Relay', Accept: 'application/vnd.github+json' }, timeout: 10000 }, res => {
-    let d = ''; res.setEncoding('utf8');
-    res.on('data', c => { d += c; if (d.length > 4e6) req.destroy(); });
-    res.on('end', () => {
-      try {
-        const cmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
-        const best = JSON.parse(d).filter(r => !r.draft && !r.prerelease && /^relay-v\d+\.\d+\.\d+$/.test(r.tag_name))
-          .map(r => ({ version: r.tag_name.slice(7), url: r.html_url })).sort((a, b) => cmp(b.version, a.version))[0];
-        resolve(best && cmp(best.version, app.getVersion()) > 0 && best.url.startsWith('https://github.com/ARFEP-IT-Service/Swapline/releases/') ? best : null);
-      } catch { resolve(null); }
-    });
-  });
-  req.on('error', () => resolve(null));
-  req.on('timeout', () => req.destroy());
-}));
+// Eingebautes Update (relay/app/update.js): neuere Version unter den Releases „relay-v…“ finden, Setup laden,
+// Prüfsumme aus SHA256SUMS.txt vergleichen, still installieren. Der Installer hält den Dienst an, gleicht die Aufgabe an,
+// startet den Dienst wieder und öffnet danach die App (--force-run).
+let updateInfo = null, updating = false;
+handle('update:check', async () => {
+  try { updateInfo = await U.check(app.getVersion()); } catch { updateInfo = null; }
+  return updateInfo && { version: updateInfo.version, url: updateInfo.url, installable: !!updateInfo.setup };
+});
+handle('update:install', async () => {
+  if (updating) return false;
+  if (!updateInfo?.setup) return { error: tr('Kein Update gefunden', 'No update found') };
+  if (!(await adminOnce())) return { error: tr('Update nur als Administrator – App neu öffnen und die Windows-Abfrage bestätigen.', 'Updating needs administrator rights – reopen the app and confirm the Windows prompt.') };
+  const r = await dialog.showMessageBox(win, { type: 'question', buttons: [tr('Abbrechen', 'Cancel'), tr('Jetzt aktualisieren', 'Update now')], defaultId: 1, cancelId: 0, noLink: true,
+    title: 'Swapline Relay', message: tr(`Auf Version ${updateInfo.version} aktualisieren?`, `Update to version ${updateInfo.version}?`),
+    detail: tr('Das Setup wird von GitHub geladen und geprüft. Während der Installation ist der Vermittler einige Sekunden nicht erreichbar; die Swapline-PCs verbinden sich danach von selbst neu. Kennwort, Port und Protokoll bleiben erhalten.',
+      'The setup is downloaded from GitHub and verified. The relay is unreachable for a few seconds during installation; Swapline PCs reconnect on their own afterwards. Password, port and log are kept.') });
+  if (r.response !== 1) return false;
+  updating = true;
+  const progress = p => { if (win && !win.isDestroyed()) win.webContents.send('update:progress', p); };
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swapline-relay-update-'));
+    progress(0);
+    const { file } = await U.download(updateInfo, dir, progress);
+    progress(1);
+    // wie electron-updater: still installieren, als Update kennzeichnen, App danach wieder öffnen
+    require('node:child_process').spawn(file, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    setTimeout(() => app.quit(), 500);
+    return true;
+  } catch (e) {
+    updating = false;
+    return { error: tr('Update fehlgeschlagen: ', 'Update failed: ') + e.message };
+  }
+});
 handle('update:open', (url) => { if (typeof url === 'string' && url.startsWith('https://github.com/ARFEP-IT-Service/Swapline/releases/')) shell.openExternal(url); return true; });

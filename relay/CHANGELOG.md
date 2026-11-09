@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC und der Android-App.
 Tags: `relay-v<Version>`.
 
+## [0.2.0] – 2026-11-09
+
+- Neu: **Eingebautes Update** – die App sucht beim Öffnen und alle 6 Stunden nach einer neuen Version. „Jetzt
+  aktualisieren“ lädt das Setup von GitHub (mit Fortschritt), prüft es gegen `SHA256SUMS.txt` aus demselben Release,
+  installiert still und öffnet die App wieder. Der Vermittler ist dabei nur wenige Sekunden nicht erreichbar; Kennwort,
+  Port und Protokoll bleiben erhalten. Download nur von GitHub, bei abweichender Prüfsumme wird nichts installiert.
+
 ## [0.1.1] – 2026-11-09
 
 - Behoben: Der Dienst startete alle paar Sekunden neu („Beendet (Aufgabe gestoppt)“ im Protokoll) – PowerShell wartete
