@@ -7,6 +7,12 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Projekt-Ordner: Projekte in der Leiste in Ordnern zusammenfassen (auf-/zuklappbar, Projekte per Ziehen oder im
+  Projekt zuordnen; Ordner löschen behält die Projekte).
+- Gekoppelte Haupt-PCs stehen direkt in der Leiste („Dieser PC“ und je Haupt-PC ein Symbol, Klick wechselt).
+
 ## [0.2.1] – 2026-11-09
 
 - Knopf „Ganz nach unten“ (auch Strg+Ende), sobald man im Chat nach oben gescrollt hat.

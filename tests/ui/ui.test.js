@@ -87,6 +87,28 @@
   check('Leeres Projekt zeigt Startansicht', activeTabId === null && !$('#empty').hidden);
   await switchProject('all');
 
+  // Projekt-Ordner in der Leiste
+  store = await api.projects.groupAdd({ name: 'Kunden', color: '#1581FF' }); const G = store.projectGroups.at(-1).id;
+  store = await api.projects.add({ name: 'Kunde A', groupId: G }); const PA = store.projects.at(-1).id;
+  renderRail();
+  check('Ordner in der Leiste mit Projekt darin', !!document.querySelector('.rail-group-wrap.open .rail-group-kids .rail-profile'));
+  toggleGroup(G);
+  check('Ordner zuklappbar, Anzahl sichtbar', !document.querySelector('.rail-group-kids') && document.querySelector('.rail-group .count')?.textContent === '1');
+  toggleGroup(G);
+  store = await api.projects.update(PA, { groupId: 'g-gibtsnicht' });
+  check('Ungültiger Ordner wird verworfen', !store.projects.find(p => p.id === PA).groupId);
+  await moveProjectToGroup(PA, G);
+  check('Projekt in Ordner verschoben', store.projects.find(p => p.id === PA).groupId === G);
+  store = await api.projects.groupRemove(G); renderRail();
+  check('Ordner löschen behält die Projekte', store.projects.some(p => p.id === PA && !p.groupId) && !store.projectGroups.length && !document.querySelector('.rail-group'));
+
+  // Geräte in der Leiste (gekoppelte Haupt-PCs)
+  remoteState = { hosts: [{ id: 'h1', name: 'Büro PC', address: '100.64.0.5', port: 47820 }], state: 'off', host: { devices: [] } }; renderRail();
+  check('Leiste zeigt „Dieser PC“ und den Haupt-PC', document.querySelectorAll('#rail-hosts .rail-profile').length === 2 && !!document.querySelector('#rail-hosts .rail-profile.active .host-pc') && !$('#rail-hosts-sep').hidden);
+  remoteState = { hosts: [], state: 'off', host: { devices: [] } }; renderRail();
+  check('Ohne gekoppelte Haupt-PCs kein Geräte-Bereich', !$('#rail-hosts').children.length && $('#rail-hosts-sep').hidden);
+  await switchProject('all'); // projects.add macht das neue Projekt aktiv
+
   // Suche in offenen Chats (Nachrichtentext)
   $('#search').value = 'antwort'; renderList();
   check('Suche findet Chat über Nachrichtentext', [...document.querySelectorAll('#list .item .title')].some(e => e.textContent === 'Neuer Name s'));

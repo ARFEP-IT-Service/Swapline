@@ -14,7 +14,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 ## Funktionen
 
-- **Projekte:** Leiste links mit „Allgemein“ (🌐) und eigenen Projekten; Chats per Ziehen oder Rechtsklick zuordnen, optional mit Projektordner.
+- **Projekte:** Leiste links mit „Allgemein“ (🌐) und eigenen Projekten, auf Wunsch in Ordnern gruppiert (auf-/zuklappbar); Chats per Ziehen oder Rechtsklick zuordnen, optional mit Projektordner.
 - **Konten wechseln:** über das Profil links unten oder `Strg+1…9`. Jedes Konto hat einen eigenen Konfigurationsordner (`~/.claude-profiles/<konto>`), angemeldet wird einmalig.
 - **Chat mit anderem Konto fortsetzen:** Konto im Chat wechseln, der Verlauf wird nach Rückfrage übernommen (siehe [Daten und Anmeldung](#daten-und-anmeldung)).
 - **Mehrere Chats gleichzeitig**, auch mit verschiedenen Konten und Ordnern; Ungelesen- und „arbeitet“-Anzeige.
@@ -58,7 +58,7 @@ Ein PC mit Swapline kann **Haupt-PC** sein: Andere eigene Geräte mit Swapline v
 1. **Haupt-PC:** Fernzugriff-Symbol links (Bildschirm) → **Fernzugriff einrichten …** → **Fernzugriff erlauben** (Port 47820, änderbar). Windows fragt beim ersten Mal, ob Swapline Verbindungen annehmen darf – für private Netzwerke erlauben.
 2. **Gerät koppeln …** zeigt einen Einmal-Code (5 Minuten gültig).
 3. **Anderes Gerät:** Fernzugriff einrichten → **Mit einem Haupt-PC verbinden** → Adresse, Port und Code eingeben. Am Haupt-PC das Koppeln bestätigen.
-4. Über das Fernzugriff-Symbol zwischen **Diesem PC** und dem Haupt-PC wechseln.
+4. Gekoppelte Haupt-PCs stehen links in der Leiste unter den Projekten – ein Klick auf **Dieser PC** oder den Haupt-PC wechselt.
 
 **Freigabe je Gerät:** In der Geräteliste unter **Freigabe …** festlegen, was ein Gerät sieht – alle oder nur ausgewählte **Konten**, alle oder nur ausgewählte **Projekte** (alle Chats in deren Ordnern, neue Chats nur dort) und einzelne **Chats**. Einzelne Chats lassen sich auch per Rechtsklick auf den Chat → **Für Gerät freigeben …** teilen. Der Haupt-PC prüft die Freigabe bei jeder Anfrage; wird sie verkleinert, enden laufende Chats des Geräts, die nicht mehr freigegeben sind. Zugriff entziehen: Freigabe ändern, Gerät **Entfernen** (sofort getrennt) oder **Fernzugriff erlauben** ausschalten.
 

@@ -50,6 +50,7 @@ function getStore() {
   if (!s.costFixV2) { for (const u of Object.values(s.usage)) { delete u.costUsd; delete u.days; } s.costFixV2 = true; }
   s.sessionCost ||= {}; // sessionId -> letzter total_cost_usd dieser Sitzung
   s.projects ||= [];
+  s.projectGroups ||= []; // Ordner für Projekte: [{ id, name, color }], Projekt.groupId zeigt darauf
   s.activeProjectId ||= 'all';
   s.settings ||= { model: '', permissionMode: 'default', claudePath: '' };
   // Updates: früher autoUpdate (an/aus, Standard an = automatisch laden). Neuer Standard „Nur benachrichtigen“;
@@ -651,12 +652,14 @@ handle('projects:pickIcon', async () => {
   if (!looksLikeImage(buf, ext)) return { error: tr('Datei ist kein gültiges Bild', 'The file is not a valid image') };
   return { icon: `data:${ICON_TYPES[ext]};base64,${buf.toString('base64')}` };
 });
-handle('projects:add', (_e, { name, color, cwd, icon } = {}) => updateStore(s => {
+const validGroup = (s, id) => typeof id === 'string' && s.projectGroups.some(g => g.id === id);
+handle('projects:add', (_e, { name, color, cwd, icon, groupId } = {}) => updateStore(s => {
   if (s.projects.length >= PROJECTS_MAX) return;
   name = cleanName(name, 'Projekt'); color = cleanColor(color, '#1581FF'); cwd = isAllowedCwd(cwd) ? cwd : ''; // nur per Dialog gesehene Ordner
   const id = 'p-' + crypto.randomBytes(4).toString('hex');
   const pr = { id, name: name || 'Projekt', color: color || '#1581FF', cwd: cwd || '' };
   if (cleanIcon(icon)) pr.icon = cleanIcon(icon);
+  if (validGroup(s, groupId)) pr.groupId = groupId;
   s.projects.push(pr);
   s.activeProjectId = id;
 }));
@@ -667,6 +670,7 @@ handle('projects:update', (_e, { id, patch }) => updateStore(s => {
     if ('color' in patch) p.color = cleanColor(patch.color, p.color);
     if ('cwd' in patch) p.cwd = isAllowedCwd(patch.cwd) ? patch.cwd : '';
     if ('icon' in patch) { if (cleanIcon(patch.icon)) p.icon = cleanIcon(patch.icon); else delete p.icon; }
+    if ('groupId' in patch) { if (validGroup(s, patch.groupId)) p.groupId = patch.groupId; else delete p.groupId; }
   }
 }));
 handle('projects:remove', (_e, id) => updateStore(s => {
@@ -674,6 +678,21 @@ handle('projects:remove', (_e, id) => updateStore(s => {
   if (s.activeProjectId === id) s.activeProjectId = 'all';
 }));
 handle('projects:setActive', (_e, id) => updateStore(s => { s.activeProjectId = id; }));
+// Projekt-Ordner (nur Gruppierung in der Leiste – Chats und Ordner auf der Platte bleiben unberührt)
+handle('projects:groupAdd', (_e, { name, color } = {}) => updateStore(s => {
+  if (s.projectGroups.length >= 50) return;
+  s.projectGroups.push({ id: 'g-' + crypto.randomBytes(4).toString('hex'), name: cleanName(name, 'Ordner') || 'Ordner', color: cleanColor(color, '#64748B') });
+}));
+handle('projects:groupUpdate', (_e, { id, patch } = {}) => updateStore(s => {
+  const g = s.projectGroups.find(x => x.id === id);
+  if (!g || !patch) return;
+  if ('name' in patch) g.name = cleanName(patch.name, g.name) || g.name;
+  if ('color' in patch) g.color = cleanColor(patch.color, g.color);
+}));
+handle('projects:groupRemove', (_e, id) => updateStore(s => {
+  s.projectGroups = s.projectGroups.filter(x => x.id !== id);
+  for (const p of s.projects) if (p.groupId === id) delete p.groupId; // Projekte bleiben, nur ohne Ordner
+}));
 handle('projects:reorder', (_e, ids) => updateStore(s => {
   s.projects.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 }));
@@ -932,12 +951,12 @@ const remoteTabs = new Map(); // interne Tab-ID auf dem Haupt-PC -> { deviceId, 
 // Kanäle, die ein Gerät an den Haupt-PC weiterreicht
 const FORWARD = new Set(['store:get', 'profiles:setActive', 'profiles:status', 'profiles:models', 'profiles:add', 'profiles:update', 'profiles:remove',
   'profiles:login', 'profiles:loginConsole', 'profiles:loginCancel', 'profiles:logout', 'profiles:openTerminal', 'favorites:add', 'favorites:remove',
-  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder',
+  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder', 'projects:groupAdd', 'projects:groupUpdate', 'projects:groupRemove',
   'history:list', 'history:loadSession', 'history:search', 'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close',
   'session:confirmBypass', 'session:moveProfile', 'task:readOutput', 'ext:list', 'ext:action']);
 // Kanäle, deren Ergebnis der ganze Speicherstand ist (bei Fehlern trotzdem einen Stand zurückgeben)
 const STORE_RESULT = new Set(['store:get', 'profiles:setActive', 'profiles:add', 'profiles:update', 'profiles:remove', 'favorites:add', 'favorites:remove',
-  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder']);
+  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder', 'projects:groupAdd', 'projects:groupUpdate', 'projects:groupRemove']);
 // Einstellungen, die auf dem Gerät bleiben
 const LOCAL_SETTINGS = ['theme', 'language', 'notify', 'sound', 'notifyStay', 'toolView', 'updateMode'];
 const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && k in o).map(k => [k, o[k]]));
@@ -967,6 +986,7 @@ function remoteStoreFor(dev) {
     profiles,
     activeProfileId: profiles.some(p => p.id === v.activeProfileId) ? v.activeProfileId : profiles.some(p => p.id === s.activeProfileId) ? s.activeProfileId : profiles[0]?.id || null,
     favorites: limited ? [] : s.favorites, projects,
+    projectGroups: s.projectGroups.filter(g => projects.some(p => p.groupId === g.id)),
     activeProjectId: v.activeProjectId && (v.activeProjectId === 'all' || projects.some(p => p.id === v.activeProjectId)) ? v.activeProjectId : 'all',
     scope: { limited, accountsLimited: scopeOf(dev).profiles !== null, newChats: !limited || projectFolders(dev).length > 0 },
     usage: s.usage,
@@ -1125,7 +1145,8 @@ function mergeRemoteStore(v) {
   return {
     ...r,
     profiles: (r.profiles || []).map(p => ({ id: String(p.id), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), isDefault: !!p.isDefault })),
-    projects: (r.projects || []).map(p => ({ id: String(p.id), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), cwd: typeof p.cwd === 'string' ? p.cwd : '', ...(cleanIcon(p.icon) ? { icon: cleanIcon(p.icon) } : {}) })),
+    projects: (r.projects || []).map(p => ({ id: String(p.id), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), cwd: typeof p.cwd === 'string' ? p.cwd : '', ...(cleanIcon(p.icon) ? { icon: cleanIcon(p.icon) } : {}), ...(typeof p.groupId === 'string' ? { groupId: p.groupId } : {}) })),
+    projectGroups: (r.projectGroups || []).map(g => ({ id: String(g.id), name: cleanName(g.name, '?'), color: cleanColor(g.color, '#64748B') })),
     favorites: (r.favorites || []).filter(f => typeof f?.path === 'string').map(f => ({ path: f.path, name: cleanName(f.name, '?') })),
     allowedFolders: (r.allowedFolders || []).filter(x => typeof x === 'string'),
     settings: { ...pick(local.settings, LOCAL_SETTINGS), ...pick(r.settings, ['model', 'effort', 'permissionMode']) },

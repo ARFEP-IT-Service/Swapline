@@ -126,13 +126,37 @@ function applyTheme() {
 const activeProjectId = () => store.activeProjectId || 'all';
 const project = id => (store.projects || []).find(x => x.id === id);
 const tabInProject = (t, pid) => pid === 'all' || t.projectId === pid;
+const MONITOR = '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>';
 const GLOBE = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"/>';
 
 function renderRail() {
   const pid = activeProjectId();
   $('#rail-all').classList.toggle('active', pid === 'all');
   const busyIn = id => tabs.some(t => t.projectId === id && (t.unread || t.running || bgRunning(t)));
-  $('#rail-projects').replaceChildren(...(store.projects || []).map(pr => el('button', {
+  // Projekte, teils in Ordnern (auf-/zuklappbar; Zustand nur auf diesem Gerät gespeichert)
+  const groups = store.projectGroups || [], projects = store.projects || [];
+  const inGroup = p => groups.some(g => g.id === p.groupId);
+  const groupNodes = groups.map(g => {
+    const kids = projects.filter(p => p.groupId === g.id);
+    const open = !collapsedGroups.has(g.id);
+    const busy = kids.some(p => busyIn(p.id));
+    return el('div', { class: 'rail-group-wrap' + (open ? ' open' : '') },
+      el('button', {
+        class: 'rail-profile rail-group' + (open ? ' open' : '') + (!open && kids.some(p => p.id === pid) ? ' active' : ''),
+        title: g.name + '\n' + (kids.length === 1 ? _('1 Projekt') : _('{n} Projekte', { n: kids.length })) + '\n' + _('Klicken: auf-/zuklappen · Rechtsklick: bearbeiten · Projekt hierher ziehen'),
+        onclick: () => toggleGroup(g.id),
+        oncontextmenu: e => { e.preventDefault(); openGroupForm(g); },
+        ondragover: e => { if ([...e.dataTransfer.types].includes('text/project')) { e.preventDefault(); e.currentTarget.classList.add('drop'); } },
+        ondragleave: e => e.currentTarget.classList.remove('drop'),
+        ondrop: e => { e.preventDefault(); e.currentTarget.classList.remove('drop'); const id = e.dataTransfer.getData('text/project'); if (id) moveProjectToGroup(id, g.id); },
+      }, el('div', { class: 'avatar group', style: `background:${g.color}` }, icon(ICONS.folder)),
+        !open && kids.length ? el('span', { class: 'count' }, String(kids.length)) : null,
+        busy && !open ? el('span', { class: 'badge on' }) : null),
+      open && kids.length ? el('div', { class: 'rail-group-kids' }, ...kids.map(projButton)) : null);
+  });
+  $('#rail-projects').replaceChildren(...groupNodes, ...projects.filter(p => !inGroup(p)).map(projButton));
+  renderRailHosts();
+  function projButton(pr) { return el('button', {
     class: 'rail-profile' + (pr.id === pid ? ' active' : ''),
     title: pr.name + (pr.cwd ? '\n' + pr.cwd : '') + '\n' + _('Rechtsklick: bearbeiten'),
     onclick: () => switchProject(pr.id),
@@ -142,7 +166,7 @@ function renderRail() {
     ondragover: e => { if ([...e.dataTransfer.types].some(x => x === 'text/chat' || x === 'text/project')) { e.preventDefault(); e.currentTarget.classList.add('drop'); } },
     ondragleave: e => e.currentTarget.classList.remove('drop'),
     ondrop: e => { e.preventDefault(); e.currentTarget.classList.remove('drop'); onRailDrop(e, pr.id); },
-  }, avatar(pr), busyIn(pr.id) ? el('span', { class: 'badge on' }) : null)));
+  }, avatar(pr), busyIn(pr.id) ? el('span', { class: 'badge on' }) : null); }
 
   // Konto-Knopf unten: Avatar des aktiven Kontos mit Status-Punkt
   const p = activeProfile(), st = status[p.id];
@@ -179,11 +203,70 @@ async function switchProject(id) {
 }
 
 // Chat auf ein Projekt ziehen = verschieben; Projekt auf Projekt ziehen = Reihenfolge ändern
+// Projekt-Ordner: auf-/zuklappen (nur Ansicht, je Gerät), Projekte hinein- bzw. herausschieben
+const LS_GROUPS = 'swapline.railGroups.v1';
+const collapsedGroups = new Set((() => { try { return JSON.parse(localStorage.getItem(LS_GROUPS)) || []; } catch { return []; } })());
+function toggleGroup(id) {
+  collapsedGroups.has(id) ? collapsedGroups.delete(id) : collapsedGroups.add(id);
+  try { localStorage.setItem(LS_GROUPS, JSON.stringify([...collapsedGroups])); } catch {}
+  renderRail();
+}
+async function moveProjectToGroup(projectId, groupId) {
+  const r = await api.projects.update(projectId, { groupId: groupId || null });
+  if (r?.rejected) return toast(r.rejected);
+  store = r;
+  if (groupId) collapsedGroups.delete(groupId);
+  renderRail();
+}
+function openGroupForm(g = {}) {
+  let color = g.color || '#64748B';
+  const name = el('input', { type: 'text', value: g.name || '', placeholder: _('z. B. Kunden, Privat, Archiv') });
+  const colors = el('div', { class: 'colors' });
+  const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
+  drawColors();
+  const save = async () => {
+    if (!name.value.trim()) return name.focus();
+    const r = g.id ? await api.projects.groupUpdate(g.id, { name: name.value.trim(), color }) : await api.projects.groupAdd({ name: name.value.trim(), color });
+    if (r?.rejected) return toast(r.rejected);
+    store = r; m.close(); renderRail();
+  };
+  const n = (store.projects || []).filter(p => p.groupId === g.id).length;
+  const m = modal('project', g.id ? _('Ordner bearbeiten') : _('Neuer Ordner'),
+    el('p', { class: 'hint' }, _('Ein Ordner fasst Projekte in der Leiste zusammen. Projekte per Ziehen auf den Ordner oder im Projekt unter „Ordner“ zuordnen.')),
+    el('label', { class: 'field' }, el('span', {}, _('Name')), name),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
+    el('div', { class: 'row', style: 'margin-top:16px' },
+      el('button', { class: 'primary', onclick: save }, g.id ? _('Speichern') : _('Ordner anlegen')),
+      g.id ? el('button', { class: 'ghost danger', style: 'margin-left:auto', onclick: async () => {
+        if (!confirm(_('Ordner „{name}“ löschen?', { name: g.name }) + (n ? '\n\n' + _('Die Projekte darin bleiben erhalten und stehen danach wieder einzeln in der Leiste.') : ''))) return;
+        const r = await api.projects.groupRemove(g.id);
+        if (r?.rejected) return toast(r.rejected);
+        store = r; m.close(); renderRail();
+      } }, _('Ordner löschen')) : null));
+  name.focus();
+  name.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+}
+// Geräte in der Leiste: „Dieser PC“ und gekoppelte Haupt-PCs – ein Klick wechselt
+function renderRailHosts() {
+  const hosts = remoteState?.hosts || [], cur = store.remote?.id || null;
+  $('#rail-hosts-sep').hidden = !hosts.length;
+  $('#rail-hosts').replaceChildren(...(hosts.length ? [
+    el('button', { class: 'rail-profile' + (!cur ? ' active' : ''), title: _('Dieser PC') + (cur ? '\n' + _('Klicken zum Wechseln') : ''), onclick: () => { if (cur) switchTarget(null); } },
+      el('div', { class: 'avatar host-pc' }, icon(MONITOR))),
+    ...hosts.map(h => el('button', { class: 'rail-profile' + (h.id === cur ? ' active' : ''), title: _('Haupt-PC: {name}', { name: h.name }) + '\n' + h.address + ':' + h.port + (h.id === cur ? '' : '\n' + _('Klicken zum Wechseln')), onclick: () => { if (h.id !== cur) switchTarget(h.id); } },
+      el('div', { class: 'avatar host' }, initials(h.name), el('span', { class: 'host-mark' }, icon(MONITOR))),
+      h.id === cur ? el('span', { class: 'badge ' + ((remoteState?.state || store.remote?.state) === 'connected' ? 'on' : 'off') }) : null)),
+  ] : []));
+}
+
 async function onRailDrop(e, targetId) {
   const chatId = e.dataTransfer.getData('text/chat');
   if (chatId) return moveChatToProject(chatId, targetId);
   const pid = e.dataTransfer.getData('text/project');
   if (pid && pid !== targetId) {
+    // auf ein Projekt gezogen: in dessen Ordner (bzw. aus dem Ordner heraus) und davor einreihen
+    const target = project(targetId), moved = project(pid);
+    if (target && moved && (target.groupId || null) !== (moved.groupId || null)) { const r = await api.projects.update(pid, { groupId: target.groupId || null }); if (r?.rejected) return toast(r.rejected); store = r; }
     const ids = store.projects.map(x => x.id).filter(x => x !== pid);
     ids.splice(ids.indexOf(targetId), 0, pid);
     store = await api.projects.reorder(ids);
@@ -202,6 +285,7 @@ function openProjectForm(pr = {}) {
   let color = pr.color || COLORS[(store.projects || []).length % COLORS.length];
   let cwd = pr.cwd || '';
   const name = el('input', { type: 'text', value: pr.name || '', placeholder: _('z. B. Glassbed, Website, Verein') });
+  const groupSel = el('select', {}, el('option', { value: '' }, _('Kein Ordner')), ...(store.projectGroups || []).map(g => el('option', { value: g.id, selected: g.id === pr.groupId }, g.name)));
   const colors = el('div', { class: 'colors' });
   const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
   drawColors();
@@ -228,7 +312,7 @@ function openProjectForm(pr = {}) {
   colors.addEventListener('click', () => { if (!icon) setTimeout(drawIcon); });
   const save = async () => {
     if (!name.value.trim()) return name.focus();
-    const data = { name: name.value.trim(), color, cwd, icon };
+    const data = { name: name.value.trim(), color, cwd, icon, groupId: groupSel.value || null };
     store = pr.id ? await api.projects.update(pr.id, data) : await api.projects.add(data);
     m.close(); renderRail(); renderList();
   };
@@ -237,6 +321,7 @@ function openProjectForm(pr = {}) {
     el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Bild (optional)')), iconRow),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Projektordner (neue Chats starten hier)')), folder),
+    (store.projectGroups || []).length ? el('label', { class: 'field' }, el('span', {}, _('Ordner in der Leiste')), groupSel) : null,
     el('div', { class: 'row', style: 'margin-top:16px' },
       el('button', { class: 'primary', onclick: save }, pr.id ? _('Speichern') : _('Projekt anlegen')),
       pr.id ? el('button', { class: 'ghost danger', style: 'margin-left:auto', onclick: async () => {
@@ -270,7 +355,7 @@ function openAccountMenu() {
   document.body.append(menu);
 }
 function closeMenus() { document.querySelectorAll('.popmenu').forEach(x => x.remove()); }
-document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#btn-remote') && !e.target.closest('#ch-settings') && !e.target.closest('#bgbar')) closeMenus(); });
+document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#btn-remote') && !e.target.closest('#btn-add-project') && !e.target.closest('#ch-settings') && !e.target.closest('#bgbar')) closeMenus(); });
 
 // Rechtsklick auf einen Chat: in Projekt verschieben / schließen
 function openChatMenu(e, t) {
@@ -1940,7 +2025,7 @@ function drawRemote() {
 api.remote.onStatus(info => {
   remoteState = info;
   if (store.remote) store.remote.state = info.state;
-  renderRemoteBar();
+  renderRemoteBar(); renderRail();
   if ($('.modal.remote')) drawRemote();
 });
 
@@ -1954,7 +2039,14 @@ document.addEventListener('keydown', e => { if (e.ctrlKey && e.key === 'End' && 
 // ---------- Ereignisse ----------
 $('#btn-new-chat').onclick = () => newChat();
 $('#btn-empty-new').onclick = () => newChat();
-$('#btn-add-project').onclick = () => openProjectForm();
+$('#btn-add-project').onclick = () => {
+  if ($('#add-menu')) return closeMenus();
+  closeMenus();
+  const r = $('#btn-add-project').getBoundingClientRect();
+  document.body.append(el('div', { class: 'popmenu', id: 'add-menu', style: `left:${r.right + 10}px; top:${r.top}px` },
+    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), _('Neues Projekt …')),
+    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openGroupForm(); } }, el('span', { class: 'pm-ic' }, icon(ICONS.folder)), _('Neuer Ordner …'))));
+};
 $('#rail-all').onclick = () => switchProject('all');
 $('#rail-all').ondragover = e => { if ([...e.dataTransfer.types].includes('text/chat')) { e.preventDefault(); e.currentTarget.classList.add('drop'); } };
 $('#rail-all').ondragleave = e => e.currentTarget.classList.remove('drop');
@@ -2041,7 +2133,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
   activeTabId = tabs.some(t => t.id === saved.activeTabId) ? saved.activeTabId : null;
   lastOpened = saved.lastOpened || {};
   renderRail(); renderList(); renderUsage(); renderRemoteBar();
-  api.remote.info().then(r => { remoteState = r; });
+  api.remote.info().then(r => { remoteState = r; renderRail(); });
   if (store.remoteError) toast(_('Haupt-PC „{name}“ nicht erreichbar – Swapline zeigt wieder diesen PC', { name: store.remoteError }));
   if (activeTabId) openTab(activeTabId); else renderChat();
   refreshStatus();

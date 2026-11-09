@@ -305,6 +305,23 @@ body.remote #btn-add-project { display: none; }
 .pill-select select:disabled { opacity: .5; cursor: default; }
 
 /* Projektleiste */
+/* Projekt-Ordner und Geräte in der Leiste */
+#rail-projects { width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 2px 0; }
+#rail-projects::-webkit-scrollbar { display: none; }
+.rail-group-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 54px; border-radius: 18px; }
+.rail-group-wrap.open { background: var(--surface); padding: 5px 0 7px; }
+.rail-group-kids { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.rail-group-kids .rail-profile .avatar { width: 36px; height: 36px; font-size: 14px; }
+.rail-group-kids .rail-profile::before { left: -14px; }
+.avatar.group svg { width: 22px; height: 22px; stroke: #fff; }
+.rail-group.open .avatar.group { border-radius: 14px; }
+.rail-group .count { position: absolute; right: -4px; top: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--raised); border: 2px solid var(--bg); font-size: 10px; line-height: 13px; color: var(--text); }
+#rail-hosts { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.avatar.host-pc { background: var(--raised); color: var(--text); border: 1px solid var(--line); }
+.avatar.host-pc svg { width: 21px; height: 21px; }
+.avatar.host { position: relative; background: #475569; }
+.avatar.host .host-mark { position: absolute; left: -3px; top: -3px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); color: var(--text); display: grid; place-items: center; }
+.avatar.host .host-mark svg { width: 11px; height: 11px; }
 .rail-sep { width: 32px; height: 2px; border-radius: 2px; background: var(--line); margin: 2px 0; }
 #rail-projects { display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .avatar.globe { background: var(--raised); color: var(--accent); border: 1px solid var(--line); }

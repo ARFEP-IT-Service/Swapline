@@ -32,6 +32,7 @@
   check('Lokale Einstellungen bleiben lokal (Sprache)', rs.settings.language === 'de');
   check('Haupt-PC-Einstellungen nicht verstellbar (Projekt anlegen)', !!(await api.projects.add({ name: 'X' })).rejected);
   check('Haupt-PC-Einstellungen nicht verstellbar (Konto anlegen)', !!(await api.profiles.add({ name: 'X' })).rejected);
+  check('Haupt-PC-Einstellungen nicht verstellbar (Projekt-Ordner)', !!(await api.projects.groupAdd({ name: 'X' })).rejected && Array.isArray(rs.projectGroups));
   const sm = await api.setSettings({ model: 'sonnet' });
   check('Modell je Gerät wählbar', !sm.rejected && sm.settings.model === 'sonnet', JSON.stringify(sm.settings));
   check('Verlauf über Haupt-PC lesbar', Array.isArray(await api.history.list('test')));
