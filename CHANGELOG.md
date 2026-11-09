@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.2.0] – 2026-11-09
 
 - Neu: **Fernzugriff** – ein anderer eigener PC mit Swapline nutzt Chats und Konten dieses PCs, im Netzwerk oder
   übers Internet (Tailscale/VPN oder Portweiterleitung). Kopplung per Einmal-Code mit Bestätigung am Haupt-PC,
