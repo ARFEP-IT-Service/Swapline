@@ -7,6 +7,11 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.9.1] – 2026-11-09
+
+- Fernzugriff: Geräte können nach einer Unterbrechung die offenen Rückfragen eines Chats abfragen (sie stehen nicht in
+  der Sitzungsdatei) – damit gehen der Android-App beim Wiederverbinden keine Rückfragen mehr verloren.
+
 ## [0.9.0] – 2026-11-09
 
 - Neu: **Diktieren** – Mikrofon-Knopf im Eingabefeld startet die Windows-Spracheingabe (wie Windows + H); der Text

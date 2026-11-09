@@ -95,6 +95,36 @@ class ChatTest {
         assertTrue(c.loaded)
     }
 
+    @Test fun resyncFillsGapsAfterInterruption() {
+        val c = chat()
+        // live angekommen: Frage und ein Bash-Aufruf – dann riss die Verbindung ab
+        c.ingest(j("""{"type":"swapline_user","content":{"text":"Baue das","images":0},"from":"PC"}"""))
+        c.ingest(j("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}"""))
+        c.ingest(j("""{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"halb"}}}"""))
+        c.stale = true
+        // Sitzungsdatei vom Haupt-PC (vollständig) + offene Rückfrage
+        val hist = json.parseToJsonElement("""[
+          {"type":"user","message":{"content":"Baue das"}},
+          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}},
+          {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"a.txt"}]}},
+          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"npm test"}}]}},
+          {"type":"assistant","message":{"content":[{"type":"text","text":"Fertig, Tests laufen."}]}}
+        ]""") as JsonArray
+        val pending = json.parseToJsonElement("""[{"type":"control_request","request_id":"r9","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"rm -rf build"},"permission_suggestions":null,"description":""}}]""") as JsonArray
+        c.resync(hist, pending)
+        assertFalse(c.stale)
+        assertEquals(listOf("Me", "Tool", "Tool", "Ai", "Perm"), c.items.map { it.javaClass.simpleName })
+        assertEquals("a.txt", (c.items[1] as Item.Tool).result)
+        assertEquals("Fertig, Tests laufen.", (c.items[3] as Item.Ai).text)
+        assertEquals("r9", (c.items[4] as Item.Perm).requestId)
+        // danach weiterlaufende Live-Ereignisse hängen sauber an (kein Rest der abgebrochenen Live-Zeile)
+        c.ingest(j("""{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Neu"}}}"""))
+        assertEquals("Neu", (c.items.last() as Item.Ai).text)
+        // Rückfrage, die schon angezeigt wird, kommt nicht doppelt
+        c.resync(hist, pending)
+        assertEquals(1, c.items.count { it is Item.Perm })
+    }
+
     @Test fun withinFolders() {
         assertTrue(within("C:\\Work\\app", "c:\\work"))
         assertTrue(within("C:\\Work", "C:\\Work\\"))

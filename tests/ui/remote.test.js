@@ -135,6 +135,10 @@
   await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: null, chats: [] } });
   const att = await R('session:attach', { tabId: 'devtab001', hostTab: open.id });
   check('Beitreten zu freigegebenem Chat', att && att.running === false, JSON.stringify(att));
+  const pend = await R('session:pending', { tabId: 'devtab001' });
+  check('Offene Rückfragen eines beigetretenen Chats abrufbar (nach Unterbrechung)', pend && pend.running === false && Array.isArray(pend.requests), JSON.stringify(pend));
+  check('Offene Rückfragen: fremder Chat liefert nichts', JSON.stringify(await R('session:pending', { tabId: 'fremd0001' })) === JSON.stringify({ running: false, requests: [] }));
+  check('Offene Rückfragen: ungültige ID abgelehnt', (await R('session:pending', { tabId: '../x' })) === false);
   check('Einstellungen eines beigetretenen Chats ändert nur der Haupt-PC', (await R('session:restart', 'devtab001')) === false);
   check('Austreten beendet den Chat am Haupt-PC nicht', (await R('session:close', 'devtab001')) === true && tabs.includes(open));
   check('Oberfläche darf offene Chats nicht über ein Gerät melden', (await R('tabs:publish', [])) === false);

@@ -336,7 +336,7 @@ function startSession(tab) {
       s.tab.sessionId = m.session_id;
     }
     if (m.type === 'control_request' && m.request?.subtype === 'can_use_tool') {
-      s.pending.set(m.request_id, { toolName: m.request.tool_name, input: m.request.input, suggestions: m.request.permission_suggestions || null });
+      s.pending.set(m.request_id, { toolName: m.request.tool_name, input: m.request.input, suggestions: m.request.permission_suggestions || null, description: typeof m.request.description === 'string' ? m.request.description : '' });
     }
     if (m.type === 'rate_limit_event' && !tab.ssh) recordLimits(tab.profileId, m.rate_limit_info);
     // total_cost_usd ist der Stand der ganzen Sitzung (kumuliert, inkl. fortgesetzter Teile) – gezählt wird nur der Zuwachs
@@ -1232,6 +1232,20 @@ async function hostDispatch(dev, ch, args) {
       attach(dev, a0.tabId, ht.id);
       return { running: !!sessions.get(ht.id)?.busy };
     }
+    // Nach einer Unterbrechung: offene Rückfragen eines Chats des Geräts (eigener oder beigetretener Chat) – sie stehen
+    // nicht in der Sitzungsdatei. Antwort im Format der CLI-Nachricht, damit das Gerät sie wie live anzeigen kann.
+    case 'session:pending': {
+      if (typeof a0?.tabId !== 'string' || !/^[a-z0-9]{6,23}$/i.test(a0.tabId)) return false;
+      const own = 'r' + dev.id + a0.tabId;
+      const id = attachOf.get(dev.id + ':' + a0.tabId) || (remoteTabs.has(own) ? own : null);
+      const s = id && sessions.get(id);
+      if (!s) return { running: false, requests: [] };
+      return {
+        running: !!s.busy,
+        requests: [...s.pending].slice(0, 20).map(([rid, p]) => ({ type: 'control_request', request_id: rid,
+          request: { subtype: 'can_use_tool', tool_name: p.toolName, input: p.input, permission_suggestions: p.suggestions, description: p.description || '' } })),
+      };
+    }
     case 'session:send': {
       const t = a0?.tab || {};
       if (typeof t.hostTab === 'string') return sendAttached(dev, t, a0.content);
@@ -1287,7 +1301,7 @@ async function startRemoteHost() {
 const remoteHosts = () => getStore().remoteHosts || [];
 const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
-const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach',
+const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach', 'session:pending',
   'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
   'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate', 'projects:remove', 'projects:groupRemove']);
 const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };

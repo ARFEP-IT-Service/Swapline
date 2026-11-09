@@ -88,6 +88,8 @@ class Chat(
     var modelName by mutableStateOf("")
     var attached = false
     var loaded = false
+    // Verbindung war unterbrochen: Ereignisse in der Zwischenzeit sind verloren – beim nächsten Öffnen neu laden
+    var stale = false
     private var stream: Item.Ai? = null
 
     val mirror get() = hostTab != null
@@ -103,6 +105,20 @@ class Chat(
         if (items.isNotEmpty()) add(Item.Sys("", code = SysCode.HISTORY_ABOVE))
         items.addAll(live)
         loaded = true
+    }
+
+    // Nach einer Unterbrechung: Verlauf vollständig aus der Sitzungsdatei des Haupt-PCs, dazu offene Rückfragen
+    // (die stehen nicht in der Datei). Ersetzt die bisherige Anzeige, die Lücken haben kann.
+    fun resync(msgs: JsonArray, pending: JsonArray?) {
+        stream = null
+        items.clear()
+        for (m in msgs) (m as? JsonObject)?.let { ingest(it, fromHistory = true) }
+        for (p in pending.orEmpty()) {
+            val o = p as? JsonObject ?: continue
+            if (items.none { requestIdOf(it) == o.str("request_id") }) ingest(o)
+        }
+        loaded = true
+        stale = false
     }
 
     // Eigene Nachricht sofort anzeigen (der Haupt-PC schickt sie dem Absender nicht zurück)

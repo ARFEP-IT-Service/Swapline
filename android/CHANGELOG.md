@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.2.1] – 2026-11-09
+
+- Behoben: Nachrichten fehlten (z. B. nur ein Bash-Aufruf, danach nichts mehr), wenn die Verbindung kurz weg war –
+  App im Hintergrund, Standby oder Netzwechsel. Nach jeder Unterbrechung lädt die App den Chat vollständig vom PC neu
+  und tritt allen offenen Chats wieder bei (nicht nur dem sichtbaren). Offene Rückfragen erscheinen wieder als Karte
+  (braucht Swapline am PC ab 0.9.1).
+
 ## [0.2.0] – 2026-11-09
 
 - Neu: **Im Hintergrund verbunden bleiben** – Antworten und Rückfragen melden sich auch bei geschlossener App

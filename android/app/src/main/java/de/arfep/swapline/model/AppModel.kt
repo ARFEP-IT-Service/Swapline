@@ -161,6 +161,8 @@ class AppModel(context: Context, private val notifier: Notifier) {
 
     private fun onState(h: HostState, s: LinkState, detail: String?) {
         val changed = h.state != s
+        // Verbindung weg: was jetzt passiert, kommt nicht an – alle Chats dieses Haupt-PCs später neu laden
+        if (h.state == LinkState.CONNECTED && s != LinkState.CONNECTED) for (c in chats) if (c.hostId == h.id) { c.stale = true; c.attached = false }
         h.state = s
         if (changed) notifier.status()
         if (s == LinkState.CONNECTED) { h.error = null; refresh(h) }
@@ -201,7 +203,14 @@ class AppModel(context: Context, private val notifier: Notifier) {
         runCatching { setOpenTabs(h, Parse.openTabs(h.link.call("tabs:list"))) }
         refreshStore(h).join()
         loadHistory(h)
+        // allen offenen Chats wieder beitreten (nicht nur dem sichtbaren), sonst fehlen deren Ereignisse und Hinweise
+        for (c in chats.toList()) if (c.hostId == h.id && c.mirror && !c.attached && c.id != visibleChatId) attach(h, c)
         chat(visibleChatId ?: "")?.takeIf { it.hostId == h.id }?.let { open(it) }
+    }
+
+    private suspend fun attach(h: HostState, c: Chat) {
+        val r = runCatching { h.link.call("session:attach", buildJsonObject { put("tabId", c.id); put("hostTab", c.hostTab) }) }.getOrNull()
+        if (r is JsonObject) { c.attached = true; c.running = (r["running"] as? JsonPrimitive)?.booleanOrNull == true }
     }
 
     private fun refreshStore(h: HostState) = scope.launch {
@@ -247,15 +256,24 @@ class AppModel(context: Context, private val notifier: Notifier) {
         notifier.clear(c)
         val h = host(c.hostId) ?: return@launch
         if (!h.connected) return@launch
-        if (c.mirror && !c.attached) {
-            val r = runCatching { h.link.call("session:attach", buildJsonObject { put("tabId", c.id); put("hostTab", c.hostTab) }) }.getOrNull()
-            if (r is JsonObject) { c.attached = true; c.running = (r["running"] as? JsonPrimitive)?.booleanOrNull == true }
-        }
-        if (!c.loaded && c.sessionId != null) {
+        if (c.mirror && !c.attached) attach(h, c)
+        if (c.sessionId != null && (!c.loaded || c.stale)) {
+            val wasStale = c.stale
             c.loaded = true
-            val msgs = runCatching { h.link.call("history:loadSession", buildJsonObject { put("profileId", c.profileId); put("sessionId", c.sessionId); put("cwd", c.cwd) }) }.getOrNull()
-            (msgs as? JsonArray)?.let { c.loadHistory(it) }
-        }
+            val msgs = runCatching { h.link.call("history:loadSession", buildJsonObject { put("profileId", c.profileId); put("sessionId", c.sessionId); put("cwd", c.cwd) }) }.getOrNull() as? JsonArray
+            // offene Rückfragen (ältere Haupt-PCs ohne diese Abfrage: einfach ohne)
+            val pend = runCatching { h.link.call("session:pending", buildJsonObject { put("tabId", c.id) }) }.getOrNull() as? JsonObject
+            pend?.get("running")?.let { r -> (r as? JsonPrimitive)?.booleanOrNull?.let { c.running = it } }
+            val requests = pend?.get("requests") as? JsonArray
+            if (msgs != null) {
+                if (wasStale) c.resync(msgs, requests)  // Lücken möglich: Anzeige komplett ersetzen
+                else {
+                    c.loadHistory(msgs)                 // erstes Laden: live Angekommenes bleibt dahinter erhalten
+                    for (p in requests.orEmpty()) (p as? JsonObject)?.let { o -> if (c.items.none { requestIdOf(it) == o.str("request_id") }) c.ingest(o) }
+                }
+            }
+            c.stale = false
+        } else c.stale = false
     }
 
     private fun tabJson(c: Chat) = buildJsonObject {
