@@ -1643,6 +1643,8 @@ handle('remote:pair', async (_e, { address, port, code, link } = {}) => {
     const msg = { code: tr('Code ungültig', 'Invalid code'), denied: tr('Am Haupt-PC abgelehnt', 'Declined on the host PC'), closed: tr('Code falsch oder abgelaufen', 'Code wrong or expired'), timeout: tr('Zeitüberschreitung', 'Timed out') }[err.message]
       || ({ ECONNREFUSED: tr('Keine Verbindung – Fernzugriff am Haupt-PC an?', 'No connection – is remote access on at the host PC?'), ETIMEDOUT: tr('Zeitüberschreitung', 'Timed out'), ENOTFOUND: tr('Adresse nicht gefunden', 'Address not found'),
         EHOSTOFFLINE: tr('Haupt-PC ist nicht beim Vermittler angemeldet', 'Host PC is not signed in at the relay'), ERELAY: tr('Vermittler hat abgelehnt', 'Relay declined') }[err.code])
+      // Gegenstelle spricht kein TLS – meist die Adresse des Vermittlers statt des Haupt-PCs
+      || (/WRONG_VERSION_NUMBER|EPROTO/.test(String(err.code)) ? tr('Unter dieser Adresse antwortet kein Swapline-Haupt-PC – vermutlich der Vermittler. Für den Weg über den Vermittler am Haupt-PC „Kopplungslink kopieren“ und den Link hier einfügen.', 'No Swapline host PC answers at this address – probably the relay. To connect via the relay, choose “Copy pairing link” on the host PC and paste the link here.') : null)
       || tr('Code falsch oder abgelaufen', 'Code wrong or expired');
     return { ...remoteInfo(), error: msg };
   }

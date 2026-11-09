@@ -7,6 +7,11 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.12.1] – 2026-11-09
+
+- Koppeln: Wird versehentlich die Adresse des Vermittlers als Haupt-PC eingetragen, erklärt Swapline das jetzt und
+  verweist auf den Kopplungslink (statt „Code falsch oder abgelaufen“).
+
 ## [0.12.0] – 2026-11-09
 
 - Neu: **Andere PCs über den Vermittler** – Swapline am PC verbindet sich jetzt wie die Handy-App über den Vermittler,

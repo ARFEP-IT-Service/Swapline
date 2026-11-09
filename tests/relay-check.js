@@ -121,6 +121,15 @@ function lines(t) {
   });
   check('Vermittler: Fehlversuche über den Vermittler sperren keine direkten Verbindungen', direct && fails.some(f => f.includes('relay:')), fails.slice(-1)[0]);
 
+  // Adresse des Vermittlers versehentlich als Haupt-PC eingetragen: klare Meldung im Protokoll, Fehler beim Koppeln erkennbar
+  const rlog = [];
+  const r2 = createRelay({ secret, log: m => rlog.push(m) });
+  const r2Port = await r2.listen(0, '127.0.0.1');
+  let perr = {}; try { await remote.pair({ address: '127.0.0.1', port: r2Port, code: '0'.repeat(26), name: 'x' }); } catch (e) { perr = e; }
+  await until(() => rlog.length > 0, 2000);
+  check('Vermittler: Adresse des Vermittlers als Haupt-PC → verständlicher Hinweis', /WRONG_VERSION_NUMBER|EPROTO/.test(String(perr.code)) && rlog.some(l => /statt Anmeldung.*Kopplungslink/.test(l)), `${perr.code} | ${rlog.join(' | ')}`);
+  r2.close();
+
   link.use(null); host.stop(); relay.close();
   process.stdout.write(JSON.stringify(results));
   process.exit(0);
