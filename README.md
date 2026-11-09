@@ -95,7 +95,7 @@ Wie man mitmacht: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Versionen
 
-Swapline folgt [Semantic Versioning](https://semver.org/lang/de/) (MAJOR.MINOR.PATCH). Die Nummer steht nur in `package.json`; Änderungen je Version in [CHANGELOG.md](CHANGELOG.md). Bis zur ersten Veröffentlichung bleibt die Version 0.1.0. Ein Tag `vX.Y.Z` baut über GitHub Actions einen Release-Entwurf; installierte Apps sehen das Update erst, wenn der Entwurf veröffentlicht ist.
+Swapline folgt [Semantic Versioning](https://semver.org/lang/de/) (MAJOR.MINOR.PATCH). Die Nummer steht nur in `package.json`; Änderungen je Version in [CHANGELOG.md](CHANGELOG.md). Ein Tag `vX.Y.Z` baut über GitHub Actions einen Release-Entwurf; installierte Apps sehen das Update erst, wenn der Entwurf veröffentlicht ist.
 
 ## Lizenz
 

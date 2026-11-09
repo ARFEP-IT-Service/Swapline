@@ -5,10 +5,13 @@ Alle nennenswerten Änderungen an Swapline. Versionen folgen [Semantic Versionin
 Major = nicht rückwärtskompatible Änderungen. Die Versionsnummer steht nur in `package.json` und gilt für
 exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
-Bis zur ersten Veröffentlichung auf GitHub bleibt die Version **0.1.0**; danach wird vor jedem Push entschieden,
-ob eine neue Versionsnummer vergeben wird.
+Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [0.1.0] – unveröffentlicht
+## [0.1.1] – 2026-11-09
+
+Prüfung des automatischen Updates; keine Funktionsänderung.
+
+## [0.1.0] – 2026-11-09
 
 Erste Version.
 
