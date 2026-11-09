@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Swapline-Symbol (src/renderer/assets/swapline.svg) für das adaptive Icon -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="256" android:viewportHeight="256">
+    <group android:scaleX="0.82" android:scaleY="0.82" android:pivotX="128" android:pivotY="133">
+        <group>
+            <clip-path android:pathData="M62,56 H194 Q206,56 206,68 V164 Q206,176 194,176 H116 L68,210 L74,176 H62 Q50,176 50,164 V68 Q50,56 62,56 Z" />
+            <path android:fillColor="#1A7CF5" android:pathData="M0,0 H256 V256 H0 Z" />
+            <group>
+                <clip-path android:pathData="M0,0 L256,0 L256,84.3 L0,161.7 Z" />
+                <path android:fillColor="#F4F2ED" android:pathData="M0,0 H256 V256 H0 Z" />
+            </group>
+            <path android:strokeColor="#212830" android:strokeWidth="11" android:pathData="M0,161.7 L256,84.3" />
+        </group>
+    </group>
+</vector>
