@@ -93,5 +93,12 @@
     "electron-builder": "^26.18.0"
   },
   "license": "MIT",
-  "homepage": "https://arfep.de/"
+  "homepage": "https://arfep.de/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ARFEP-IT-Service/Swapline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ARFEP-IT-Service/Swapline/issues"
+  }
 }

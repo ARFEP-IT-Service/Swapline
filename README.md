@@ -42,7 +42,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 ## Installation
 
-**Mit Installer (empfohlen):** `Swapline-Setup-<Version>.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%\Programs\swapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Swapline prüft selbst bei GitHub, ob es eine neue Version gibt, und meldet sie mit „Version X verfügbar“; geladen und installiert wird erst nach Klick auf **Herunterladen und installieren** (Standard „Nur benachrichtigen“). Unter **Einstellungen → Updates** lässt sich stattdessen **Automatisch** (im Hintergrund laden, beim Neustart installieren) oder **Aus** wählen. Alternativ den neueren Installer starten – er ersetzt die vorhandene Version im selben Ordner. Deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
+**Mit Installer (empfohlen):** `Swapline-Setup-<Version>.exe` von den [Releases](https://github.com/ARFEP-IT-Service/Swapline/releases) laden und starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%\Programs\swapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Swapline prüft selbst bei GitHub, ob es eine neue Version gibt, und meldet sie mit „Version X verfügbar“; geladen und installiert wird erst nach Klick auf **Herunterladen und installieren** (Standard „Nur benachrichtigen“). Unter **Einstellungen → Updates** lässt sich stattdessen **Automatisch** (im Hintergrund laden, beim Neustart installieren) oder **Aus** wählen. Alternativ den neueren Installer starten – er ersetzt die vorhandene Version im selben Ordner. Deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
 
 **Ohne Installer:** `Swapline-<Version>-windows.zip` in einen festen Ordner entpacken und `Swapline.exe` starten. Diese Variante aktualisiert sich nicht selbst.
 
@@ -64,6 +64,8 @@ Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: P
 ## Entwicklung
 
 ```bash
+git clone https://github.com/ARFEP-IT-Service/Swapline.git
+cd Swapline
 npm install
 npm start                 # App aus dem Quellcode starten
 npm test                  # Tests: Sicherheit und Oberfläche (ohne Netz, ohne Claude-Aufrufe)
