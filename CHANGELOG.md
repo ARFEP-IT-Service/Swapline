@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.7.1] – 2026-11-09
 
 - Leiste: Projekte und Ordner von Haupt-PCs und Servern stehen links unter dem jeweiligen Eintrag – aufklappbar
   (Klick öffnet und klappt auf, erneuter Klick klappt zu), Ordner darin ebenfalls. Die mittlere Leiste scrollt bei
