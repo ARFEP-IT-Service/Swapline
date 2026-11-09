@@ -84,6 +84,67 @@ function loadTabs() {
 const profile = id => store.profiles.find(p => p.id === id);
 const activeProfile = () => profile(store.activeProfileId) || store.profiles[0];
 const currentTab = () => tabs.find(t => t.id === activeTabId);
+
+// ---------- Geteilte Ansicht (zwei Chats nebeneinander) ----------
+let panes = [], focusedPane = 0, paneTemplate = null;
+function swapPane(i) { // ohne Neuzeichnen: IDs, offener Chat und Anhänge der Hälfte i werden „aktiv“
+  if (i === focusedPane || !panes[i]) return;
+  const old = panes[focusedPane];
+  old.tabId = activeTabId; old.attachments = attachments;
+  for (const e of old.root.querySelectorAll('[data-pid]')) e.removeAttribute('id');
+  focusedPane = i;
+  const p = panes[i];
+  for (const e of p.root.querySelectorAll('[data-pid]')) e.id = e.dataset.pid;
+  activeTabId = p.tabId; attachments = p.attachments || [];
+}
+function focusPane(i) {
+  if (i === focusedPane) return;
+  swapPane(i);
+  panes.forEach((p, j) => p.root.classList.toggle('focused', j === i));
+  closeMenus(); closeCommandPopup();
+  renderList(); renderProjectHead();
+}
+function withPane(p, fn) {
+  const i = panes.indexOf(p), prev = focusedPane;
+  if (i < 0 || i === prev) return fn();
+  swapPane(i);
+  try { return fn(); } finally { swapPane(prev); }
+}
+const paneTabId = (p, j) => (j === focusedPane ? activeTabId : p.tabId);
+const paneOf = t => panes.find((p, j) => paneTabId(p, j) === t.id);
+const shownInPane = id => panes.some((p, j) => paneTabId(p, j) === id);
+function rerenderTab(t) { const p = paneOf(t); if (p) withPane(p, renderChat); }
+function renderPaneButtons() {
+  $('#chat').classList.toggle('split', panes.length > 1);
+  panes.forEach((p, j) => {
+    const b = p.root.querySelector('.pane-btn');
+    const close = panes.length > 1;
+    b.title = close ? _('Diese Hälfte schließen') : _('Zweiten Chat daneben öffnen (Strg+#)');
+    b.replaceChildren(icon(close ? ICONS.x : '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>'));
+    b.onclick = e => { e.stopPropagation(); close ? closePane(j) : openSplit(); };
+  });
+}
+function openSplit(tabId = null) {
+  if (panes.length > 1) { if (tabId) { focusPane(1); openTab(tabId); } return; }
+  const root = paneTemplate.cloneNode(true);
+  $('#chat').append(root);
+  translateStatic(root);
+  panes.push({ root, tabId: null, attachments: [] });
+  bindPane(root);
+  focusPane(1);
+  renderPaneButtons();
+  if (tabId) openTab(tabId); else renderChat();
+}
+function closePane(i) {
+  if (panes.length < 2) return;
+  if (focusedPane === i) focusPane(i === 0 ? 1 : 0);
+  const p = panes[i];
+  panes.splice(i, 1);
+  if (focusedPane > i) focusedPane--;
+  p.root.remove();
+  panes.forEach((x, j) => x.root.classList.toggle('focused', j === focusedPane));
+  renderPaneButtons(); renderList();
+}
 const initials = name => (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 // Avatar: eigenes Bild (Projekte, data:-URL aus dem Hauptprozess) oder Initialen auf Farbe
 const avatar = (p, cls = '') => p?.icon
@@ -165,6 +226,7 @@ function syncMirrors(host, list) {
     tabs.splice(tabs.indexOf(t), 1);
     dismissedMirrors.delete(host + '|' + t.hostTab);
     if (activeTabId === t.id) { activeTabId = null; renderChat(); }
+    panes.forEach((p, j) => { if (j !== focusedPane && p.tabId === t.id) { p.tabId = null; withPane(p, renderChat); } });
   }
   for (const x of list) {
     if (dismissedMirrors.has(host + '|' + x.id)) continue;
@@ -185,7 +247,7 @@ api.remote.onTabs(({ host, list }) => syncMirrors(host, list));
 async function attachMirror(t) {
   if (!t.mirror || t.attached || !hostConnected(t.host)) return;
   const r = await api.remote.call(t.host, 'session:attach', [{ tabId: t.id, hostTab: t.hostTab }]);
-  if (r) { t.attached = true; t.running = !!r.running; if (t.id === activeTabId) { setTyping(t); updateComposer(); } }
+  if (r) { t.attached = true; t.running = !!r.running; setTyping(t); if (t.id === activeTabId) updateComposer(); }
 }
 async function refreshHost(id) {
   for (const t of tabs) if (t.host === id && t.mirror) t.attached = false; // nach (Wieder-)Verbindung neu beitreten
@@ -448,7 +510,8 @@ function openChatMenu(e, t) {
   for (const pr of store.projects || []) items.push(el('button', { class: 'pm-item' + (t.projectId === pr.id ? ' sel' : ''), onclick: () => { closeMenus(); moveChatToProject(t.id, pr.id); } },
     el('span', { class: 'pm-av' }, avatar(pr, 'sm')), pr.name));
   items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), _('Neues Projekt …')));
-  items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), _('Umbenennen …')));
+  items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: () => { closeMenus(); openBeside(t.id); } }, el('span', { class: 'pm-ic' }, '◫'), _('Daneben öffnen')));
+  items.push(el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), _('Umbenennen …')));
   if (!t.host && t.sessionId && remoteState?.host?.devices.length) items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openShareChat(t); } }, el('span', { class: 'pm-ic' }, '🖥'), _('Für Gerät freigeben …')));
   items.push(el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), _('Chat schließen')));
   const menu = el('div', { class: 'popmenu', style: `left:${e.clientX}px; top:${e.clientY}px` }, ...items);
@@ -499,14 +562,14 @@ async function moveTabToProfile(t, to) {
   if (t.running) {
     t.pendingProfile = to;
     toast(_('Wechsel zu „{name}“ nach dieser Antwort', { name: profile(to).name }));
-    if (t.id === activeTabId) renderChat();
+    rerenderTab(t);
     return;
   }
   t.pendingProfile = null;
   if (t.sessionId) {
     // Der Hauptprozess fragt vorher nach (Verlauf inkl. Dateiinhalten wird kopiert)
     const r = await api.session.moveProfile({ sessionId: t.sessionId, cwd: t.cwd, fromProfileId: t.profileId, toProfileId: to });
-    if (r?.cancelled) { toast(_('Übertragung abgebrochen – der Chat bleibt im bisherigen Konto')); if (t.id === activeTabId) renderChat(); return false; }
+    if (r?.cancelled) { toast(_('Übertragung abgebrochen – der Chat bleibt im bisherigen Konto')); rerenderTab(t); return false; }
     if (!r?.ok) { toast(_('Verlauf konnte nicht übernommen werden – der Chat startet neu')); t.sessionId = null; }
   }
   const st = status[pkey(t.host, to)];
@@ -702,7 +765,7 @@ function renderList() {
     nodes = items.map(t => {
       const p = profileOf(t);
       const pr = pid === 'all' ? project(t.projectId) : null;
-      return el('div', { class: 'item' + (t.id === activeTabId ? ' active' : ''), onclick: () => openTab(t.id),
+      return el('div', { class: 'item' + (t.id === activeTabId ? ' active' : shownInPane(t.id) ? ' active-other' : ''), onclick: () => openTab(t.id),
         oncontextmenu: e => openChatMenu(e, t), draggable: 'true', ondragstart: e => e.dataTransfer.setData('text/chat', t.id),
         title: _('Konto: {name}', { name: p?.name || '?' }) + (pr ? '\n' + _('Projekt: {name}', { name: pr.name }) : '') + '\n' + _('Rechtsklick oder auf ein Projekt ziehen zum Verschieben') },
         avatar(p),
@@ -867,10 +930,13 @@ function closeTab(id) {
   if (t?.mirror) dismissedMirrors.add(t.host + '|' + t.hostTab);
   tabs = tabs.filter(x => x.id !== id);
   if (activeTabId === id) activeTabId = null;
+  panes.forEach((p, j) => { if (j !== focusedPane && p.tabId === id) { p.tabId = null; withPane(p, renderChat); } });
   saveTabs(); renderList(); renderChat();
 }
 
 async function openTab(id) {
+  const other = panes.findIndex((p, j) => j !== focusedPane && p.tabId === id);
+  if (other >= 0) { focusPane(other); return; }
   activeTabId = id;
   const t = currentTab();
   if (t) { lastOpened.all = t.id; if (t.projectId) lastOpened[t.projectId] = t.id; }
@@ -907,7 +973,8 @@ function renderChat() {
   if (!t) return;
   renderBgBar(t);
   const p = profileOf(t);
-  $('#ch-avatar').replaceWith(Object.assign(avatar(p), { id: 'ch-avatar' }));
+  const chAv = avatar(p); chAv.id = 'ch-avatar'; chAv.dataset.pid = 'ch-avatar';
+  $('#ch-avatar').replaceWith(chAv);
   $('#ch-title').textContent = t.title || _('Neuer Chat');
   $('#ch-cwd').textContent = t.cwd || _('~ (Benutzerordner)');
   $('#ch-cwd').title = t.cwd ? _('Ordner im Explorer öffnen') : '';
@@ -969,7 +1036,7 @@ function renderMessages() {
 
 function appendItem(t, it) {
   t.items.push(it);
-  if (t.id !== activeTabId) return;
+  if (t.id !== activeTabId) { const p = paneOf(t); if (p) withPane(p, () => appendItem(t, it)); return; }
   const box = $('#messages');
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
   if (it.kind === 'tool' && toolView() === 'hidden') { it.el = null; return; }
@@ -979,7 +1046,8 @@ function appendItem(t, it) {
   if (nearBottom || it.kind === 'me' || it.kind === 'perm' || it.kind === 'question') box.scrollTop = box.scrollHeight;
 }
 function refreshItem(t, it) {
-  if (t.id !== activeTabId || !it.el) return;
+  if (t.id !== activeTabId) { const p = paneOf(t); if (p) withPane(p, () => refreshItem(t, it)); return; }
+  if (!it.el) return;
   const box = $('#messages');
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
   if (it.kind === 'ai') updateAiBubble(it); // Blase bleibt stehen, nur der Inhalt wechselt
@@ -999,7 +1067,7 @@ function updateAiBubble(it) {
   if (!it.streaming) enhanceCode(b);
 }
 function setTyping(t) {
-  if (t.id === activeTabId && t.typingEl) t.typingEl.hidden = !(t.running && !t.streamItem);
+  if (t.typingEl && shownInPane(t.id)) t.typingEl.hidden = !(t.running && !t.streamItem);
 }
 
 function renderItem(t, it) {
@@ -1352,7 +1420,7 @@ function taskDuration(task) {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 function renderBgBar(t) {
-  if (t.id !== activeTabId) return;
+  if (t.id !== activeTabId) { const p = paneOf(t); if (p) withPane(p, () => renderBgBar(t)); return; }
   const bar = $('#bgbar');
   const list = Object.values(t.tasks || {});
   bar.hidden = !list.length;
@@ -1412,9 +1480,9 @@ function scheduleStreamRender(t) {
 // Windows-Benachrichtigung (fertige Antwort, Rückfrage) – je nach Einstellung immer, nur wenn der Chat
 // nicht im Blick ist, oder nie; optional mit eigenem Ton. Klick holt Swapline nach vorne und öffnet den Chat.
 function notifyIfHidden(t, text) {
-  if (t.id !== activeTabId) { t.unread = true; renderList(); }
+  if (!shownInPane(t.id)) { t.unread = true; renderList(); }
   const mode = store.settings.notify || 'background';
-  const inView = document.hasFocus() && t.id === activeTabId;
+  const inView = document.hasFocus() && shownInPane(t.id);
   if (!document.hasFocus()) api.attention(); // Taskleiste blinkt
   if (mode === 'off' || (mode === 'background' && inView)) return;
   // Benachrichtigung über den Hauptprozess (bleibt je nach Einstellung bis zum Klick stehen)
@@ -1646,7 +1714,7 @@ async function changeTab(patch, note, t = currentTab()) {
   await tapi(t).session.restart(t.id);
   if (note) appendItem(t, { kind: 'sys', text: note });
   saveTabs(); renderList();
-  if (t.id === activeTabId) renderChat();
+  rerenderTab(t);
 }
 
 // ---------- Modals ----------
@@ -2136,13 +2204,57 @@ api.remote.onStatus(info => {
 // Knopf „Ganz nach unten“: erscheint, sobald man ein Stück nach oben gescrollt hat
 const scrollToBottom = (smooth = true) => { const box = $('#messages'); box.scrollTo({ top: box.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); };
 function updateBottomBtn() { const box = $('#messages'); $('#btn-bottom').hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 300; }
-$('#messages').addEventListener('scroll', updateBottomBtn, { passive: true });
-$('#btn-bottom').onclick = () => scrollToBottom();
 document.addEventListener('keydown', e => { if (e.ctrlKey && e.key === 'End' && !$('#chat-view').hidden) { e.preventDefault(); scrollToBottom(); } });
 
 // ---------- Ereignisse ----------
+// Ereignisse je Chat-Hälfte; Klick oder Fokus in eine Hälfte macht sie zur aktiven
+const paneByRoot = root => panes.find(p => p.root === root);
+function bindPane(root) {
+  const q = id => root.querySelector(`[data-pid="${id}"]`);
+  root.addEventListener('mousedown', () => focusPane(panes.indexOf(paneByRoot(root))), true);
+  root.addEventListener('focusin', () => focusPane(panes.indexOf(paneByRoot(root))), true);
+  q('messages').addEventListener('scroll', () => withPane(paneByRoot(root), updateBottomBtn), { passive: true });
+  q('btn-bottom').onclick = () => scrollToBottom();
+  q('btn-empty-new').onclick = () => newChat();
+  q('btn-send').onclick = sendMessage;
+  q('btn-stop').onclick = () => { const t = currentTab(); if (t) tapi(t).session.interrupt(t.id); };
+  q('input').addEventListener('input', autosize);
+  q('input').addEventListener('input', () => { cmdState.index = cmdState.open ? cmdState.index : 0; updateCommandPopup(); });
+  q('input').addEventListener('blur', () => setTimeout(closeCommandPopup, 150));
+  q('btn-attach').onclick = async () => { const r = await api.pickAttachments(); if (r?.length) { attachments.push(...r); renderAttachments(); } };
+  q('chat-view').addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); focusPane(panes.indexOf(paneByRoot(root))); $('#chat-view').classList.add('dropping'); } });
+  q('chat-view').addEventListener('dragleave', e => { if (e.target === q('chat-view') || !e.relatedTarget) q('chat-view').classList.remove('dropping'); });
+  q('chat-view').addEventListener('drop', e => { focusPane(panes.indexOf(paneByRoot(root))); q('chat-view').classList.remove('dropping'); if (e.dataTransfer.files.length) { e.preventDefault(); addFiles(e.dataTransfer.files); } });
+  q('ch-title').ondblclick = renameChat; // Hinweis „Doppelklick zum Umbenennen“ steht als title in index.html
+  q('ch-cwd').onclick = () => { const t = currentTab(); if (t?.cwd) api.openPath(t.cwd); };
+  q('ch-settings').onclick = () => ($('#chat-menu') ? closeMenus() : openChatSettingsMenu());
+  q('input').addEventListener('keydown', e => {
+    const input = e.currentTarget;
+    if (cmdState.open) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); cmdState.index = (cmdState.index + (e.key === 'ArrowDown' ? 1 : -1) + cmdState.items.length) % cmdState.items.length; return updateCommandPopup(); }
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { e.preventDefault(); return applyCommand(cmdState.items[cmdState.index]); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); return closeCommandPopup(); }
+    }
+    // ↑ am Anfang des Feldes (bzw. leeres Feld) = vorherige Nachricht, ↓ am Ende = nächste
+    // beim Blättern (Feld zeigt noch einen Verlaufseintrag) blättern ↑/↓ unabhängig von der Cursorposition weiter
+    const browsing = historyPos >= 0 && input.value === inputHistory[historyPos];
+    if (e.key === 'ArrowUp' && !e.shiftKey && (browsing || (input.selectionStart === 0 && input.selectionEnd === 0)) && browseHistory(1)) { e.preventDefault(); return; }
+    if (e.key === 'ArrowUp' && !input.value && browseHistory(1)) { e.preventDefault(); return; }
+    if (e.key === 'ArrowDown' && historyPos >= 0 && (browsing || input.selectionStart === input.value.length) && browseHistory(-1)) { e.preventDefault(); return; }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
+  });
+  q('input').addEventListener('paste', e => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  });
+}
+function openBeside(id) {
+  if (panes.length < 2) return openSplit(id);
+  const other = focusedPane === 0 ? 1 : 0;
+  focusPane(other);
+  openTab(id);
+}
 $('#btn-new-chat').onclick = () => newChat();
-$('#btn-empty-new').onclick = () => newChat();
 $('#btn-add-project').onclick = () => {
   if ($('#add-menu')) return closeMenus();
   closeMenus();
@@ -2162,35 +2274,7 @@ $('#btn-extensions').onclick = () => openExtensions();
 $('#btn-remote').onclick = () => openRemote();
 $('#search').oninput = renderList;
 document.querySelectorAll('#seg button').forEach(b => b.onclick = () => { view = b.dataset.view; setSeg(); renderList(); });
-$('#btn-send').onclick = sendMessage;
-$('#btn-stop').onclick = () => { const t = currentTab(); if (t) tapi(t).session.interrupt(t.id); };
-$('#input').addEventListener('input', autosize);
-$('#input').addEventListener('keydown', e => {
-  const input = e.currentTarget;
-  if (cmdState.open) {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); cmdState.index = (cmdState.index + (e.key === 'ArrowDown' ? 1 : -1) + cmdState.items.length) % cmdState.items.length; return updateCommandPopup(); }
-    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { e.preventDefault(); return applyCommand(cmdState.items[cmdState.index]); }
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); return closeCommandPopup(); }
-  }
-  // ↑ am Anfang des Feldes (bzw. leeres Feld) = vorherige Nachricht, ↓ am Ende = nächste
-  // beim Blättern (Feld zeigt noch einen Verlaufseintrag) blättern ↑/↓ unabhängig von der Cursorposition weiter
-  const browsing = historyPos >= 0 && input.value === inputHistory[historyPos];
-  if (e.key === 'ArrowUp' && !e.shiftKey && (browsing || (input.selectionStart === 0 && input.selectionEnd === 0)) && browseHistory(1)) { e.preventDefault(); return; }
-  if (e.key === 'ArrowUp' && !input.value && browseHistory(1)) { e.preventDefault(); return; }
-  if (e.key === 'ArrowDown' && historyPos >= 0 && (browsing || input.selectionStart === input.value.length) && browseHistory(-1)) { e.preventDefault(); return; }
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
-});
-$('#input').addEventListener('input', () => { cmdState.index = cmdState.open ? cmdState.index : 0; updateCommandPopup(); });
-$('#input').addEventListener('blur', () => setTimeout(closeCommandPopup, 150));
 // Anhänge: Knopf, Einfügen (Strg+V mit Bild) und Ziehen ins Fenster
-$('#btn-attach').onclick = async () => { const r = await api.pickAttachments(); if (r?.length) { attachments.push(...r); renderAttachments(); } };
-$('#input').addEventListener('paste', e => {
-  const files = [...(e.clipboardData?.files || [])];
-  if (files.length) { e.preventDefault(); addFiles(files); }
-});
-$('#chat-view').addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); $('#chat-view').classList.add('dropping'); } });
-$('#chat-view').addEventListener('dragleave', e => { if (e.target === $('#chat-view') || !e.relatedTarget) $('#chat-view').classList.remove('dropping'); });
-$('#chat-view').addEventListener('drop', e => { $('#chat-view').classList.remove('dropping'); if (e.dataTransfer.files.length) { e.preventDefault(); addFiles(e.dataTransfer.files); } });
 // Chat umbenennen: Titel oben direkt bearbeiten (Enter speichert, Esc bricht ab). Gilt in Swapline;
 // die Sitzungsdateien von Claude Code bleiben unverändert.
 function renameChat() {
@@ -2210,9 +2294,6 @@ function renameChat() {
   title.replaceChildren(input);
   input.focus(); input.select();
 }
-$('#ch-title').ondblclick = renameChat; // Hinweis „Doppelklick zum Umbenennen“ steht als title in index.html
-$('#ch-cwd').onclick = () => { const t = currentTab(); if (t?.cwd) api.openPath(t.cwd); };
-$('#ch-settings').onclick = () => ($('#chat-menu') ? closeMenus() : openChatSettingsMenu());
 document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newChat(); }
   if (e.key === 'Escape') {
@@ -2224,6 +2305,18 @@ document.addEventListener('keydown', e => {
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsage);
 
 // ---------- Start ----------
+{
+  const root = $('#chat .pane');
+  paneTemplate = root.cloneNode(true);
+  for (const e of paneTemplate.querySelectorAll('[data-pid]')) e.removeAttribute('id');
+  paneTemplate.classList.remove('focused');
+  panes = [{ root, tabId: null, attachments: [] }];
+  bindPane(root);
+  renderPaneButtons();
+}
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && (e.key === '#' || e.code === 'Backslash')) { e.preventDefault(); panes.length > 1 ? closePane(focusedPane) : openSplit(); }
+});
 (async function init() {
   store = await api.getStore();
   VERSION = store.appVersion || '';

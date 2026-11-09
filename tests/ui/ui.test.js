@@ -142,6 +142,22 @@
   // Updates: neuer Standard „Nur benachrichtigen“, alte Einstellung „Automatisch“ wurde umgestellt
   check('Update-Standard: alte Einstellung autoUpdate → „Nur benachrichtigen“', store.settings.updateMode === 'notify' && !('autoUpdate' in store.settings), JSON.stringify(store.settings));
 
+  // Geteilte Ansicht: zwei Chats nebeneinander
+  const s1 = makeTab({ title: 'Links' }), s2 = makeTab({ title: 'Rechts' }); tabs.push(s1, s2);
+  await openTab(s1.id); openSplit(s2.id); await sleep(80);
+  const paneTitle = i => panes[i].root.querySelector('[data-pid="ch-title"]').textContent;
+  check('Geteilte Ansicht: zwei Hälften nebeneinander', panes.length === 2 && $('#chat').classList.contains('split'));
+  check('Links der erste, rechts der zweite Chat', paneTitle(0) === 'Links' && paneTitle(1) === 'Rechts', paneTitle(0) + ' | ' + paneTitle(1));
+  appendItem(s1, { kind: 'ai', text: 'Antwort links', time: Date.now() });
+  const paneText = i => panes[i].root.querySelector('[data-pid="messages"]').textContent;
+  check('Antwort für die andere Hälfte erscheint dort und nur dort', /Antwort links/.test(paneText(0)) && !/Antwort links/.test(paneText(1)));
+  check('Nur die aktive Hälfte trägt die IDs', document.querySelectorAll('#messages').length === 1 && panes[1].root.contains($('#messages')));
+  await openTab(s1.id);
+  check('Chat der anderen Hälfte: Fokus springt hin statt doppelt zu öffnen', focusedPane === 0 && activeTabId === s1.id && paneTitle(1) === 'Rechts');
+  closePane(1);
+  check('Zweite Hälfte schließen', panes.length === 1 && !$('#chat').classList.contains('split') && activeTabId === s1.id);
+  tabs.splice(tabs.indexOf(s1), 1); tabs.splice(tabs.indexOf(s2), 1); renderList();
+
   // Einstellungen und Erweiterungen öffnen
   openSettings();
   check('Einstellungen öffnen', !!$('.modal.settings'));
