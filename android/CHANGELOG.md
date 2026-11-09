@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.6.0] – 2026-11-09
+
+- Neu: **Live-Status in der Benachrichtigung** – solange Claude arbeitet, zeigt eine stille Benachrichtigung je Chat den
+  aktuellen Schritt („Denkt nach …“, „Schreibt die Antwort …“, „Befehl: npm test“, „Liest main.js“, „Wartet auf dich“)
+  mit Laufzeit und Ladebalken; auf Android 16+ als **Live Update** auch oben in der Statusleiste. Verschwindet, wenn
+  Claude fertig ist oder der Chat offen ist; abschaltbar in den Einstellungen.
+
 ## [0.5.0] – 2026-11-09
 
 - Neu: **Über Vermittler verbinden** – ist am PC ein Vermittler eingerichtet (Swapline ab 0.11.0), verbindet sich die App

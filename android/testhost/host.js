@@ -67,6 +67,13 @@ host.start(0, '127.0.0.1').then(async port => {
     const [cmd, arg] = line.trim().split(/\s+/);
     if (cmd === 'pair') out({ code: host.startPairing().code, port });
     else if (cmd === 'deny') { denyNext = true; out({ ok: true }); }
+    else if (cmd === 'work') { // Rauchtest Live-Status: Ablauf wie von Claude Code, mit Pausen
+      const send = msg => host.broadcast('claude', { tabId: lastTab, msg });
+      send({ type: 'swapline_user', content: { text: 'Teste bitte alles', images: 0 }, from: 'PC' });
+      setTimeout(() => send({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w1', name: 'Bash', input: { command: 'npm test' } }] } }), 2500);
+      setTimeout(() => send({ type: 'control_request', request_id: 'wr1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'git push' } } }), 9000);
+      out({ ok: true, tab: lastTab });
+    }
     else if (cmd === 'tasks') { // Rauchtest: Hintergrund-Aufgaben melden wie Claude Code
       const send = msg => host.broadcast('claude', { tabId: lastTab, msg });
       send({ type: 'system', subtype: 'task_started', task_id: 'b1', description: 'npm run dev', task_type: 'local_bash' });

@@ -97,6 +97,12 @@ fun SettingsScreen(model: AppModel, onBack: () -> Unit, onHosts: () -> Unit) {
                 InfoRow(name, why + " · " + if (ok) tr("erlaubt ✓", "allowed ✓") else tr("nicht erlaubt – antippen", "not allowed – tap"), warn = !ok) { openAppSettings(ctx) }
             }
 
+            Section(tr("Benachrichtigungen", "Notifications"))
+            SwitchRow(tr("Live-Status, während Claude arbeitet", "Live status while Claude is working"),
+                tr("Benachrichtigung mit dem aktuellen Schritt (z. B. „Befehl: npm test“, „Wartet auf dich“) und Laufzeit; auf Android 16+ auch oben in der Statusleiste",
+                    "Notification with the current step (e.g. “Command: npm test”, “Waiting for you”) and elapsed time; on Android 16+ also at the top of the status bar"),
+                model.liveEnabled, model::changeLive)
+
             Section(tr("Verbindung", "Connection"))
             SwitchRow(tr("Im Hintergrund verbunden bleiben", "Stay connected in the background"),
                 tr("Antworten und Rückfragen melden sich auch bei geschlossener App (dauerhafte, stille Benachrichtigung; etwas mehr Akku)",

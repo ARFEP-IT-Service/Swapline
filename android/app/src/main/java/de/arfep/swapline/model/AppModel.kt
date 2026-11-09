@@ -37,6 +37,7 @@ interface Notifier {
     fun notify(chat: Chat, host: HostState, notice: Notice)
     fun clear(chat: Chat)
     fun status() {}   // Verbindungsstatus geändert (dauerhafte Benachrichtigung aktualisieren)
+    fun live(chat: Chat, host: HostState, show: Boolean) {}   // Live-Status eines Chats (show = false: entfernen)
 }
 
 class AppModel(context: Context, private val notifier: Notifier) {
@@ -46,7 +47,10 @@ class AppModel(context: Context, private val notifier: Notifier) {
 
     val hosts = mutableStateListOf<HostState>()
     val chats = mutableStateListOf<Chat>()
-    var visibleChatId by mutableStateOf<String?>(null)
+    private var visibleState by mutableStateOf<String?>(null)
+    var visibleChatId: String?
+        get() = visibleState
+        set(v) { if (visibleState != v) { val old = visibleState; visibleState = v; old?.let { chat(it) }?.let(::updateLive) } }
     var foreground = false
     var update by mutableStateOf<Update?>(null)
 
@@ -56,6 +60,18 @@ class AppModel(context: Context, private val notifier: Notifier) {
     var onDeviceOnly by mutableStateOf(prefs.getBoolean("onDeviceOnly", false))
         private set
     fun changeMic(on: Boolean) { micEnabled = on; prefs.edit().putBoolean("micEnabled", on).apply() }
+    var liveEnabled by mutableStateOf(prefs.getBoolean("liveStatus", true))
+        private set
+    fun changeLive(on: Boolean) { liveEnabled = on; prefs.edit().putBoolean("liveStatus", on).apply(); refreshLive() }
+
+    // Live-Status zeigen, solange Claude arbeitet – nicht für den Chat, den man gerade offen vor sich hat
+    fun updateLive(c: Chat) {
+        val h = host(c.hostId) ?: return
+        val visible = foreground && visibleChatId == c.id
+        notifier.live(c, h, liveEnabled && !visible && c.activity.kind != ActKind.NONE)
+    }
+    fun refreshLive() { for (c in chats) updateLive(c) }
+
     var backgroundEnabled by mutableStateOf(prefs.getBoolean("background", true))
         private set
     fun changeBackground(on: Boolean) { backgroundEnabled = on; prefs.edit().putBoolean("background", on).apply() }
@@ -193,6 +209,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
                 val chat = chats.firstOrNull { it.hostId == h.id && it.id == o.str("tabId") } ?: return
                 val msg = o["msg"] as? JsonObject ?: return
                 val notice = chat.ingest(msg)
+                updateLive(chat)
                 if (notice != null) {
                     if (msg.str("type") == "result" || notice != Notice.DONE) saveChats()
                     if (visibleChatId != chat.id || !foreground) { chat.unread = true; notifier.notify(chat, h, notice) }
@@ -272,6 +289,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
 
     fun open(c: Chat) = scope.launch {
         visibleChatId = c.id
+        updateLive(c)
         c.unread = false
         notifier.clear(c)
         val h = host(c.hostId) ?: return@launch
@@ -310,6 +328,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
     suspend fun send(c: Chat, text: String, images: List<String> = emptyList(), docs: List<Pair<String, String>> = emptyList()): Boolean {
         val h = host(c.hostId) ?: return false
         c.addOwn(text, images.size, docs.map { it.first })
+        updateLive(c)
         // Dokumente zuerst auf den Haupt-PC (je bis 25 MB, über Mobilfunk evtl. langsam) – Claude bekommt die Pfade
         val paths = mutableListOf<String>()
         for ((name, data) in docs) {
@@ -340,7 +359,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
         val h = host(c.hostId) ?: return@launch
         val rid = requestIdOf(item) ?: return@launch
         val r = runCatching { h.link.call("session:respond", buildJsonObject { put("tabId", c.id); put("requestId", rid); put("response", response) }) }.getOrNull()
-        if (r is JsonPrimitive && r.booleanOrNull == true) c.setAnswer(item, answer)
+        if (r is JsonPrimitive && r.booleanOrNull == true) { c.setAnswer(item, answer); updateLive(c) }
     }
 
     fun allow(c: Chat, p: Item.Perm, always: Boolean) = respond(c, p, buildJsonObject {

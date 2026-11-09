@@ -161,6 +161,32 @@ class ChatTest {
         assertTrue(c.tasks.isEmpty())
     }
 
+    @Test fun liveActivityFollowsClaude() {
+        val c = chat()
+        assertEquals(ActKind.NONE, c.activity.kind)
+        c.addOwn("Teste das")
+        assertEquals(ActKind.THINKING, c.activity.kind)
+        assertTrue(c.activeSince > 0)
+        c.ingest(j("""{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Ich"}}}"""))
+        assertEquals(ActKind.WRITING, c.activity.kind)
+        c.ingest(j("""{"type":"assistant","message":{"content":[{"type":"text","text":"Ich teste."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm test"}}]}}"""))
+        assertEquals(Activity(ActKind.TOOL, "Bash", "npm test"), c.activity)
+        assertEquals("Command: npm test", de.arfep.swapline.SwaplineApp.liveText(c.activity).replace("Befehl", "Command"))
+        c.ingest(j("""{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"rm x"}}}"""))
+        assertEquals(ActKind.WAITING, c.activity.kind)
+        c.setAnswer(c.items.last(), Answer(AnswerKind.ALLOWED))
+        assertEquals(ActKind.THINKING, c.activity.kind)
+        // Ende mit laufender Hintergrund-Aufgabe → Hintergrund, danach nichts mehr
+        c.ingest(j("""{"type":"system","subtype":"task_started","task_id":"b1","description":"dev"}"""))
+        c.ingest(j("""{"type":"result","subtype":"success","duration_ms":1}"""))
+        assertEquals(ActKind.BACKGROUND, c.activity.kind)
+        c.ingest(j("""{"type":"system","subtype":"task_notification","task_id":"b1","status":"completed"}"""))
+        assertEquals(ActKind.NONE, c.activity.kind)
+        // aus dem Verlauf geladen: kein Live-Status
+        c.loadHistory(json.parseToJsonElement("""[{"type":"user","message":{"content":"alt"}}]""") as JsonArray)
+        assertEquals(ActKind.NONE, c.activity.kind)
+    }
+
     @Test fun withinFolders() {
         assertTrue(within("C:\\Work\\app", "c:\\work"))
         assertTrue(within("C:\\Work", "C:\\Work\\"))

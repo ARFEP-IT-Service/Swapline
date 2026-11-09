@@ -64,11 +64,13 @@ class MainActivity : ComponentActivity() {
         model.reconnectAll()
         model.checkUpdate()
         ConnectionService.sync(this)
+        model.refreshLive()
     }
 
     override fun onStop() {
         super.onStop()
         model.foreground = false
+        model.refreshLive() // im Hintergrund: Live-Status für laufende Chats zeigen
     }
 
     @Composable

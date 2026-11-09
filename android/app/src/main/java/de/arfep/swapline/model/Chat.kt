@@ -40,6 +40,10 @@ data class BgTask(
     val output: String? = null, val toolUseId: String? = null,
 ) { val running get() = status == "running" }
 
+// Was Claude in einem Chat gerade tut (für den Live-Status in der Benachrichtigung)
+enum class ActKind { NONE, THINKING, WRITING, TOOL, WAITING, BACKGROUND }
+data class Activity(val kind: ActKind, val tool: String = "", val detail: String = "")
+
 // Feste Hinweise, deren Text die Oberfläche übersetzt
 enum class SysCode { TEXT, COMPACTED, HISTORY_ABOVE, EXITED }
 
@@ -103,6 +107,42 @@ class Chat(
     val tasks = androidx.compose.runtime.mutableStateMapOf<String, BgTask>()
     val tasksRunning get() = tasks.values.any { it.running }
 
+    // Live-Status: aktueller Schritt und seit wann Claude an dieser Antwort arbeitet
+    var activity by mutableStateOf(Activity(ActKind.NONE))
+        private set
+    var activeSince = 0L
+        private set
+    private fun changeActivity(a: Activity) {
+        if (activity.kind == ActKind.NONE && a.kind != ActKind.NONE) activeSince = System.currentTimeMillis()
+        activity = a
+    }
+    private fun idleOrBackground() = changeActivity(if (tasksRunning) Activity(ActKind.BACKGROUND) else Activity(ActKind.NONE))
+
+    private fun trackActivity(m: JsonObject) {
+        when (m.str("type")) {
+            "swapline_user" -> changeActivity(Activity(ActKind.THINKING))
+            "swapline_answered" -> if (running) changeActivity(Activity(ActKind.THINKING))
+            "stream_event" -> {
+                if (m["parent_tool_use_id"].let { it != null && it !is JsonNull }) return
+                val d = m.obj("event")?.obj("delta")
+                if (d?.str("type") == "text_delta") changeActivity(Activity(ActKind.WRITING))
+            }
+            "assistant" -> {
+                if (m["parent_tool_use_id"].let { it != null && it !is JsonNull }) return
+                val last = m.obj("message")?.arr("content")?.lastOrNull { (it as? JsonObject)?.str("type") == "tool_use" } as? JsonObject
+                val name = last?.str("name")
+                if (name != null && name != "AskUserQuestion") changeActivity(Activity(ActKind.TOOL, name, toolSummary(name, last["input"] ?: JsonNull)))
+            }
+            "user" -> if (running && activity.kind == ActKind.TOOL) changeActivity(Activity(ActKind.THINKING))
+            "control_request" -> {
+                val r = m.obj("request")
+                if (r?.str("subtype") == "can_use_tool") changeActivity(Activity(ActKind.WAITING, r.str("tool_name").orEmpty()))
+            }
+            "result", "app_error", "app_exit" -> idleOrBackground()
+            "system" -> if (!running && (m.str("subtype")?.startsWith("task_") == true || m.str("subtype") == "background_tasks_changed")) idleOrBackground()
+        }
+    }
+
     private fun trackTask(m: JsonObject) {
         if (m.str("subtype") == "background_tasks_changed") {
             // Liste der laufenden Aufgaben: alles, was nicht mehr drin ist, gilt als beendet
@@ -164,6 +204,7 @@ class Chat(
     // Eigene Nachricht sofort anzeigen (der Haupt-PC schickt sie dem Absender nicht zurück)
     fun addOwn(text: String, images: Int = 0, files: List<String> = emptyList()) {
         val now = System.currentTimeMillis()
+        changeActivity(Activity(ActKind.THINKING))
         add(Item.Me(text, now, images = images, files = files))
         running = true
         updated = now
@@ -172,6 +213,7 @@ class Chat(
     }
 
     fun setAnswer(item: Item, answer: Answer) {
+        if (activity.kind == ActKind.WAITING) changeActivity(Activity(ActKind.THINKING))
         val new = when (item) {
             is Item.Perm -> item.copy(answer = answer)
             is Item.Question -> item.copy(answer = answer)
@@ -182,6 +224,12 @@ class Chat(
     }
 
     fun ingest(m: JsonObject, fromHistory: Boolean = false): Notice? {
+        val n = ingestMessage(m, fromHistory)
+        if (!fromHistory) trackActivity(m)
+        return n
+    }
+
+    private fun ingestMessage(m: JsonObject, fromHistory: Boolean): Notice? {
         when (m.str("type")) {
             "swapline_user" -> {
                 val c = m.obj("content")

@@ -14,6 +14,7 @@ läuft **kein** Claude Code und es gibt keine Claude-Anmeldung – die App ist e
 - **Dokumente an Claude:** Büroklammer → „Dokument“ – beliebige Dateien (je bis 25 MB); sie landen auf dem Haupt-PC in einem eigenen Upload-Ordner, Claude bekommt den Pfad (Swapline am PC ab 0.10.0).
 - **Hintergrund-Aufgaben:** Leiste über dem Eingabefeld wie am PC, mit Liste und Ausgabe von Befehlen.
 - **Diktieren:** Mikrofon im Eingabefeld (Spracherkennung von Android, wenn möglich auf dem Gerät); gesendet wird erst mit „Senden“.
+- **Live-Status:** solange Claude arbeitet, zeigt eine Benachrichtigung den aktuellen Schritt mit Laufzeit (Android 16+: Live Update oben in der Statusleiste).
 - **Benachrichtigung** bei fertiger Antwort oder Rückfrage – mit „Im Hintergrund verbunden bleiben“ auch bei geschlossener App
   (dauerhafte, stille Benachrichtigung; Lebenszeichen erkennen abgerissene Verbindungen, Netzwechsel verbindet sofort neu).
 - **Einstellungen** (Zahnrad): Diktieren, Hintergrund-Verbindung, Akku-Optimierung, Berechtigungen, Haupt-PCs, Updates, Lizenzen.
