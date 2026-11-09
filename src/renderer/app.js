@@ -2247,6 +2247,7 @@ function openSettings() {
 // zeigt Swapline Chats und Konten des Haupt-PCs; Claude läuft dort.
 let remoteState = null, pairCode = null, remoteTimer = null;
 let pairQrUrl = null; // QR-Code (SVG vom Hauptprozess) für die Swapline-App auf dem Handy
+let pairLinkText = null; // Kopplungslink (wie im QR-Code) für einen anderen PC
 async function openRemote() {
   remoteState = await api.remote.info();
   modal('remote', _('Fernzugriff'), el('div', { id: 'remote-body' }));
@@ -2365,31 +2366,35 @@ function drawRemote() {
   const box = $('#remote-body'); if (!box || !remoteState) return;
   const r = remoteState, h = r.host;
   if (!r.available) return fill(box, el('p', { class: 'hint' }, _('Fernzugriff braucht den verschlüsselten Windows-Speicher – er ist auf diesem PC nicht verfügbar.')));
-  if (!h.pairingExpires) { pairCode = null; pairQrUrl = null; }
+  if (!h.pairingExpires) { pairCode = null; pairQrUrl = null; pairLinkText = null; }
   const portIn = el('input', { type: 'number', min: '1024', max: '65535', value: String(h.port), style: 'width:100px' });
   const setHost = async enabled => { remoteState = await api.remote.hostSet({ enabled, port: Number(portIn.value) }); if (remoteState.error) toast(remoteState.error); drawRemote(); };
   const toggle = el('input', { type: 'checkbox', checked: h.enabled });
   toggle.onchange = () => setHost(toggle.checked);
   portIn.onchange = () => { if (h.enabled) setHost(true); };
   const left = h.pairingExpires ? Math.max(0, Math.round((h.pairingExpires - Date.now()) / 1000)) : 0;
+  const relayOk = h.running && h.relay?.enabled && h.relay.state === 'connected';
   const host = [
     el('h3', {}, _('Dieser PC als Haupt-PC')),
     el('p', { class: 'hint' }, _('Andere eigene Geräte mit Swapline können sich verbinden und alle Chats und Konten dieses PCs nutzen; Claude läuft dabei hier. Die Verbindung ist verschlüsselt, jedes Gerät wird einmal mit einem Code gekoppelt.')),
     el('div', { class: 'row' }, el('label', { class: 'row' }, toggle, _('Fernzugriff erlauben')), el('span', { class: 'hint' }, _('Port')), portIn,
       h.enabled && !h.running ? el('span', { class: 'hint', style: 'color:var(--danger)' }, _('nicht gestartet')) : null),
+    h.enabled ? null : el('p', { class: 'hint' }, _('Für den Zugriff von anderen Geräten – auch von unterwegs über einen Vermittler – zuerst „Fernzugriff erlauben“. Am Router muss dafür nichts geöffnet werden.')),
     h.running ? el('p', { class: 'hint' }, _('Erreichbar unter: {list} · Port {port}', { list: h.addresses.map(a => a.address + (a.tailscale ? ' (Tailscale)' : '')).join(', ') || '–', port: h.listenPort })) : null,
-    h.running && h.publicAddress ? el('p', { class: 'hint' }, h.publicAddress.address
+    relayOk ? el('p', { class: 'hint', style: 'color:var(--ok)' }, _('Von unterwegs: über Vermittler ✓ – keine Portfreigabe nötig')) : null,
+    h.running && h.publicAddress && !relayOk ? el('p', { class: 'hint' }, h.publicAddress.address
       ? _('Internet: {ip} – von unterwegs nur mit Portfreigabe {port} (TCP) am Router auf diesen PC.', { ip: h.publicAddress.address, port: h.listenPort })
       : h.publicAddress.found ? _('Internet: Der Anschluss hat keine eigene öffentliche IPv4-Adresse (z. B. DS-Lite) – von unterwegs nur per VPN (z. B. Tailscale).')
         : _('Internet: Öffentliche Adresse nicht ermittelt (Router ohne UPnP-Statusinformationen).')) : null,
     h.running ? relaySection(h) : null,
-    h.running ? el('p', { class: 'hint' }, _('Übers Internet: am besten mit Tailscale (beide PCs im selben Tailnet, Adresse 100.x.x.x). Alternativ am Router den Port weiterleiten und die öffentliche Adresse oder einen DynDNS-Namen verwenden.')) : null,
+    h.running && !relayOk ? el('p', { class: 'hint' }, _('Übers Internet: am besten mit Tailscale (beide PCs im selben Tailnet, Adresse 100.x.x.x). Alternativ am Router den Port weiterleiten und die öffentliche Adresse oder einen DynDNS-Namen verwenden.')) : null,
     h.running ? (pairCode && left > 0
       ? el('div', {}, el('p', { class: 'hint' }, _('Auf dem anderen Gerät unter „Mit einem Haupt-PC verbinden“ eingeben (noch {s} s gültig, nur einmal):', { s: left })),
         el('div', { class: 'row' }, el('div', { class: 'pair-code' }, pairCode), el('button', { class: 'ghost', onclick: () => { api.copyText(pairCode); toast(_('Code kopiert')); } }, _('Kopieren')),
+          pairLinkText ? el('button', { class: 'ghost', title: _('Enthält Adressen und Vermittler – am anderen PC unter „Mit einem Haupt-PC verbinden“ einfügen'), onclick: () => { api.copyText(pairLinkText); toast(_('Kopplungslink kopiert')); } }, _('Kopplungslink kopieren')) : null,
           el('button', { class: 'ghost', onclick: async () => { await api.remote.pairCancel(); pairCode = null; pairQrUrl = null; remoteState = await api.remote.info(); drawRemote(); } }, _('Abbrechen'))),
         pairQrUrl ? el('div', { class: 'pair-qr' }, el('img', { src: pairQrUrl, alt: _('QR-Code zum Koppeln') }), el('p', { class: 'hint' }, _('Oder mit der Swapline-App auf dem Handy scannen (Haupt-PC koppeln → QR-Code scannen).'))) : null)
-      : el('button', { class: 'primary', onclick: async () => { const p = await api.remote.pairStart(); if (p.error) return toast(p.error); pairCode = p.code; pairQrUrl = typeof p.qr === 'string' && p.qr.startsWith('data:image/svg+xml;base64,') ? p.qr : null; remoteState = await api.remote.info(); drawRemote(); } }, _('Gerät koppeln …'))) : null,
+      : el('button', { class: 'primary', onclick: async () => { const p = await api.remote.pairStart(); if (p.error) return toast(p.error); pairCode = p.code; pairLinkText = typeof p.link === 'string' && p.link.startsWith('swapline://pair?') ? p.link : null; pairQrUrl = typeof p.qr === 'string' && p.qr.startsWith('data:image/svg+xml;base64,') ? p.qr : null; remoteState = await api.remote.info(); drawRemote(); } }, _('Gerät koppeln …'))) : null,
     ...h.devices.map(d => {
       const bypass = el('input', { type: 'checkbox', checked: d.allowBypass });
       bypass.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBypass: bypass.checked }); drawRemote(); };
@@ -2406,10 +2411,13 @@ function drawRemote() {
   ];
   const addr = el('input', { type: 'text', placeholder: _('Adresse (IP oder Name)'), style: 'flex:1' });
   const port = el('input', { type: 'number', min: '1024', max: '65535', value: '47820', style: 'width:100px' });
-  const code = el('input', { type: 'text', placeholder: _('Kopplungscode'), style: 'flex:1;font-family:ui-monospace,Consolas,monospace' });
+  const code = el('input', { type: 'text', placeholder: _('Kopplungscode oder Kopplungslink'), style: 'flex:1;font-family:ui-monospace,Consolas,monospace', autocomplete: 'off' });
+  // Kopplungslink enthält Adressen, Port und Vermittler – dann braucht es keine Adresse
+  code.oninput = () => { const link = code.value.trim().startsWith('swapline://'); addr.disabled = link; port.disabled = link; };
   const pairBtn = el('button', { class: 'primary', onclick: async () => {
     pairBtn.disabled = true; pairBtn.textContent = _('Warte auf Bestätigung am Haupt-PC …');
-    const res = await api.remote.pair({ address: addr.value, port: Number(port.value), code: code.value });
+    const v = code.value.trim();
+    const res = await api.remote.pair(v.startsWith('swapline://') ? { link: v } : { address: addr.value, port: Number(port.value), code: v });
     remoteState = res;
     if (res.error) { toast(res.error); drawRemote(); return; }
     toast(_('Gekoppelt'));
@@ -2418,7 +2426,7 @@ function drawRemote() {
   const client = [
     el('h3', { style: 'margin-top:16px' }, _('Mit einem Haupt-PC verbinden')),
     ...r.hosts.filter(x => x.kind !== 'ssh').map(x => el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (x.state === 'connected' ? ' on' : '') }),
-      el('div', { class: 'grow' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port} · ` + (x.state === 'connected' ? _('verbunden') : x.state === 'connecting' || x.state === 'reconnecting' ? _('verbinde …') : _('nicht verbunden')))),
+      el('div', { class: 'grow' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port}` + (x.relay ? ' · ' + _('Vermittler') : '') + ' · ' + (x.state === 'connected' ? (x.via === 'relay' ? _('verbunden über Vermittler') : _('verbunden')) : x.state === 'connecting' || x.state === 'reconnecting' ? _('verbinde …') : _('nicht verbunden')))),
       el('button', { class: 'primary', onclick: () => { $('#modal-root').replaceChildren(); switchProject('host:' + x.id); } }, _('Chats zeigen')),
       el('button', { class: 'ghost danger', onclick: async () => {
         if (!confirm(_('Haupt-PC „{name}“ entfernen?', { name: x.name }))) return;
@@ -2427,7 +2435,7 @@ function drawRemote() {
         if (activeProjectId() === 'host:' + x.id) await switchProject('all');
         drawRemote(); renderRail();
       } }, _('Entfernen')))),
-    el('p', { class: 'hint' }, _('Am Haupt-PC unter Fernzugriff „Gerät koppeln …“ wählen und den Code hier eingeben.')),
+    el('p', { class: 'hint' }, _('Am Haupt-PC unter Fernzugriff „Gerät koppeln …“ wählen. Im selben Netz: Adresse und Code eingeben. Von unterwegs: dort „Kopplungslink kopieren“ und den Link hier einfügen – er enthält Adressen und Vermittler.')),
     el('div', { class: 'row' }, addr, port), el('div', { class: 'row', style: 'margin-top:6px' }, code, pairBtn),
   ];
   fill(box, ...host, ...client, ...sshSection(r));

@@ -1382,8 +1382,36 @@ function connectHost(h) {
     log: logError,
   });
   clients.set(h.id, c);
-  try { c.use({ id: h.id, address: h.address, port: h.port, deviceId: h.deviceId, key: Buffer.from(decryptSecret(h.keyEnc), 'base64') }); }
+  try { c.use(hostTarget(h)); }
   catch (e) { logError('Fernzugriff: ' + e.message); }
+}
+// Wege zu einem gekoppelten Haupt-PC: Adressen (durch Komma getrennt gespeichert) und ggf. der Vermittler
+function hostTarget(h) {
+  let relay = null;
+  if (h.relay && h.relayKeyEnc) { try { relay = { address: h.relay.address, port: h.relay.port, hostId: h.relay.hostId, dialKey: decryptSecret(h.relayKeyEnc) }; } catch {} }
+  return { id: h.id, addresses: String(h.address || '').split(',').map(a => a.trim()).filter(Boolean), port: h.port, deviceId: h.deviceId, key: Buffer.from(decryptSecret(h.keyEnc), 'base64'), relay };
+}
+// Der Haupt-PC meldet mit store:get, wie er erreichbar ist (Adressen, Vermittler) – für die nächste Verbindung merken.
+// Eine selbst eingetragene Adresse (z. B. DynDNS-Name) bleibt vorn.
+function learnReach(id, reach) {
+  const h = remoteHosts().find(x => x.id === id);
+  if (!h || !reach) return;
+  const addresses = [...new Set([...(h.manual ? [h.manual] : []), ...reach.addresses])].slice(0, 8);
+  const address = addresses.length ? addresses.join(',') : h.address;
+  let oldKey = null;
+  try { oldKey = h.relayKeyEnc ? decryptSecret(h.relayKeyEnc) : null; } catch {}
+  const r = reach.relay;
+  const sameRelay = r ? !!h.relay && h.relay.address === r.address && h.relay.port === r.port && h.relay.hostId === r.hostId && oldKey === r.dialKey : !h.relay;
+  if (address === h.address && sameRelay) return;
+  updateStore(s => {
+    const x = (s.remoteHosts || []).find(y => y.id === id);
+    if (!x) return;
+    x.address = address;
+    if (r) { x.relay = { address: r.address, port: r.port, hostId: r.hostId }; if (!sameRelay) x.relayKeyEnc = encryptSecret(r.dialKey); }
+    else { delete x.relay; delete x.relayKeyEnc; }
+  });
+  clients.get(id)?.setRoutes({ addresses: address.split(','), relay: r ? { address: r.address, port: r.port, hostId: r.hostId, dialKey: r.dialKey } : null });
+  pushRemoteStatus();
 }
 // Stand eines Haupt-PCs für die Oberfläche: Namen, Bilder und Pfade werden wie lokale Eingaben geprüft
 function cleanHostStore(r) {
@@ -1411,7 +1439,7 @@ handle('remote:call', async (_e, hostId, ch, args) => {
   if (typeof hostId === 'string' && hostId.startsWith('ssh:')) {
     const srv = sshServers().find(x => 'ssh:' + x.id === hostId);
     if (!srv || !REMOTE_CALLS.has(ch) || !Array.isArray(args)) return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
-    try { const v = await sshDispatch(srv, ch, args); return (ch === 'store:get' || ch.startsWith('projects:')) && v && typeof v === 'object' && !v.error ? cleanHostStore(v) : v; }
+    try { const v = await sshDispatch(srv, ch, args); if ((ch === 'store:get' || ch.startsWith('projects:')) && v && typeof v === 'object' && !v.error) { const clean = cleanHostStore(v); delete clean.reach; return clean; } return v; }
     catch (err) { if (ch.startsWith('projects:')) return { error: err.message }; throw err; }
   }
   const c = clients.get(hostId);
@@ -1421,7 +1449,10 @@ handle('remote:call', async (_e, hostId, ch, args) => {
   if (ch === 'session:send' && args[0]?.tab?.permissionMode === 'bypassPermissions' && !confirmBypass()) return false;
   try {
     const v = await c.call(ch, args);
-    return ch === 'store:get' || ch.startsWith('projects:') ? cleanHostStore(v) : v;
+    if (ch !== 'store:get' && !ch.startsWith('projects:')) return v;
+    const clean = cleanHostStore(v);
+    if (ch === 'store:get' && clean) { learnReach(hostId, clean.reach); delete clean.reach; } // Schlüssel des Vermittlers bleibt im Hauptprozess
+    return clean;
   } catch (err) {
     if (ch === 'session:send' && typeof args[0]?.tab?.id === 'string') {
       win?.webContents.send('claude:event', { tabId: args[0].tab.id, msg: { type: 'app_error', message: tr('Haupt-PC: ', 'Host PC: ') + err.message } });
@@ -1446,7 +1477,7 @@ function remoteInfo() {
       devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowProjects: !!d.allowProjects, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
     hosts: [
-      ...remoteHosts().map(h => ({ id: h.id, kind: 'swapline', name: h.name, address: h.address, port: h.port, color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
+      ...remoteHosts().map(h => ({ id: h.id, kind: 'swapline', name: h.name, address: String(h.address || '').split(',')[0], port: h.port, relay: !!h.relay, via: clients.get(h.id)?.via || '', color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
       ...sshServers().map(x => ({ id: 'ssh:' + x.id, kind: 'ssh', name: x.name, address: x.user + '@' + x.host, port: x.port, color: x.color || '#0EA5E9', folders: x.folders, state: sshState.get(x.id)?.state || 'off', error: sshState.get(x.id)?.error || '' })),
     ],
     sshAvailable: fs.existsSync(SSH_EXE),
@@ -1518,11 +1549,14 @@ function refreshPublic(force) {
   require('./upnp').externalAddress().then(r => { publicAddr = r; }, () => { publicAddr = null; })
     .finally(() => { publicBusy = false; publicAt = Date.now(); pushRemoteStatus(); });
 }
-function pairQr(code) {
+// Kopplungslink: steckt im QR-Code (Handy) und lässt sich für einen anderen PC kopieren
+function pairLink(code) {
   const addrs = reachAddresses();
   const rr = relayReach(); // Vermittler: Koppeln auch von unterwegs
-  const url = 'swapline://pair?v=1&a=' + addrs.join(',') + '&p=' + remoteHost.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(os.hostname().slice(0, 40))
+  return 'swapline://pair?v=1&a=' + addrs.join(',') + '&p=' + remoteHost.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(os.hostname().slice(0, 40))
     + (rr ? '&r=' + encodeURIComponent(rr.address + ':' + rr.port) + '&h=' + rr.hostId + '&k=' + rr.dialKey : '');
+}
+function pairQr(url) {
   const q = require('qrcode-generator')(0, 'M');
   q.addData(url);
   q.make();
@@ -1531,7 +1565,8 @@ function pairQr(code) {
 handle('remote:pairStart', () => {
   if (!remoteHost?.running) return { error: tr('Fernzugriff ist aus', 'Remote access is off') };
   const p = remoteHost.startPairing();
-  return { ...p, qr: pairQr(p.code) };
+  const link = pairLink(p.code);
+  return { ...p, link, qr: pairQr(link) };
 });
 handle('remote:pairCancel', () => { remoteHost?.cancelPairing(); return true; });
 handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, scope } = {}) => {
@@ -1563,21 +1598,51 @@ handle('remote:deviceRemove', (_e, id) => {
   logError(`Fernzugriff: Gerät ${id} entfernt`);
   return remoteInfo();
 });
-handle('remote:pair', async (_e, { address, port, code } = {}) => {
-  address = typeof address === 'string' ? address.trim() : '';
-  if (!validAddress(address) || !validPort(port) || typeof code !== 'string' || code.length > 64) return { ...remoteInfo(), error: tr('Adresse, Port oder Code ungültig', 'Invalid address, port or code') };
+// Kopplungslink (wie im QR-Code): swapline://pair?v=1&a=<Adressen>&p=<Port>&c=<Code>&n=<Name>[&r=<Vermittler:Port>&h=<hostId>&k=<dialKey>]
+function parsePairLink(text) {
+  const t = typeof text === 'string' ? text.trim() : '';
+  if (t.length > 1000 || !t.startsWith('swapline://pair?')) return null;
+  const q = new URLSearchParams(t.slice('swapline://pair?'.length));
+  if (q.get('v') !== '1') return null;
+  const addresses = (q.get('a') || '').split(',').map(a => a.trim()).filter(Boolean).slice(0, 6);
+  const port = Number(q.get('p'));
+  const code = (q.get('c') || '').toUpperCase();
+  if (!addresses.length || !addresses.every(validAddress) || !validPort(port) || !/^[0-9A-HJKMNP-TV-Z]{26}$/.test(code)) return null;
+  let relay = null;
+  const r = q.get('r') || '', i = r.lastIndexOf(':');
+  const ra = r.slice(0, i), rp = Number(r.slice(i + 1)), h = q.get('h') || '', k = q.get('k') || '';
+  if (i > 0 && validAddress(ra) && Number.isInteger(rp) && rp >= 1 && rp <= 65535 && /^[0-9a-f]{16}$/.test(h) && /^[0-9a-f]{64}$/.test(k)) relay = { address: ra, port: rp, hostId: h, dialKey: k };
+  return { addresses, port, code, name: cleanName(q.get('n') || '', ''), relay };
+}
+handle('remote:pair', async (_e, { address, port, code, link } = {}) => {
+  let t;
+  if (typeof link === 'string' && link.trim()) {
+    const l = parsePairLink(link);
+    if (!l) return { ...remoteInfo(), error: tr('Kopplungslink ungültig', 'Invalid pairing link') };
+    t = { addresses: l.addresses, port: l.port, code: l.code, relay: l.relay, manual: null };
+  } else {
+    address = typeof address === 'string' ? address.trim() : '';
+    if (!validAddress(address) || !validPort(port) || typeof code !== 'string' || code.length > 64) return { ...remoteInfo(), error: tr('Adresse, Port oder Code ungültig', 'Invalid address, port or code') };
+    t = { addresses: [address], port, code, relay: null, manual: address };
+  }
   if (!safeStorage.isEncryptionAvailable()) return { ...remoteInfo(), error: tr('Verschlüsselter Speicher nicht verfügbar', 'Encrypted storage not available') };
   try {
-    const r = await remote.pair({ address, port, code, name: os.hostname().slice(0, 40) });
-    const host = { id: r.deviceId, name: cleanName(r.hostName, address) || address, address, port, deviceId: r.deviceId, keyEnc: encryptSecret(r.key) };
-    for (const old of remoteHosts().filter(h => h.address === address && h.port === port)) { clients.get(old.id)?.use(null); clients.delete(old.id); }
-    updateStore(s => { s.remoteHosts = [...(s.remoteHosts || []).filter(h => !(h.address === address && h.port === port)), host]; });
+    const r = await remote.pair({ addresses: t.addresses, port: t.port, code: t.code, relay: t.relay, name: os.hostname().slice(0, 40) });
+    const label = t.addresses[0];
+    const host = { id: r.deviceId, name: cleanName(r.hostName, label) || label, address: t.addresses.join(','), port: t.port, deviceId: r.deviceId, keyEnc: encryptSecret(r.key),
+      ...(t.manual ? { manual: t.manual } : {}),
+      ...(t.relay ? { relay: { address: t.relay.address, port: t.relay.port, hostId: t.relay.hostId }, relayKeyEnc: encryptSecret(t.relay.dialKey) } : {}) };
+    // derselbe Haupt-PC schon gekoppelt (gleiche erste Adresse und Port oder gleiche Kennung beim Vermittler): ersetzen
+    const same = h => (h.port === t.port && String(h.address || '').split(',')[0] === label) || (!!t.relay && h.relay?.hostId === t.relay.hostId);
+    for (const old of remoteHosts().filter(same)) { clients.get(old.id)?.use(null); clients.delete(old.id); }
+    updateStore(s => { s.remoteHosts = [...(s.remoteHosts || []).filter(h => !same(h)), host]; });
     connectHost(host);
-    logError(`Fernzugriff: mit Haupt-PC ${address}:${port} gekoppelt`);
+    logError(`Fernzugriff: mit Haupt-PC ${label}:${t.port} gekoppelt${r.via === 'relay' ? ' (über Vermittler)' : ''}`);
     return { ...remoteInfo(), paired: r.deviceId };
   } catch (err) {
     const msg = { code: tr('Code ungültig', 'Invalid code'), denied: tr('Am Haupt-PC abgelehnt', 'Declined on the host PC'), closed: tr('Code falsch oder abgelaufen', 'Code wrong or expired'), timeout: tr('Zeitüberschreitung', 'Timed out') }[err.message]
-      || ({ ECONNREFUSED: tr('Keine Verbindung – Fernzugriff am Haupt-PC an?', 'No connection – is remote access on at the host PC?'), ETIMEDOUT: tr('Zeitüberschreitung', 'Timed out'), ENOTFOUND: tr('Adresse nicht gefunden', 'Address not found') }[err.code])
+      || ({ ECONNREFUSED: tr('Keine Verbindung – Fernzugriff am Haupt-PC an?', 'No connection – is remote access on at the host PC?'), ETIMEDOUT: tr('Zeitüberschreitung', 'Timed out'), ENOTFOUND: tr('Adresse nicht gefunden', 'Address not found'),
+        EHOSTOFFLINE: tr('Haupt-PC ist nicht beim Vermittler angemeldet', 'Host PC is not signed in at the relay'), ERELAY: tr('Vermittler hat abgelehnt', 'Relay declined') }[err.code])
       || tr('Code falsch oder abgelaufen', 'Code wrong or expired');
     return { ...remoteInfo(), error: msg };
   }

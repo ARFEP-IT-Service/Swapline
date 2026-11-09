@@ -191,68 +191,114 @@ function createHost(ctx) {
 }
 
 // ---------- Gerät (verbindet sich mit einem Haupt-PC) ----------
-function pair({ address, port, code, name }) {
+// Wege zum Haupt-PC: die direkten Adressen der Reihe nach (Heimnetz, Tailscale, öffentliche Adresse), danach der
+// Vermittler (relay: { address, port, hostId, dialKey }) – von unterwegs ohne Portfreigabe. Über den Vermittler läuft
+// dieselbe TLS-PSK-Verbindung, er sieht nur verschlüsselte Bytes.
+const ROUTE_TIMEOUT = 4000, CONNECT_TIMEOUT = 15000;
+const UNREACHABLE = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'EHOSTOFFLINE']);
+function routesOf(t) {
+  const list = (Array.isArray(t.addresses) ? t.addresses : String(t.address || '').split(',')).map(a => String(a).trim()).filter(Boolean);
+  return [...list.map(a => ({ address: a, port: t.port })), ...(t.relay ? [{ relay: t.relay }] : [])];
+}
+// TLS-PSK-Verbindung über einen Weg – fertig erst nach erfolgreichem Handshake
+async function openRoute(route, psk, identity, timeout) {
+  const raw = route.relay ? await require('./relay-link').dialRelay(route.relay, timeout) : null;
   return new Promise((resolve, reject) => {
-    const secret = b32decode(code);
-    if (!secret || secret.length !== 16) return reject(new Error('code'));
+    const host = route.address;
+    const s = tls.connect({ ...TLS_OPTS, ...(raw ? { socket: raw } : { host, port: route.port, servername: net.isIP(host) ? undefined : host }),
+      pskCallback: () => ({ psk, identity }), checkServerIdentity: () => undefined });
+    const end = (err, v) => { clearTimeout(timer); s.off('error', onErr); s.off('close', onClose); if (err) { s.destroy(); raw?.destroy(); reject(err); } else resolve(v); };
+    const timer = setTimeout(() => { const e = new Error('Zeitüberschreitung'); e.code = 'ETIMEDOUT'; end(e); }, timeout);
+    const onErr = e => end(e);
+    const onClose = () => { const e = new Error('closed'); e.code = 'ECLOSED'; end(e); };
+    s.once('secureConnect', () => { s.swaplineVia = raw ? 'relay' : host; end(null, s); });
+    s.once('error', onErr); s.once('close', onClose);
+  });
+}
+// Erster Weg, der klappt; nicht erreichbare kosten nur ein kurzes Warten. Andere Fehler (z. B. falscher Schlüssel
+// oder Code) beenden die Suche – ein anderer Weg führt zum selben Haupt-PC.
+async function openAny(t, psk, identity) {
+  const routes = routesOf(t);
+  if (!routes.length) { const e = new Error('Keine Adresse'); e.code = 'ENOTFOUND'; throw e; }
+  let last;
+  for (const r of routes) {
+    try { return await openRoute(r, psk, identity, routes.length > 1 && !r.relay ? ROUTE_TIMEOUT : CONNECT_TIMEOUT); }
+    catch (e) { last = e; if (!UNREACHABLE.has(e.code)) throw e; }
+  }
+  throw last;
+}
+
+// Koppeln: { address | addresses, port, code, name, relay? } → { deviceId, key, hostName, via }
+async function pair({ address, addresses, port, code, name, relay }) {
+  const secret = b32decode(code);
+  if (!secret || secret.length !== 16) throw new Error('code');
+  const sock = await openAny({ address, addresses, port, relay }, pairKey(secret), 'pair');
+  return new Promise((resolve, reject) => {
     let done = false;
     const finish = (err, val) => { if (done) return; done = true; sock.destroy(); err ? reject(err) : resolve(val); };
-    const sock = tls.connect({ ...TLS_OPTS, host: address, port, servername: net.isIP(address) ? undefined : address,
-      pskCallback: () => ({ psk: pairKey(secret), identity: 'pair' }), checkServerIdentity: () => undefined }, () => write({ t: 'pair', name }));
     sock.setTimeout(PAIR_TTL + 10000, () => finish(new Error('timeout')));
     sock.on('error', e => finish(e));
     sock.on('close', () => finish(new Error('closed')));
     const write = lineChannel(sock, msg => {
-      if (msg.t === 'paired' && DEVICE_ID_RE.test(msg.deviceId) && typeof msg.key === 'string') finish(null, { deviceId: msg.deviceId, key: msg.key, hostName: String(msg.hostName || '').slice(0, 40) });
+      if (msg.t === 'paired' && DEVICE_ID_RE.test(msg.deviceId) && typeof msg.key === 'string') finish(null, { deviceId: msg.deviceId, key: msg.key, hostName: String(msg.hostName || '').slice(0, 40), via: sock.swaplineVia });
       else if (msg.t === 'pair-denied') finish(new Error('denied'));
     });
+    write({ t: 'pair', name });
   });
 }
 
 // ctx: { onEvent(kind, data), onStatus(state, detail), log(msg) }
 function createClient(ctx) {
-  let target = null, sock = null, write = null, retry = null, delay = 2000, state = 'off';
+  let target = null, sock = null, write = null, retry = null, delay = 2000, state = 'off', via = '';
   const calls = new Map();
   let nextId = 1;
   const setState = (s, detail) => { state = s; ctx.onStatus(s, detail); };
 
   function failAll(why) { for (const c of calls.values()) { clearTimeout(c.timer); c.reject(new Error(why)); } calls.clear(); }
-  function connect() {
+  function again(t) {
+    if (target !== t) return;
+    setState('reconnecting');
+    retry = setTimeout(connect, delay);
+    delay = Math.min(delay * 2, 30000);
+  }
+  async function connect() {
     if (!target) return;
     const t = target;
     setState('connecting');
-    const s = tls.connect({ ...TLS_OPTS, host: t.address, port: t.port, servername: net.isIP(t.address) ? undefined : t.address,
-      pskCallback: () => ({ psk: t.key, identity: t.deviceId }), checkServerIdentity: () => undefined }, () => {
-      delay = 2000;
-      setState('connected');
-    });
-    sock = s;
+    let s;
+    try { s = await openAny(t, t.key, t.deviceId); }
+    catch (e) { if (target === t) { ctx.log(`Fernzugriff: Verbindung zu ${routesOf(t).map(r => r.relay ? 'Vermittler' : r.address).join(', ')} – ${e.code || e.message}`); again(t); } return; }
+    if (target !== t) return s.destroy();
+    delay = 2000;
+    sock = s; via = s.swaplineVia || '';
     write = lineChannel(s, msg => {
       if (msg.t === 'res') { const c = calls.get(msg.id); if (!c) return; calls.delete(msg.id); clearTimeout(c.timer); msg.ok ? c.resolve(msg.value) : c.reject(new Error(msg.error || 'Fehler')); }
       else if (msg.t === 'evt' && typeof msg.kind === 'string') ctx.onEvent(msg.kind, msg.data);
     });
     s.setKeepAlive(true, 30000);
-    s.on('error', e => { ctx.log(`Fernzugriff: Verbindung zu ${t.address}:${t.port} – ${e.code || e.message}`); });
+    s.on('error', e => { ctx.log(`Fernzugriff: Verbindung zu ${via === 'relay' ? 'Vermittler' : via} – ${e.code || e.message}`); });
     s.on('close', () => {
       if (sock !== s) return;
-      sock = null; write = null;
+      sock = null; write = null; via = '';
       failAll('Verbindung zum Haupt-PC getrennt');
-      if (target !== t) return;
-      setState('reconnecting');
-      retry = setTimeout(connect, delay);
-      delay = Math.min(delay * 2, 30000);
+      again(t);
     });
+    setState('connected');
   }
   return {
     get state() { return state; },
     get target() { return target; },
-    use(t) { // t: { id, address, port, deviceId, key(Buffer) } oder null
+    // Weg der aktuellen Verbindung: Adresse oder „relay“ (Vermittler)
+    get via() { return via; },
+    use(t) { // t: { id, address | addresses, port, deviceId, key(Buffer), relay? } oder null
       clearTimeout(retry); retry = null;
-      const old = sock; sock = null; write = null; old?.destroy();
+      const old = sock; sock = null; write = null; via = ''; old?.destroy();
       failAll('Ziel gewechselt');
       target = t; delay = 2000;
       if (t) connect(); else setState('off');
     },
+    // neue Wege (vom Haupt-PC gemeldet) für die nächste Verbindung – die bestehende bleibt
+    setRoutes({ addresses, relay }) { if (target) Object.assign(target, { addresses, relay: relay || null }); },
     call(ch, args) {
       return new Promise((resolve, reject) => {
         if (!write || state !== 'connected') return reject(new Error('Nicht mit dem Haupt-PC verbunden'));

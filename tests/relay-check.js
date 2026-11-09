@@ -91,6 +91,23 @@ function lines(t) {
   check('Vermittler: Verbindung läuft als durchgereichte Leitung', relay.stats().pipes >= 1, JSON.stringify(relay.stats()));
   dt.destroy();
 
+  // Swapline am PC als Gerät (src/remote.js): direkte Adresse nicht erreichbar → automatisch über den Vermittler
+  const closedPort = await new Promise(r => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
+  const route = { address: '127.0.0.1', port: relayPort, hostId, dialKey };
+  const p2 = await remote.pair({ addresses: ['127.0.0.1'], port: closedPort, code: host.startPairing().code, name: 'Laptop', relay: route });
+  check('Vermittler: PC koppelt über den Vermittler, wenn die Adresse nicht erreichbar ist', p2.via === 'relay' && /^[0-9a-f]{16}$/.test(p2.deviceId), JSON.stringify({ via: p2.via }));
+  const client = remote.createClient({ onEvent: () => {}, onStatus: () => {}, log: () => {} });
+  client.use({ id: 'x', addresses: ['127.0.0.1'], port: closedPort, deviceId: p2.deviceId, key: Buffer.from(p2.key, 'base64'), relay: route });
+  await until(() => client.state === 'connected', 15000);
+  const echo = await client.call('echo', ['über Vermittler']).catch(e => ({ error: e.message }));
+  check('Vermittler: PC verbindet sich über den Vermittler und arbeitet', client.via === 'relay' && echo?.device === 'Laptop' && echo.args?.[0] === 'über Vermittler', JSON.stringify({ via: client.via, echo }));
+  client.use({ id: 'x', addresses: ['127.0.0.1'], port: hostPort, deviceId: p2.deviceId, key: Buffer.from(p2.key, 'base64'), relay: route });
+  await until(() => client.state === 'connected', 15000);
+  check('Vermittler: direkte Adresse geht vor, wenn erreichbar', client.via === '127.0.0.1', client.via);
+  client.use(null);
+  let wrong = ''; try { await remote.pair({ addresses: [], port: closedPort, code: '0'.repeat(26), name: 'x', relay: route }); } catch (e) { wrong = e.message; }
+  check('Vermittler: falscher Code über den Vermittler wird abgelehnt', wrong === 'closed' || /alert|ECONNRESET|socket/i.test(wrong), wrong);
+
   // falscher dialKey: Haupt-PC lehnt ab, Vermittler verbindet nicht
   let rej = ''; try { await dialRelay(relayPort, hostId, crypto.randomBytes(32).toString('hex')); } catch (e) { rej = e.message; }
   check('Vermittler: Gerät ohne gültige Kennung abgelehnt', rej === 'abgelehnt', rej);

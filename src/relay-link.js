@@ -127,4 +127,26 @@ function createRelayLink({ onSocket, onStatus = () => {}, log = () => {} }) {
   };
 }
 
-module.exports = { createRelayLink, hmac, readLine };
+// Gerät → Haupt-PC über den Vermittler: anmelden mit HMAC(dialKey) über die Zufallszahl des Vermittlers. Liefert die
+// Verbindung, sobald der Haupt-PC angenommen hat – darauf läuft dann die TLS-PSK-Verbindung (Ende-zu-Ende).
+// route: { address, port, hostId, dialKey }
+async function dialRelay(route, timeout = CONNECT_TIMEOUT) {
+  const s = await new Promise((resolve, reject) => {
+    const c = net.connect({ host: route.address, port: route.port, timeout });
+    c.once('connect', () => { c.setTimeout(0); resolve(c); });
+    c.once('timeout', () => { c.destroy(); const e = new Error('Zeitüberschreitung'); e.code = 'ETIMEDOUT'; reject(e); });
+    c.once('error', reject);
+  });
+  try {
+    const hello = await readLine(s);
+    if (hello?.t !== 'hello' || typeof hello.nonce !== 'string') throw new Error('kein Swapline-Vermittler');
+    s.write(JSON.stringify({ t: 'dial', hostId: route.hostId, mac: hmac(route.dialKey, `dial|${hello.nonce}|${route.hostId}`) }) + '\n');
+    const r = await readLine(s, 30_000);
+    if (r?.t !== 'ok') { const e = new Error(r?.error === 'offline' ? 'Haupt-PC ist nicht beim Vermittler angemeldet' : 'Vermittler: ' + (r?.error || 'abgelehnt')); e.code = r?.error === 'offline' ? 'EHOSTOFFLINE' : 'ERELAY'; throw e; }
+    s.setKeepAlive(true, 30_000);
+    s.setNoDelay(true);
+    return s;
+  } catch (e) { s.destroy(); throw e; }
+}
+
+module.exports = { createRelayLink, dialRelay, hmac, readLine };

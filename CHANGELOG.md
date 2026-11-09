@@ -7,6 +7,16 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.12.0] – 2026-11-09
+
+- Neu: **Andere PCs über den Vermittler** – Swapline am PC verbindet sich jetzt wie die Handy-App über den Vermittler,
+  wenn der Haupt-PC direkt nicht erreichbar ist (zu Hause weiter direkt). Gekoppelte PCs übernehmen Adressen und
+  Vermittler automatisch vom Haupt-PC; der Status zeigt „verbunden über Vermittler“.
+- Neu: **Kopplungslink** – am Haupt-PC bei „Gerät koppeln …“ „Kopplungslink kopieren“ und am anderen PC ins Feld für den
+  Code einfügen: enthält Adressen, Port, Einmal-Code und Vermittler, damit klappt das Koppeln auch von unterwegs.
+- Fernzugriff verständlicher: Hinweis, dass „Fernzugriff erlauben“ am Router nichts öffnet und für den Vermittler nötig
+  ist; ist der Vermittler verbunden, steht dort „Von unterwegs: über Vermittler ✓“ statt der Hinweise zu Portfreigabe und VPN.
+
 ## [0.11.0] – 2026-11-09
 
 - Neu: **Vermittler (Relay)** – der Haupt-PC ist von unterwegs ohne Portfreigabe und ohne VPN erreichbar. PC und Gerät

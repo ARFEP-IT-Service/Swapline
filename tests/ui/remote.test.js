@@ -20,7 +20,11 @@
   r = await api.remote.pair({ address: '127.0.0.1', port, code: wrong });
   check('Falscher Code abgelehnt', !!r.error && r.hosts.length === 0, r.error);
   check('Ungültige Adresse abgelehnt', !!(await api.remote.pair({ address: '\\\\server\\share', port, code: p.code })).error);
-  r = await api.remote.pair({ address: '127.0.0.1', port, code: p.code });
+  check('Kopplungslink für einen anderen PC', String(p.link).startsWith('swapline://pair?v=1&a=') && p.link.includes('&c=' + p.code.replace(/-/g, '')), String(p.link).slice(0, 40));
+  check('Ungültiger Kopplungslink abgelehnt', !!(await api.remote.pair({ link: 'swapline://pair?v=1&a=' + encodeURIComponent('\\server\share') + '&p=' + port + '&c=' + p.code.replace(/-/g, '') })).error
+    && !!(await api.remote.pair({ link: 'https://example.com/?v=1' })).error);
+  // Testlauf lauscht nur auf 127.0.0.1: Adressen im Link darauf umstellen (der Rest bleibt wie vom Haupt-PC)
+  r = await api.remote.pair({ link: p.link.replace(/([?&])a=[^&]*/, '$1a=127.0.0.1') });
   check('Koppeln mit richtigem Code', !r.error && r.hosts.length === 1 && r.host.devices.length === 1, r.error);
   check('Code gilt nur einmal', !!(await api.remote.pair({ address: '127.0.0.1', port, code: p.code })).error);
   const hostId = r.hosts[0].id, devId = r.host.devices[0].id;
@@ -30,6 +34,7 @@
   await until(async () => (await api.remote.info()).hosts[0]?.state === 'connected', 10000);
   check('Mit Haupt-PC verbunden (im Hintergrund)', (await api.remote.info()).hosts[0].state === 'connected');
   const rs = await R('store:get');
+  check('Erreichbarkeit des Haupt-PCs bleibt im Hauptprozess', rs && !('reach' in rs), Object.keys(rs || {}).join(','));
   check('Stand vom Haupt-PC ohne Konfigurationsordner', rs && rs.profiles.length >= 1 && rs.profiles.every(x => !('configDir' in x)) && Array.isArray(rs.allowedFolders) && Array.isArray(rs.projectGroups), JSON.stringify(rs?.profiles));
   const local = await api.getStore();
   check('Eigener Stand bleibt lokal und ohne Geräteschlüssel', !local.remote && local.profiles.length === 2 && !JSON.stringify(local).includes('keyEnc'), Object.keys(local).join(','));
@@ -144,8 +149,10 @@
   check('Vermittler: zu kurzes Kennwort abgelehnt', !!(await api.remote.relaySet({ enabled: true, address: '127.0.0.1', port: 47821, secret: 'kurz' })).error);
   let rl = await api.remote.relaySet({ enabled: true, address: '127.0.0.1', port: 1, secret: 's'.repeat(40) });
   check('Vermittler: eingerichtet, Kennwort nicht in der Oberfläche', !rl.error && rl.host.relay.enabled && rl.host.relay.hasSecret && !JSON.stringify(rl).includes('s'.repeat(40)), JSON.stringify(rl.host.relay));
-  const rr = (await R('store:get'))?.reach?.relay;
-  check('Vermittler: gekoppelte Geräte bekommen Adresse, Kennung und dialKey (nicht das Kennwort)', rr && rr.address === '127.0.0.1' && /^[0-9a-f]{16}$/.test(rr.hostId) && /^[0-9a-f]{64}$/.test(rr.dialKey) && !JSON.stringify(rr).includes('s'.repeat(40)), JSON.stringify(rr));
+  // das Gerät (hier derselbe PC) übernimmt den Vermittler aus store:get – im Hauptprozess, nicht in der Oberfläche
+  const rs2 = await R('store:get');
+  const hi = (await api.remote.info()).hosts[0];
+  check('Vermittler: gekoppelte Geräte übernehmen den Vermittler (Schlüssel nicht in der Oberfläche)', hi.relay === true && !('reach' in rs2) && !JSON.stringify(hi).includes('s'.repeat(40)), JSON.stringify(hi));
   const qr = atob(String((await api.remote.pairStart()).qr || '').replace('data:image/svg+xml;base64,', ''));
   check('Vermittler: QR-Code wird erzeugt', qr.startsWith('<svg'));
   await api.remote.pairCancel();
