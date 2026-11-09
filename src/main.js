@@ -1095,7 +1095,7 @@ function remoteStoreFor(dev) {
     usage: s.usage,
     settings: { model: v.model ?? s.settings.model ?? '', effort: v.effort ?? s.settings.effort ?? '', permissionMode: v.permissionMode ?? s.settings.permissionMode ?? 'default' },
     allowedFolders: limited ? projectFolders(dev) : allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass, canEditProjects: !!dev.allowProjects,
-    reach: { addresses: reachAddresses(), port: remoteHost?.port || null },
+    reach: { addresses: reachAddresses(), port: remoteHost?.port || null, relay: relayReach() },
   };
 }
 const setView = (dev, patch) => saveDevices(getDevices().map(d => (d.id === dev.id ? { ...d, view: { ...d.view, ...patch } } : d)));
@@ -1322,6 +1322,32 @@ async function confirmPairing({ name, address }) {
   });
   return r.response === 1;
 }
+// --- Vermittler (relay/relay.js): Erreichbarkeit ohne Portfreigabe ---
+// Einstellungen: remoteHost.relay = { enabled, address, port, secretEnc, hostId, dialKeyEnc }. hostId und dialKey erzeugt
+// Swapline selbst; den dialKey bekommen nur gekoppelte Geräte (über die verschlüsselte Verbindung oder den QR-Code).
+const relayLinkMod = require('./relay-link');
+let relayLink = null;
+const RELAY_DEFAULT_PORT = 47821;
+function relayCfg() {
+  const r = getStore().remoteHost?.relay;
+  if (!r?.enabled || !r.address || !r.secretEnc || !r.hostId || !r.dialKeyEnc) return null;
+  try { return { address: r.address, port: r.port || RELAY_DEFAULT_PORT, secret: decryptSecret(r.secretEnc), hostId: r.hostId, dialKey: decryptSecret(r.dialKeyEnc) }; }
+  catch { return null; }
+}
+function applyRelay() {
+  relayLink ||= relayLinkMod.createRelayLink({
+    onSocket: (s, from) => (remoteHost?.running ? remoteHost.adopt(s, from) : s.destroy()),
+    onStatus: () => pushRemoteStatus(),
+    log: logError,
+  });
+  relayLink.use(remoteHost?.running ? relayCfg() : null);
+}
+// Für Geräte: wie sie den PC über den Vermittler erreichen (nur wenn eingerichtet)
+function relayReach() {
+  const c = relayCfg();
+  return c ? { address: c.address, port: c.port, hostId: c.hostId, dialKey: c.dialKey } : null;
+}
+
 async function startRemoteHost() {
   const cfg = getStore().remoteHost || {};
   if (!safeStorage.isEncryptionAvailable()) throw new Error(tr('Verschlüsselter Speicher nicht verfügbar', 'Encrypted storage not available'));
@@ -1332,6 +1358,7 @@ async function startRemoteHost() {
   // Testlauf: nur auf diesem Rechner lauschen (keine Firewall-Abfrage)
   const bind = DEV && process.env.SWAPLINE_TEST_JS ? '127.0.0.1' : '0.0.0.0';
   await remoteHost.start(cfg.port || remote.DEFAULT_PORT, bind);
+  applyRelay();
 }
 
 // --- Gerät ---
@@ -1372,6 +1399,12 @@ function cleanHostStore(r) {
     settings: { model: isModel(r.settings?.model || '') ? r.settings?.model || '' : '', effort: EFFORTS.includes(r.settings?.effort || '') ? r.settings?.effort || '' : '', permissionMode: MODES.includes(r.settings?.permissionMode) ? r.settings.permissionMode : 'default' },
     scope: { limited: !!r.scope?.limited, accountsLimited: !!r.scope?.accountsLimited, newChats: r.scope?.newChats !== false },
     hostName: cleanName(r.hostName, ''), hostVersion: str(r.hostVersion, 40), allowBypass: !!r.allowBypass, canEditProjects: !!r.canEditProjects, canRemoveProjects: !!r.canRemoveProjects,
+    // Erreichbarkeit (Adressen, Vermittler) – nur gültige Werte
+    reach: {
+      addresses: (Array.isArray(r.reach?.addresses) ? r.reach.addresses : []).filter(validAddress).slice(0, 8),
+      relay: r.reach?.relay && validAddress(r.reach.relay.address) && Number.isInteger(r.reach.relay.port) && /^[0-9a-f]{16}$/.test(r.reach.relay.hostId) && /^[0-9a-f]{64}$/.test(r.reach.relay.dialKey)
+        ? { address: r.reach.relay.address, port: r.reach.relay.port, hostId: r.reach.relay.hostId, dialKey: r.reach.relay.dialKey } : null,
+    },
   };
 }
 handle('remote:call', async (_e, hostId, ch, args) => {
@@ -1408,6 +1441,8 @@ function remoteInfo() {
       enabled: !!cfg.enabled, port: cfg.port || remote.DEFAULT_PORT, running: !!remoteHost?.running, listenPort: remoteHost?.port || null,
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
       publicAddress: publicAt ? { address: publicAddr?.address || null, found: !!publicAddr } : null,
+      relay: { enabled: !!cfg.relay?.enabled, address: cfg.relay?.address || '', port: cfg.relay?.port || RELAY_DEFAULT_PORT, hasSecret: !!cfg.relay?.secretEnc,
+        state: relayLink?.state || 'off', detail: relayLink?.detail || '' },
       devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowProjects: !!d.allowProjects, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
     hosts: [
@@ -1423,10 +1458,35 @@ const validPort = p => Number.isInteger(p) && p >= 1024 && p <= 65535;
 const validAddress = a => typeof a === 'string' && a.length <= 253 && !isUnc(a) && (require('node:net').isIP(a) > 0 || /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(a));
 
 handle('remote:info', () => remoteInfo());
+// Vermittler einrichten: Adresse und Port prüfen, Kennwort nur verschlüsselt speichern (leer = bisheriges behalten)
+handle('remote:relaySet', (_e, { enabled, address, port, secret } = {}) => {
+  const bad = () => ({ ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') });
+  if (typeof enabled !== 'boolean') return bad();
+  const addr = typeof address === 'string' ? address.trim() : '';
+  if (addr && !validAddress(addr)) return { ...remoteInfo(), error: tr('Ungültige Adresse', 'Invalid address') };
+  if (port !== undefined && !(Number.isInteger(port) && port >= 1 && port <= 65535)) return bad();
+  if (secret !== undefined && secret !== '' && (typeof secret !== 'string' || secret.length < 32 || secret.length > 200 || !/^[\x21-\x7e]+$/.test(secret)))
+    return { ...remoteInfo(), error: tr('Kennwort: mindestens 32 Zeichen, ohne Leerzeichen', 'Password: at least 32 characters, no spaces') };
+  updateStore(s => {
+    const h = (s.remoteHost ||= { enabled: false, port: remote.DEFAULT_PORT, devices: [] });
+    const r = (h.relay ||= {});
+    r.enabled = enabled;
+    r.address = addr;
+    r.port = port || r.port || RELAY_DEFAULT_PORT;
+    if (secret) r.secretEnc = encryptSecret(secret);
+    r.hostId ||= crypto.randomBytes(8).toString('hex');
+    r.dialKeyEnc ||= encryptSecret(crypto.randomBytes(32).toString('hex'));
+  });
+  if (enabled && !relayCfg()) { applyRelay(); return { ...remoteInfo(), error: tr('Adresse und Kennwort des Vermittlers angeben', 'Enter the relay address and password') }; }
+  applyRelay();
+  pushRemoteStatus();
+  return remoteInfo();
+});
 handle('remote:hostSet', async (_e, { enabled, port } = {}) => {
   if (typeof enabled !== 'boolean' || (port !== undefined && !validPort(port))) return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') };
   updateStore(s => { s.remoteHost = { ...(s.remoteHost || { devices: [] }), enabled, port: port || s.remoteHost?.port || remote.DEFAULT_PORT }; });
   remoteHost?.stop();
+  relayLink?.use(null);
   let error;
   if (enabled) { try { await startRemoteHost(); } catch (err) { error = err.code === 'EADDRINUSE' ? tr('Port ist belegt', 'Port is in use') : err.message; logError('Fernzugriff: ' + err.message); } }
   pushRemoteStatus();
@@ -1453,7 +1513,9 @@ function refreshPublic(force) {
 }
 function pairQr(code) {
   const addrs = reachAddresses();
-  const url = 'swapline://pair?v=1&a=' + addrs.join(',') + '&p=' + remoteHost.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(os.hostname().slice(0, 40));
+  const rr = relayReach(); // Vermittler: Koppeln auch von unterwegs
+  const url = 'swapline://pair?v=1&a=' + addrs.join(',') + '&p=' + remoteHost.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(os.hostname().slice(0, 40))
+    + (rr ? '&r=' + encodeURIComponent(rr.address + ':' + rr.port) + '&h=' + rr.hostId + '&k=' + rr.dialKey : '');
   const q = require('qrcode-generator')(0, 'M');
   q.addData(url);
   q.make();

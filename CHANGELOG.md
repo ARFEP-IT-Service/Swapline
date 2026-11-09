@@ -7,6 +7,14 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.11.0] – 2026-11-09
+
+- Neu: **Vermittler (Relay)** – der Haupt-PC ist von unterwegs ohne Portfreigabe und ohne VPN erreichbar. PC und Gerät
+  verbinden sich nach außen zu einem eigenen Server mit dem Swapline-Vermittler (`relay/`, mit Installationsskript für
+  Windows Server); die Verbindung bleibt Ende-zu-Ende verschlüsselt, der Vermittler sieht keine Inhalte. Einrichten unter
+  Fernzugriff → „Über Vermittler erreichbar“; gekoppelte Geräte bekommen die Daten automatisch, neue über den QR-Code.
+- Fernzugriff: Fehlversuche über den Vermittler sperren nur das betreffende Gerät, nicht alle Verbindungen über den Server.
+
 ## [0.10.0] – 2026-11-09
 
 - Fernzugriff: Geräte können **Dateien schicken** (z. B. Dokumente aus der Android-App). Sie landen in einem eigenen

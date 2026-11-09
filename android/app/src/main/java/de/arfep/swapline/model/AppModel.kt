@@ -123,18 +123,35 @@ class AppModel(context: Context, private val notifier: Notifier) {
     fun connect(h: HostState) {
         val key = runCatching { Vault.decrypt(h.record.keyEnc) }.getOrNull()
         if (key == null) { h.error = "key"; return }
-        h.link.use(Target(h.record.address, h.record.port, h.record.deviceId, key))
+        h.link.use(Target(h.record.address, h.record.port, h.record.deviceId, key, relayOf(h.record)))
     }
 
+    private fun relayOf(r: HostRecord): de.arfep.swapline.net.RelayRoute? {
+        val parts = r.relay.split('|')
+        if (parts.size != 3 || r.relayKeyEnc.isEmpty()) return null
+        val k = runCatching { String(Vault.decrypt(r.relayKeyEnc), Charsets.UTF_8) }.getOrNull() ?: return null
+        return de.arfep.swapline.net.RelayRoute(parts[0], parts[1].toIntOrNull() ?: return null, parts[2], k)
+    }
+    private fun withRelay(r: HostRecord, relay: de.arfep.swapline.net.RelayRoute?): HostRecord =
+        if (relay == null) r.copy(relay = "", relayKeyEnc = "")
+        else r.copy(relay = "${relay.address}|${relay.port}|${relay.hostId}", relayKeyEnc = Vault.encrypt(relay.dialKey.toByteArray(Charsets.UTF_8)))
+
     // Mehrere Adressen (aus dem QR-Code): der Reihe nach probieren; nicht erreichbare kosten den Einmal-Code nicht
-    suspend fun pairHost(addresses: List<String>, port: Int, code: String): HostState {
+    suspend fun pairHost(addresses: List<String>, port: Int, code: String, relay: de.arfep.swapline.net.RelayRoute? = null): HostState {
         var last: Exception? = null
         for (address in addresses.map { it.trim() }.filter { it.isNotEmpty() }) {
             val p = try { pair(address, port, code, deviceName, if (addresses.size > 1) 4_000 else 15_000) }
             catch (e: LinkException) { if (e.reason == "unreachable") { last = e; continue } else throw e }
             // alle Adressen merken (die erreichbare zuerst) – unterwegs z. B. die öffentliche IP
             val all = (listOf(address) + addresses.map { it.trim() }.filter { it.isNotEmpty() && it != address }).take(8)
-            val rec = HostRecord(newId(8), p.hostName.ifBlank { address }, all.joinToString(","), port, p.deviceId, Vault.encrypt(p.key), p.hostName)
+            val rec = withRelay(HostRecord(newId(8), p.hostName.ifBlank { address }, all.joinToString(","), port, p.deviceId, Vault.encrypt(p.key), p.hostName), relay)
+            p.key.fill(0)
+            return addHost(rec)
+        }
+        // von unterwegs: über den Vermittler koppeln
+        if (relay != null) {
+            val p = pair("", port, code, deviceName, relay = relay)
+            val rec = withRelay(HostRecord(newId(8), p.hostName.ifBlank { relay.address }, addresses.map { it.trim() }.filter { it.isNotEmpty() }.take(8).joinToString(","), port, p.deviceId, Vault.encrypt(p.key), p.hostName), relay)
             p.key.fill(0)
             return addHost(rec)
         }
@@ -217,6 +234,9 @@ class AppModel(context: Context, private val notifier: Notifier) {
         val st = runCatching { Parse.store(h.link.call("store:get")) }.getOrNull() ?: return@launch
         h.store = st
         // Adressen vom Haupt-PC (Heimnetz, öffentliche IP …) übernehmen; selbst eingetragene bleiben dahinter erhalten
+        // Vermittler vom PC übernehmen (eingerichtet, geändert oder entfernt)
+        val curRelay = relayOf(h.record)
+        if (curRelay != st.relay) { h.record = withRelay(h.record, st.relay); saveHosts() }
         if (st.reach.isNotEmpty()) {
             val own = h.record.address.split(',').map { it.trim() }.filter { it.isNotEmpty() }
             val merged = (st.reach + own.filter { it !in st.reach }).distinct().take(8).joinToString(",")

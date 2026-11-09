@@ -17,6 +17,7 @@ läuft **kein** Claude Code und es gibt keine Claude-Anmeldung – die App ist e
 - **Benachrichtigung** bei fertiger Antwort oder Rückfrage – mit „Im Hintergrund verbunden bleiben“ auch bei geschlossener App
   (dauerhafte, stille Benachrichtigung; Lebenszeichen erkennen abgerissene Verbindungen, Netzwechsel verbindet sofort neu).
 - **Einstellungen** (Zahnrad): Diktieren, Hintergrund-Verbindung, Akku-Optimierung, Berechtigungen, Haupt-PCs, Updates, Lizenzen.
+- **Über Vermittler** (eigener Server, siehe [relay/](../relay/README.md)): von unterwegs ohne Portfreigabe und ohne VPN; Ende-zu-Ende verschlüsselt.
 - **Mehrere Adressen je Haupt-PC** (Heimnetz, Tailscale, öffentliche Adresse) – die App probiert sie der Reihe nach und übernimmt neue Adressen vom Haupt-PC.
 - **Update-Hinweis**, wenn in den Releases eine neuere Version liegt (Download über den Browser, Android fragt vor der Installation).
 - Deutsch und Englisch nach Systemsprache, hell/dunkel nach System.

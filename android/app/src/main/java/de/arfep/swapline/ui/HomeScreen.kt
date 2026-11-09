@@ -73,7 +73,7 @@ fun StatusDot(state: LinkState, busy: Boolean = false) {
 }
 
 fun stateText(h: HostState) = when (h.state) {
-    LinkState.CONNECTED -> tr("verbunden", "connected")
+    LinkState.CONNECTED -> if (h.link.via == "relay") tr("verbunden über Vermittler", "connected via relay") else tr("verbunden", "connected")
     LinkState.CONNECTING -> tr("verbinde …", "connecting …")
     LinkState.RECONNECTING -> tr("nicht erreichbar – neuer Versuch …", "unreachable – retrying …")
     LinkState.OFF -> tr("getrennt", "disconnected")

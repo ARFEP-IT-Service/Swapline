@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
             })
             Screen.Scan -> QrScanner(onBack = ::pop) { text ->
                 val link = PairLinks.parse(text)
-                stack = stack.dropLast(1).filter { it !is Screen.Pair } + Screen.Pair(link?.let { PairData(it.addresses, it.port, it.code, it.name) })
+                stack = stack.dropLast(1).filter { it !is Screen.Pair } + Screen.Pair(link?.let { PairData(it.addresses, it.port, it.code, it.name, it.relay) })
                 if (link == null) Toast.makeText(this@MainActivity, tr("Kein Swapline-Kopplungscode", "Not a Swapline pairing code"), Toast.LENGTH_LONG).show()
             }
             is Screen.ChatView -> {

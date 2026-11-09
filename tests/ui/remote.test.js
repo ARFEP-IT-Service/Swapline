@@ -139,6 +139,18 @@
   check('Offene Rückfragen eines beigetretenen Chats abrufbar (nach Unterbrechung)', pend && pend.running === false && Array.isArray(pend.requests), JSON.stringify(pend));
   check('Offene Rückfragen: fremder Chat liefert nichts', JSON.stringify(await R('session:pending', { tabId: 'fremd0001' })) === JSON.stringify({ running: false, requests: [] }));
   check('Offene Rückfragen: ungültige ID abgelehnt', (await R('session:pending', { tabId: '../x' })) === false);
+  // Vermittler (ohne Portfreigabe): Eingaben geprüft, Kennwort nie im Klartext, Geräte und QR-Code bekommen die Daten
+  check('Vermittler: ungültige Adresse abgelehnt', !!(await api.remote.relaySet({ enabled: true, address: 'bad host/x', port: 47821, secret: 'a'.repeat(40) })).error);
+  check('Vermittler: zu kurzes Kennwort abgelehnt', !!(await api.remote.relaySet({ enabled: true, address: '127.0.0.1', port: 47821, secret: 'kurz' })).error);
+  let rl = await api.remote.relaySet({ enabled: true, address: '127.0.0.1', port: 1, secret: 's'.repeat(40) });
+  check('Vermittler: eingerichtet, Kennwort nicht in der Oberfläche', !rl.error && rl.host.relay.enabled && rl.host.relay.hasSecret && !JSON.stringify(rl).includes('s'.repeat(40)), JSON.stringify(rl.host.relay));
+  const rr = (await R('store:get'))?.reach?.relay;
+  check('Vermittler: gekoppelte Geräte bekommen Adresse, Kennung und dialKey (nicht das Kennwort)', rr && rr.address === '127.0.0.1' && /^[0-9a-f]{16}$/.test(rr.hostId) && /^[0-9a-f]{64}$/.test(rr.dialKey) && !JSON.stringify(rr).includes('s'.repeat(40)), JSON.stringify(rr));
+  const qr = atob(String((await api.remote.pairStart()).qr || '').replace('data:image/svg+xml;base64,', ''));
+  check('Vermittler: QR-Code wird erzeugt', qr.startsWith('<svg'));
+  await api.remote.pairCancel();
+  rl = await api.remote.relaySet({ enabled: false, address: '127.0.0.1', port: 1 });
+  check('Vermittler: ausschalten nimmt die Daten aus der Geräte-Antwort', !rl.error && rl.host.relay.state === 'off' && !(await R('store:get'))?.reach?.relay, rl.host.relay.state);
   // Dateien vom Gerät (Dokumente vom Handy): eigener Ordner im Temp-Verzeichnis, nur der Dateiname zählt
   const up = await R('files:upload', { name: '..\\..\\geheim\\bericht.txt', data: btoa('Hallo Datei') });
   check('Datei vom Gerät: nur Dateiname, im Upload-Ordner', !!up?.path && /[\\/]swapline-uploads[\\/][^\\/]+[\\/]bericht\.txt$/.test(up.path) && up.size === 11, JSON.stringify(up));

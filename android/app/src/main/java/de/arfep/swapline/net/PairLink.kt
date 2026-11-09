@@ -6,7 +6,7 @@ package de.arfep.swapline.net
 
 import java.net.URLDecoder
 
-data class PairLink(val addresses: List<String>, val port: Int, val code: String, val name: String)
+data class PairLink(val addresses: List<String>, val port: Int, val code: String, val name: String, val relay: RelayRoute? = null)
 
 object PairLinks {
     private val IPV4 = Regex("^(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}$")
@@ -28,6 +28,14 @@ object PairLinks {
         val port = q["p"]?.toIntOrNull()?.takeIf { it in 1024..65535 } ?: return null
         val code = q["c"]?.uppercase()?.takeIf { CODE.matches(it) } ?: return null
         val name = q["n"].orEmpty().replace(Regex("[^\\p{L}\\p{N} ._-]"), "").take(40)
-        return PairLink(addresses, port, code, name)
+        // Vermittler (optional): r=<Adresse>:<Port>, h=<hostId>, k=<dialKey>
+        val relay = q["r"]?.let { r ->
+            val i = r.lastIndexOf(':')
+            val a = if (i > 0) r.substring(0, i) else null
+            val p = if (i > 0) r.substring(i + 1).toIntOrNull() else null
+            val h = q["h"]; val k = q["k"]
+            if (a != null && validAddress(a) && p != null && p in 1..65535 && h != null && Regex("^[0-9a-f]{16}$").matches(h) && k != null && Regex("^[0-9a-f]{64}$").matches(k)) RelayRoute(a, p, h, k) else null
+        }
+        return PairLink(addresses, port, code, name, relay)
     }
 }

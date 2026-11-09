@@ -146,7 +146,7 @@ fun PairScreen(model: AppModel, initial: PairData?, onBack: () -> Unit, onScan: 
         if (list.isEmpty() || p == null || p !in 1..65535 || code.isBlank()) { error = tr("Bitte Adresse, Port und Code angeben.", "Please enter address, port and code."); return }
         busy = true; error = null
         scope.launch {
-            try { onPaired(model.pairHost(list, p, code).id) }
+            try { onPaired(model.pairHost(list, p, code, initial?.relay).id) }
             catch (e: LinkException) {
                 error = when (e.reason) {
                     "code" -> tr("Der Code ist ungültig.", "The code is invalid.")
@@ -168,6 +168,7 @@ fun PairScreen(model: AppModel, initial: PairData?, onBack: () -> Unit, onScan: 
             if (initial != null) Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(14.dp)) {
                 Text(tr("QR-Code erkannt", "QR code recognized"), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 Text(tr("Haupt-PC: ", "Host PC: ") + initial.name.ifBlank { "?" }, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                if (initial.relay != null) Text(tr("Auch von unterwegs erreichbar (über Vermittler)", "Also reachable on the go (via relay)"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 Text(tr("Nur koppeln, wenn das dein eigener PC ist – dann auf „Koppeln“ tippen und am PC bestätigen.",
                     "Only pair if this is your own PC – then tap “Pair” and confirm on the PC."), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
@@ -198,7 +199,7 @@ fun PairScreen(model: AppModel, initial: PairData?, onBack: () -> Unit, onScan: 
     }
 }
 
-data class PairData(val addresses: List<String>, val port: Int, val code: String, val name: String = "")
+data class PairData(val addresses: List<String>, val port: Int, val code: String, val name: String = "", val relay: de.arfep.swapline.net.RelayRoute? = null)
 
 @Composable
 fun AboutRow(model: AppModel) {

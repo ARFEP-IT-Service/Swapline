@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   remote: {
     info: () => invoke('remote:info'),
+    relaySet: data => invoke('remote:relaySet', data),
     hostSet: data => invoke('remote:hostSet', data),
     pairStart: () => invoke('remote:pairStart'),
     pairCancel: () => invoke('remote:pairCancel'),

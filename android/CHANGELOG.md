@@ -3,6 +3,12 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.5.0] – 2026-11-09
+
+- Neu: **Über Vermittler verbinden** – ist am PC ein Vermittler eingerichtet (Swapline ab 0.11.0), verbindet sich die App
+  von unterwegs darüber, ohne Portfreigabe und ohne VPN. Zu Hause bleibt es die direkte Verbindung. Die Daten kommen
+  automatisch vom PC; Koppeln per QR-Code geht damit auch von unterwegs. Der Status zeigt „verbunden über Vermittler“.
+
 ## [0.4.0] – 2026-11-09
 
 - Neu: **Hintergrund-Aufgaben** wie am PC – Leiste über dem Eingabefeld („1 Hintergrund-Aufgabe läuft“), Liste mit

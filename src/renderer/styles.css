@@ -538,3 +538,4 @@ button.link:hover { color: var(--accent); }
 .pair-qr { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
 .pair-qr img { width: 180px; height: 180px; border-radius: 10px; background: #fff; flex: none; image-rendering: pixelated; }
 .icon-btn.mic svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.relay-box { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }

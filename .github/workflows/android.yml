@@ -10,13 +10,17 @@ on:
     paths:
       - "android/**"
       - "src/remote.js"
+      - "src/relay-link.js"
       - "src/main.js"
+      - "relay/**"
       - ".github/workflows/android.yml"
   pull_request:
     paths:
       - "android/**"
       - "src/remote.js"
+      - "src/relay-link.js"
       - "src/main.js"
+      - "relay/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 

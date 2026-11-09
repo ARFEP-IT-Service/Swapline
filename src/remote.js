@@ -85,6 +85,9 @@ function createHost(ctx) {
   const fails = new Map();   // address -> [Zeitpunkte]
 
   const blocked = addr => (fails.get(addr) || []).filter(t => Date.now() - t < FAIL_WINDOW).length >= FAIL_LIMIT;
+  // Adresse für Sperre und Protokoll: bei Verbindungen über den Vermittler die Adresse des Geräts („relay:…“), sonst die
+  // Gegenstelle – sonst würde ein Fremder über den Vermittler alle Geräte aussperren
+  const addrOf = sock => sock?.swaplineAddr || sock?._parent?.swaplineAddr || sock?.remoteAddress;
   const noteFail = addr => fails.set(addr, [...(fails.get(addr) || []).filter(t => Date.now() - t < FAIL_WINDOW), Date.now()]);
 
   function keyFor(identity) {
@@ -97,7 +100,7 @@ function createHost(ctx) {
 
   function onSecure(socket) {
     const identity = socket.swaplineIdentity;
-    const addr = socket.remoteAddress;
+    const addr = addrOf(socket);
     if (identity === 'pair') return handlePairing(socket, addr);
     const device = ctx.getDevices().find(x => x.id === identity);
     if (!device) return socket.destroy();
@@ -151,10 +154,11 @@ function createHost(ctx) {
           pskCallback: (socket, identity) => { const k = keyFor(identity); if (k) socket.swaplineIdentity = identity; return k; },
           handshakeTimeout: 15000,
         }, onSecure);
-        srv.on('connection', sock => { if (blocked(sock.remoteAddress)) sock.destroy(); });
+        srv.on('connection', sock => { if (blocked(addrOf(sock))) sock.destroy(); });
         srv.on('tlsClientError', (e, sock) => {
-          if (sock?.remoteAddress) noteFail(sock.remoteAddress);
-          ctx.log(`Fernzugriff: Anmeldung abgelehnt (${sock?.remoteAddress || '?'}): ${e.code || e.message}`);
+          const a = addrOf(sock);
+          if (a) noteFail(a);
+          ctx.log(`Fernzugriff: Anmeldung abgelehnt (${a || '?'}): ${e.code || e.message}`);
         });
         srv.once('error', reject);
         srv.listen(port, bind, () => { server = srv; listenPort = srv.address().port; srv.removeListener('error', reject); srv.on('error', e => ctx.log('Fernzugriff: ' + e.message)); resolve(listenPort); });
@@ -173,6 +177,12 @@ function createHost(ctx) {
     },
     cancelPairing() { pairing = null; ctx.onChange(); },
     get pairingExpires() { return pairing && Date.now() < pairing.expires ? pairing.expires : null; },
+    // Verbindung, die der Vermittler (src/relay-link.js) hergestellt hat: wie eine direkte Verbindung annehmen
+    adopt(socket, from) {
+      if (!server) return socket.destroy();
+      socket.swaplineAddr = 'relay:' + (String(from || '').replace(/[^0-9a-fA-F:.]/g, '').slice(0, 45) || '?');
+      server.emit('connection', socket);
+    },
     disconnect(id) { conns.get(id)?.socket.destroy(); conns.delete(id); },
     // Ereignis an ein Gerät (z. B. Ausgabe eines Chats) bzw. an alle verbundenen Geräte
     push(id, kind, data) { conns.get(id)?.write({ t: 'evt', kind, data }); },

@@ -33,6 +33,7 @@ class LinkTest {
         private lateinit var stdin: Writer
         private val lines = LinkedBlockingQueue<JsonObject>()
         private var port = 0
+        private lateinit var relay: RelayRoute
 
         @BeforeClass @JvmStatic fun start() {
             val repo = File(System.getProperty("swapline.repo") ?: "../..")
@@ -42,7 +43,9 @@ class LinkTest {
             Thread {
                 reader.lineSequence().forEach { l -> runCatching { lines.put(json.parseToJsonElement(l).jsonObject) }.onFailure { System.err.println("host: $l") } }
             }.apply { isDaemon = true }.start()
-            port = next().getValue("port").jsonPrimitive.content.toInt()
+            val ready = next()
+            port = ready.getValue("port").jsonPrimitive.content.toInt()
+            relay = RelayRoute("127.0.0.1", ready.getValue("relayPort").jsonPrimitive.content.toInt(), ready.getValue("hostId").jsonPrimitive.content, ready.getValue("dialKey").jsonPrimitive.content)
         }
 
         @AfterClass @JvmStatic fun stop() { runCatching { stdin.close() }; proc.waitFor(5, TimeUnit.SECONDS); proc.destroy() }
@@ -98,6 +101,29 @@ class LinkTest {
         try { link.call("echo"); fail("offline erwartet") } catch (e: LinkException) { assertEquals("offline", e.reason) }
         link.close()
         scope.cancel()
+    }
+
+    @Test fun pairAndWorkOnlyViaRelay() = runBlocking {
+        // von unterwegs: Haupt-PC direkt nicht erreichbar, nur über den Vermittler
+        val code = code()
+        val p = pair("swapline-test.invalid", port, code, "Unterwegs", relay = relay)
+        assertEquals("Unterwegs", next().getValue("confirm").jsonPrimitive.content)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val link = HostLink(scope, { _, _ -> }, { _, _ -> })
+        link.use(Target("swapline-test.invalid", port, p.deviceId, p.key, relay))
+        withTimeout(20_000) { while (link.state != LinkState.CONNECTED) delay(20) }
+        assertEquals("relay", link.via)
+        assertEquals("Unterwegs", link.call("echo").jsonObject.getValue("device").jsonPrimitive.content)
+        // große Antwort auch durch den Vermittler
+        assertEquals(1_000_000, link.call("big", JsonPrimitive(1_000_000)).jsonPrimitive.content.length)
+        link.close()
+        scope.cancel()
+    }
+
+    @Test fun relayRejectsWrongDialKey() = runBlocking {
+        val code = code()
+        try { pair("swapline-test.invalid", port, code, "Fremd", relay = relay.copy(dialKey = "0".repeat(64))); fail("abgelehnt erwartet") }
+        catch (e: LinkException) { assertEquals("relay", e.reason) }
     }
 
     @Test fun imageMessagesPassHostValidation() = runBlocking {
@@ -201,6 +227,16 @@ class PairLinkTest {
         assertEquals("0123456789ABCDEFGHJKMNPQRS", l.code)
         assertEquals(16, PairCode.decode(l.code)!!.size)
         assertEquals("DESKTOP-1", l.name)
+    }
+
+    @Test fun parsesRelayFromQr() {
+        val k = "ab".repeat(32)
+        val l = PairLinks.parse("swapline://pair?v=1&a=a%20b&p=47820&c=0123456789ABCDEFGHJKMNPQRS&n=PC&r=relay.example.com%3A47821&h=0123456789abcdef&k=$k")
+        assertNull(l) // ungültige Heimnetz-Adresse
+        val ok = PairLinks.parse("swapline://pair?v=1&a=172.16.0.20&p=47820&c=0123456789ABCDEFGHJKMNPQRS&n=PC&r=relay.example.com%3A47821&h=0123456789abcdef&k=$k")!!
+        assertEquals(RelayRoute("relay.example.com", 47821, "0123456789abcdef", k), ok.relay)
+        // kaputte Vermittler-Angaben: Kopplung bleibt möglich, nur ohne Vermittler
+        assertNull(PairLinks.parse("swapline://pair?v=1&a=172.16.0.20&p=47820&c=0123456789ABCDEFGHJKMNPQRS&r=x%3A99999&h=zz&k=1")!!.relay)
     }
 
     @Test fun rejectsForeignOrBrokenLinks() {

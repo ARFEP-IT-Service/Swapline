@@ -99,7 +99,7 @@ private class PskClient(identity: ByteArray, key: ByteArray) :
     override fun getSupportedCipherSuites(): IntArray = intArrayOf(CipherSuite.TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256)
 }
 
-private class Channel(val socket: Socket, val input: InputStream, val output: OutputStream) {
+private class Channel(val socket: Socket, val input: InputStream, val output: OutputStream, val via: String = "") {
     private val lock = Any()
     private val buf = ByteArrayOutputStream()
     private val chunk = ByteArray(16 * 1024)
@@ -146,18 +146,59 @@ private class Channel(val socket: Socket, val input: InputStream, val output: Ou
     fun close() { runCatching { socket.close() }; writer.shutdown() }
 }
 
-private fun open(address: String, port: Int, identity: ByteArray, key: ByteArray, connectTimeout: Int = CONNECT_TIMEOUT): Channel {
+// ---------- Weg über den Swapline-Vermittler (relay/relay.js) ----------
+// Anmeldung beim Vermittler mit HMAC(dialKey) über dessen Zufallszahl; danach läuft auf derselben Verbindung die
+// TLS-PSK-Verbindung zum Haupt-PC (Ende-zu-Ende – der Vermittler sieht nur verschlüsselte Bytes).
+data class RelayRoute(val address: String, val port: Int, val hostId: String, val dialKey: String)
+
+private fun readRawLine(input: InputStream, max: Int = 4096): String {
+    val out = ByteArrayOutputStream()
+    while (true) {
+        val b = input.read()
+        if (b < 0) throw LinkException("unreachable", "Vermittler: Verbindung beendet")
+        if (b == '\n'.code) break
+        out.write(b)
+        if (out.size() > max) throw LinkException("relay", "Vermittler: ungültige Antwort")
+    }
+    return out.toString("UTF-8")
+}
+
+fun hmacHex(key: String, text: String): String {
+    val m = javax.crypto.Mac.getInstance("HmacSHA256")
+    m.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+    return m.doFinal(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+}
+
+private fun relayHandshake(socket: Socket, r: RelayRoute) {
+    socket.soTimeout = CONNECT_TIMEOUT
+    val input = socket.getInputStream()
+    val out = socket.getOutputStream()
+    val hello = runCatching { json.parseToJsonElement(readRawLine(input)) as JsonObject }.getOrNull()
+    val nonce = hello?.str("nonce")
+    if (hello?.str("t") != "hello" || nonce == null) throw LinkException("relay", "kein Swapline-Vermittler")
+    val dial = buildJsonObject { put("t", "dial"); put("hostId", r.hostId); put("mac", hmacHex(r.dialKey, "dial|$nonce|${r.hostId}")) }
+    out.write((dial.toString() + "\n").toByteArray(Charsets.UTF_8)); out.flush()
+    val res = runCatching { json.parseToJsonElement(readRawLine(input)) as JsonObject }.getOrNull()
+    when {
+        res?.str("t") == "ok" -> return
+        res?.str("error") == "offline" -> throw LinkException("unreachable", "Haupt-PC ist nicht beim Vermittler angemeldet")
+        else -> throw LinkException("relay", "Vermittler: " + (res?.str("error") ?: "abgelehnt"))
+    }
+}
+
+private fun open(address: String, port: Int, identity: ByteArray, key: ByteArray, connectTimeout: Int = CONNECT_TIMEOUT, relay: RelayRoute? = null): Channel {
     val socket = Socket()
     try {
-        socket.connect(InetSocketAddress(address, port), connectTimeout)
+        socket.connect(InetSocketAddress(relay?.address ?: address, relay?.port ?: port), connectTimeout)
         socket.soTimeout = 0
         socket.keepAlive = true
         socket.tcpNoDelay = true
+        if (relay != null) relayHandshake(socket, relay)
         val proto = TlsClientProtocol(socket.getInputStream(), socket.getOutputStream())
         socket.soTimeout = CONNECT_TIMEOUT
         proto.connect(PskClient(identity, key))
         socket.soTimeout = 0
-        return Channel(socket, proto.inputStream, proto.outputStream)
+        return Channel(socket, proto.inputStream, proto.outputStream, if (relay != null) "relay" else address)
     } catch (e: Exception) {
         runCatching { socket.close() }
         throw e
@@ -167,11 +208,11 @@ private fun open(address: String, port: Int, identity: ByteArray, key: ByteArray
 // ---------- Koppeln ----------
 data class Paired(val deviceId: String, val key: ByteArray, val hostName: String)
 
-suspend fun pair(address: String, port: Int, code: String, name: String, connectTimeout: Int = CONNECT_TIMEOUT): Paired = withContext(Dispatchers.IO) {
+suspend fun pair(address: String, port: Int, code: String, name: String, connectTimeout: Int = CONNECT_TIMEOUT, relay: RelayRoute? = null): Paired = withContext(Dispatchers.IO) {
     val secret = PairCode.decode(code)
     if (secret == null || secret.size != 16) throw LinkException("code", "Ungültiger Code")
     withTimeout(PAIR_TIMEOUT) {
-        val ch = try { open(address, port, "pair".toByteArray(), PairCode.key(secret), connectTimeout) }
+        val ch = try { open(address, port, "pair".toByteArray(), PairCode.key(secret), connectTimeout, relay) }
         catch (e: java.net.SocketTimeoutException) { throw LinkException("unreachable", e.message ?: "timeout") }
         catch (e: java.net.ConnectException) { throw LinkException("unreachable", e.message ?: "refused") }
         catch (e: java.net.NoRouteToHostException) { throw LinkException("unreachable", e.message ?: "no route") }
@@ -205,7 +246,7 @@ suspend fun pair(address: String, port: Int, code: String, name: String, connect
 
 // ---------- Verbindung zu einem gekoppelten Haupt-PC ----------
 // address: eine oder mehrere Adressen, durch Komma getrennt (z. B. Heimnetz, dann öffentliche IP) – der Reihe nach probiert
-data class Target(val address: String, val port: Int, val deviceId: String, val key: ByteArray) {
+data class Target(val address: String, val port: Int, val deviceId: String, val key: ByteArray, val relay: RelayRoute? = null) {
     val addresses get() = address.split(',').map { it.trim() }.filter { it.isNotEmpty() }
 }
 
@@ -213,12 +254,19 @@ private fun unreachable(e: Exception) = e is java.net.SocketTimeoutException || 
     e is java.net.NoRouteToHostException || e is java.net.UnknownHostException
 
 // Erste erreichbare Adresse; nicht erreichbare kosten nur ein kurzes Warten
+// Direkte Adressen zuerst (z. B. Heimnetz), dann der Vermittler (von unterwegs ohne Portfreigabe)
 private fun openAny(t: Target): Channel {
-    val list = t.addresses.ifEmpty { throw LinkException("unreachable", "keine Adresse") }
+    val list = t.addresses
+    if (list.isEmpty() && t.relay == null) throw LinkException("unreachable", "keine Adresse")
     var last: Exception? = null
+    val routes = list.size + (if (t.relay != null) 1 else 0)
     for (a in list) {
-        try { return open(a, t.port, t.deviceId.toByteArray(), t.key, if (list.size > 1) 4_000 else CONNECT_TIMEOUT) }
-        catch (e: Exception) { if (unreachable(e)) last = e else throw e }
+        try { return open(a, t.port, t.deviceId.toByteArray(), t.key, if (routes > 1) 4_000 else CONNECT_TIMEOUT) }
+        catch (e: Exception) { if (unreachable(e) || (e is LinkException && e.reason == "unreachable")) last = e else throw e }
+    }
+    t.relay?.let { r ->
+        try { return open("", 0, t.deviceId.toByteArray(), t.key, CONNECT_TIMEOUT, r) }
+        catch (e: Exception) { if (unreachable(e) || (e is LinkException && e.reason == "unreachable")) last = e else throw e }
     }
     throw last!!
 }
@@ -233,6 +281,9 @@ class HostLink(
     private val heartbeatTimeout: Long = HEARTBEAT_TIMEOUT,
 ) {
     @Volatile var state = LinkState.OFF
+        private set
+    // Weg der aktuellen Verbindung: Adresse oder „relay“ (Vermittler)
+    @Volatile var via = ""
         private set
     @Volatile private var target: Target? = null
     @Volatile private var channel: Channel? = null
@@ -264,6 +315,7 @@ class HostLink(
                 val ch = openAny(t)
                 if (target !== t) { ch.close(); return }
                 mine = ch
+                via = ch.via
                 channel = ch
                 backoff = 2_000L
                 setState(LinkState.CONNECTED)

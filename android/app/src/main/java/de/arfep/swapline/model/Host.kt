@@ -29,15 +29,17 @@ data class HostRecord(
     val keyEnc: String,      // Geräteschlüssel, mit dem Android Keystore verschlüsselt
     val hostName: String,
     val color: String = "#1581FF",
+    val relay: String = "",        // Vermittler: Adresse|Port|hostId (leer = keiner)
+    val relayKeyEnc: String = "",  // dialKey, mit dem Android Keystore verschlüsselt
 ) {
     fun toJson() = buildJsonObject {
         put("id", id); put("name", name); put("address", address); put("port", port)
-        put("deviceId", deviceId); put("keyEnc", keyEnc); put("hostName", hostName); put("color", color)
+        put("deviceId", deviceId); put("keyEnc", keyEnc); put("hostName", hostName); put("color", color); put("relay", relay); put("relayKeyEnc", relayKeyEnc)
     }
 
     companion object {
         fun from(o: JsonObject): HostRecord? = runCatching {
-            HostRecord(o.str("id")!!, o.str("name")!!, o.str("address")!!, o.getValue("port").jsonPrimitive.int, o.str("deviceId")!!, o.str("keyEnc")!!, o.str("hostName").orEmpty(), o.str("color") ?: "#1581FF")
+            HostRecord(o.str("id")!!, o.str("name")!!, o.str("address")!!, o.getValue("port").jsonPrimitive.int, o.str("deviceId")!!, o.str("keyEnc")!!, o.str("hostName").orEmpty(), o.str("color") ?: "#1581FF", o.str("relay").orEmpty(), o.str("relayKeyEnc").orEmpty())
         }.getOrNull()
     }
 }
@@ -63,6 +65,7 @@ data class HostStore(
     val allowBypass: Boolean,
     val newChats: Boolean,
     val reach: List<String> = emptyList(),   // Adressen, unter denen der Haupt-PC erreichbar ist (geprüft)
+    val relay: de.arfep.swapline.net.RelayRoute? = null, // Vermittler (falls am PC eingerichtet)
 )
 
 private fun JsonObject.s(k: String, max: Int = 500) = (str(k) ?: "").take(max)
@@ -92,6 +95,11 @@ object Parse {
             newChats = (o["scope"] as? JsonObject)?.let { (it["newChats"] as? JsonPrimitive)?.booleanOrNull } ?: true,
             reach = ((o["reach"] as? JsonObject)?.get("addresses") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
                 ?.filter { de.arfep.swapline.net.PairLinks.validAddress(it) }?.take(6).orEmpty(),
+            relay = ((o["reach"] as? JsonObject)?.get("relay") as? JsonObject)?.let { r ->
+                val a = r.str("address"); val p = (r["port"] as? JsonPrimitive)?.content?.toIntOrNull(); val h = r.str("hostId"); val k = r.str("dialKey")
+                if (a != null && de.arfep.swapline.net.PairLinks.validAddress(a) && p != null && p in 1..65535 && h != null && Regex("^[0-9a-f]{16}$").matches(h) && k != null && Regex("^[0-9a-f]{64}$").matches(k))
+                    de.arfep.swapline.net.RelayRoute(a, p, h, k) else null
+            },
         )
     }
 

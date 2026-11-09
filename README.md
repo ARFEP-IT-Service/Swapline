@@ -67,6 +67,8 @@ Ein PC mit Swapline kann **Haupt-PC** sein: Andere eigene Geräte mit Swapline v
 
 **Übers Internet:** am einfachsten mit [Tailscale](https://tailscale.com) (beide PCs im selben Tailnet, Adresse 100.x.x.x) – der Haupt-PC bleibt fürs Internet unsichtbar. Alternativ am Router den Port per Weiterleitung auf den Haupt-PC lenken (z. B. FritzBox: *Internet → Freigaben → Portfreigaben*, TCP 47820) und die öffentliche Adresse bzw. einen DynDNS-Namen verwenden; der Port ist dann aus dem ganzen Internet erreichbar und nur durch Verschlüsselung und Kopplung geschützt. Swapline zeigt die öffentliche Adresse unter „Erreichbar unter“ an (vom Router per UPnP abgefragt) und gibt sie im QR-Code mit; Geräte probieren die Adressen der Reihe nach.
 
+**Ohne Portfreigabe – Vermittler:** Mit einem eigenen Server (Windows oder Linux) als Vermittler ist der Haupt-PC von unterwegs ohne Portfreigabe und ohne VPN erreichbar; die Verbindung bleibt Ende-zu-Ende verschlüsselt. Einrichtung siehe [relay/README.md](relay/README.md), danach in Swapline unter Fernzugriff → **Über Vermittler erreichbar** eintragen.
+
 **Dateien von Geräten:** Ein Gerät (z. B. die Android-App) kann Dokumente schicken. Sie landen auf dem Haupt-PC in einem eigenen Ordner je Datei unter `%TEMP%\swapline-uploads` (höchstens 25 MB, nach 7 Tagen gelöscht); Claude bekommt den Pfad.
 
 **Handy (Android):** Die App *Swapline für Android* (Ordner [android/](android/), APK in den Releases unter `android-v…`) koppelt sich per QR-Code wie ein weiteres Gerät – Claude läuft auch dann nur auf dem Haupt-PC.

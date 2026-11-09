@@ -2331,6 +2331,27 @@ async function openShareChat(t) {
   modal('remote', _('Chat „{name}“ freigeben', { name: t.title || _('Neuer Chat') }), el('p', { class: 'hint' }, _('Gekoppelte Geräte, die nur ausgewählte Inhalte sehen, können diesen Chat dann fortsetzen.')), box);
   draw();
 }
+// Vermittler: Erreichbarkeit von unterwegs ohne Portfreigabe (eigener Server mit relay/relay.js)
+function relaySection(h) {
+  const r = h.relay || {};
+  const on = el('input', { type: 'checkbox', checked: !!r.enabled });
+  const addr = el('input', { type: 'text', placeholder: _('Adresse des Vermittlers (IP oder Name)'), value: r.address || '', style: 'flex:1' });
+  const port = el('input', { type: 'number', min: '1', max: '65535', value: String(r.port || 47821), style: 'width:100px' });
+  const secret = el('input', { type: 'password', placeholder: r.hasSecret ? _('Kennwort (leer lassen = unverändert)') : _('Kennwort des Vermittlers'), style: 'flex:1', autocomplete: 'off' });
+  const state = r.state === 'connected' ? _('verbunden') : r.state === 'connecting' ? _('verbinde …') : r.state === 'error' ? (r.detail || _('Fehler')) : _('aus');
+  const save = async () => {
+    remoteState = await api.remote.relaySet({ enabled: on.checked, address: addr.value, port: Number(port.value), ...(secret.value ? { secret: secret.value } : {}) });
+    secret.value = '';
+    if (remoteState.error) toast(remoteState.error);
+    drawRemote();
+  };
+  on.onchange = save;
+  return el('div', { class: 'relay-box' },
+    el('div', { class: 'row' }, el('label', { class: 'row' }, on, _('Über Vermittler erreichbar (ohne Portfreigabe)')),
+      el('span', { class: 'hint', style: r.state === 'error' ? 'color:var(--danger)' : '' }, r.enabled ? state : '')),
+    el('p', { class: 'hint' }, _('Eigener Server mit dem Swapline-Vermittler (Ordner relay/ im Quellcode). Die Verbindung bleibt Ende-zu-Ende verschlüsselt; der Vermittler sieht keine Inhalte.')),
+    el('div', { class: 'row' }, addr, port), el('div', { class: 'row', style: 'margin-top:6px' }, secret, el('button', { class: 'ghost', onclick: save }, _('Speichern'))));
+}
 function drawRemote() {
   const box = $('#remote-body'); if (!box || !remoteState) return;
   const r = remoteState, h = r.host;
@@ -2352,6 +2373,7 @@ function drawRemote() {
       ? _('Internet: {ip} – von unterwegs nur mit Portfreigabe {port} (TCP) am Router auf diesen PC.', { ip: h.publicAddress.address, port: h.listenPort })
       : h.publicAddress.found ? _('Internet: Der Anschluss hat keine eigene öffentliche IPv4-Adresse (z. B. DS-Lite) – von unterwegs nur per VPN (z. B. Tailscale).')
         : _('Internet: Öffentliche Adresse nicht ermittelt (Router ohne UPnP-Statusinformationen).')) : null,
+    h.running ? relaySection(h) : null,
     h.running ? el('p', { class: 'hint' }, _('Übers Internet: am besten mit Tailscale (beide PCs im selben Tailnet, Adresse 100.x.x.x). Alternativ am Router den Port weiterleiten und die öffentliche Adresse oder einen DynDNS-Namen verwenden.')) : null,
     h.running ? (pairCode && left > 0
       ? el('div', {}, el('p', { class: 'hint' }, _('Auf dem anderen Gerät unter „Mit einem Haupt-PC verbinden“ eingeben (noch {s} s gültig, nur einmal):', { s: left })),

@@ -50,8 +50,19 @@ const host = remote.createHost({
   onChange: () => {},
 });
 
-host.start(0, '127.0.0.1').then(port => {
-  out({ ready: true, port });
+// Vermittler (relay/relay.js) mit Anmeldung dieses Hosts – Geräte können auch nur darüber kommen
+const { createRelay } = require(path.join(__dirname, '..', '..', 'relay', 'relay.js'));
+const { createRelayLink } = require(path.join(__dirname, '..', '..', 'src', 'relay-link.js'));
+const crypto = require('node:crypto');
+const relaySecret = crypto.randomBytes(24).toString('hex'), hostId = crypto.randomBytes(8).toString('hex'), dialKey = crypto.randomBytes(32).toString('hex');
+const relay = createRelay({ secret: relaySecret });
+
+host.start(0, '127.0.0.1').then(async port => {
+  const relayPort = await relay.listen(0, '127.0.0.1');
+  const link = createRelayLink({ onSocket: (s, from) => host.adopt(s, from) });
+  link.use({ address: '127.0.0.1', port: relayPort, secret: relaySecret, hostId, dialKey });
+  while (link.state !== 'connected') await new Promise(r => setTimeout(r, 20));
+  out({ ready: true, port, relayPort, hostId, dialKey });
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const [cmd, arg] = line.trim().split(/\s+/);
     if (cmd === 'pair') out({ code: host.startPairing().code, port });
