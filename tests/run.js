@@ -83,6 +83,17 @@ if (!filter || 'i18n'.includes(filter)) { // npm test -- i18n: nur diese Prüfun
   }
 }
 
+if (!filter || 'upnp'.includes(filter)) { // öffentliche Adresse per UPnP (nachgebauter Router, ohne Netz)
+  console.log('\nupnp');
+  let results;
+  try { results = JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'upnp-check.js')], { encoding: 'utf8', timeout: 30000 }).stdout); }
+  catch (e) { results = [{ name: 'UPnP prüfen', ok: false, detail: e.message }]; }
+  for (const r of results) {
+    if (r.ok) passed++; else failed++;
+    console.log(`  ${r.ok ? '✓' : '✕'} ${r.name}${r.ok ? '' : '\n      ' + r.detail}`);
+  }
+}
+
 for (const file of files) {
   const name = path.basename(file, '.test.js');
   const profile = `ci-${name}`;

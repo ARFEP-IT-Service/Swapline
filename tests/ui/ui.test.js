@@ -3,6 +3,10 @@
   const input = $('#input');
   const t = makeTab({ title: 'Testchat' }); tabs.push(t); await openTab(t.id);
   check('Chat öffnet sich', $('#ch-title').textContent === 'Testchat' && !$('#chat-view').hidden);
+  input.blur();
+  $('#btn-mic').click();
+  await new Promise(r => setTimeout(r, 50));
+  check('Diktieren: Mikrofon-Knopf setzt den Fokus ins Eingabefeld', document.activeElement === input && (await api.dictate()) === true);
 
   // Nachrichten und Kosten
   t.items.push({ kind: 'me', text: 'Frage', time: Date.now() }, { kind: 'ai', text: '## Antwort\n- **fett**\n\n```js\nx()\n```', time: Date.now() });

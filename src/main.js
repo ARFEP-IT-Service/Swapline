@@ -960,6 +960,22 @@ handle('shell:openPath', (_e, p) => {
   return true;
 });
 
+// Diktieren: startet die Windows-Spracheingabe (Windows + H) im fokussierten Eingabefeld von Swapline.
+// Fester Befehl ohne Eingaben von außen; drückt nur die Tastenkombination, liest und speichert nichts.
+const DICTATE_PS = '$s=\'using System;using System.Runtime.InteropServices;public static class K{[DllImport("user32.dll")]public static extern void keybd_event(byte v,byte s,uint f,UIntPtr e);}\';'
+  + 'Add-Type -TypeDefinition $s;$z=[UIntPtr]::Zero;[K]::keybd_event(0x5B,0,0,$z);[K]::keybd_event(0x48,0,0,$z);[K]::keybd_event(0x48,0,2,$z);[K]::keybd_event(0x5B,0,2,$z)';
+handle('dictation:start', () => new Promise(resolve => {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return resolve(false);
+  if (DEV && process.env.SWAPLINE_TEST_JS) return resolve(true); // Testlauf: keine Tasten drücken
+  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  let p;
+  try { p = spawn(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', DICTATE_PS], { windowsHide: true, stdio: 'ignore' }); }
+  catch (e) { logError('Diktieren: ' + e.message); return resolve(false); }
+  const timer = setTimeout(() => { try { p.kill(); } catch {} resolve(false); }, 15000);
+  p.on('error', e => { clearTimeout(timer); logError('Diktieren: ' + e.message); resolve(false); });
+  p.on('close', code => { clearTimeout(timer); if (code) logError('Diktieren: PowerShell beendet mit Code ' + code); resolve(code === 0); });
+}));
+
 // Externe Links nur über https in den Standard-Browser
 function openExternalSafe(url) {
   let u;
@@ -1079,6 +1095,7 @@ function remoteStoreFor(dev) {
     usage: s.usage,
     settings: { model: v.model ?? s.settings.model ?? '', effort: v.effort ?? s.settings.effort ?? '', permissionMode: v.permissionMode ?? s.settings.permissionMode ?? 'default' },
     allowedFolders: limited ? projectFolders(dev) : allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass, canEditProjects: !!dev.allowProjects,
+    reach: { addresses: reachAddresses(), port: remoteHost?.port || null },
   };
 }
 const setView = (dev, patch) => saveDevices(getDevices().map(d => (d.id === dev.id ? { ...d, view: { ...d.view, ...patch } } : d)));
@@ -1333,11 +1350,13 @@ handle('remote:call', async (_e, hostId, ch, args) => {
 // --- Status und Einstellungen ---
 function remoteInfo() {
   const cfg = getStore().remoteHost || {};
+  if (remoteHost?.running) refreshPublic();
   return {
     available: safeStorage.isEncryptionAvailable(),
     host: {
       enabled: !!cfg.enabled, port: cfg.port || remote.DEFAULT_PORT, running: !!remoteHost?.running, listenPort: remoteHost?.port || null,
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
+      publicAddress: publicAt ? { address: publicAddr?.address || null, found: !!publicAddr } : null,
       devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowProjects: !!d.allowProjects, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
     hosts: [
@@ -1364,10 +1383,25 @@ handle('remote:hostSet', async (_e, { enabled, port } = {}) => {
 });
 // QR-Code zum Koppeln mit der Swapline-App auf dem Handy: swapline://pair?v=1&a=<Adressen>&p=<Port>&c=<Code>&n=<Name>.
 // Adressen im Heimnetz zuerst, Tailscale danach, virtuelle Adapter (WSL, Hyper-V …) zuletzt – das Handy probiert sie der Reihe nach.
-const VIRTUAL_NIC = /vEthernet|WSL|Hyper-V|VirtualBox|VMware|Loopback|Docker/i;
+// Adressen, unter denen Geräte diesen PC erreichen: Heimnetz zuerst, dann Tailscale, dann die öffentliche Adresse
+// (nur mit Portfreigabe am Router), virtuelle Adapter (WSL, Hyper-V, Radmin …) zuletzt – Geräte probieren der Reihe nach.
+const VIRTUAL_NIC = /vEthernet|WSL|Hyper-V|VirtualBox|VMware|Loopback|Docker|Radmin|Hamachi|ZeroTier/i;
+function reachAddresses() {
+  const rank = a => (VIRTUAL_NIC.test(a.name) ? 3 : a.tailscale ? 1 : 0);
+  const list = remote.localAddresses().map(a => ({ address: a.address, rank: rank(a) }));
+  if (publicAddr?.address) list.push({ address: publicAddr.address, rank: 2 });
+  return list.sort((x, y) => x.rank - y.rank).map(a => a.address).slice(0, 6);
+}
+// Öffentliche IPv4 vom Router (UPnP, nur im eigenen Netz; siehe src/upnp.js) – höchstens alle 10 Minuten
+let publicAddr = null, publicAt = 0, publicBusy = false;
+function refreshPublic(force) {
+  if (publicBusy || (DEV && process.env.SWAPLINE_TEST_JS) || (!force && Date.now() - publicAt < 10 * 60 * 1000)) return;
+  publicBusy = true;
+  require('./upnp').externalAddress().then(r => { publicAddr = r; }, () => { publicAddr = null; })
+    .finally(() => { publicBusy = false; publicAt = Date.now(); pushRemoteStatus(); });
+}
 function pairQr(code) {
-  const rank = a => (VIRTUAL_NIC.test(a.name) ? 2 : a.tailscale ? 1 : 0);
-  const addrs = remote.localAddresses().sort((x, y) => rank(x) - rank(y)).map(a => a.address).slice(0, 6);
+  const addrs = reachAddresses();
   const url = 'swapline://pair?v=1&a=' + addrs.join(',') + '&p=' + remoteHost.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(os.hostname().slice(0, 40));
   const q = require('qrcode-generator')(0, 'M');
   q.addData(url);

@@ -7,6 +7,15 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.9.0] – 2026-11-09
+
+- Neu: **Diktieren** – Mikrofon-Knopf im Eingabefeld startet die Windows-Spracheingabe (wie Windows + H); der Text
+  erscheint live im Feld und wird erst mit „Senden“ verschickt.
+- Fernzugriff: „Erreichbar unter“ zeigt auch die **öffentliche Adresse** (vom Router per UPnP, nur im eigenen Netz
+  abgefragt) mit Hinweis auf die nötige Portfreigabe bzw. auf fehlende öffentliche IPv4 (DS-Lite).
+- Fernzugriff: Der QR-Code enthält die Adressen in sinnvoller Reihenfolge (Heimnetz, Tailscale, öffentliche Adresse,
+  VPN-Adapter wie Radmin zuletzt); gekoppelte Geräte erfahren die aktuellen Adressen bei jeder Verbindung.
+
 ## [0.8.0] – 2026-11-09
 
 - Fernzugriff: „Gerät koppeln …“ zeigt zusätzlich einen QR-Code (Adressen, Port und Einmal-Code) zum Koppeln mit der

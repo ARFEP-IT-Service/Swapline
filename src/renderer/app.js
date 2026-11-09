@@ -2348,6 +2348,10 @@ function drawRemote() {
     el('div', { class: 'row' }, el('label', { class: 'row' }, toggle, _('Fernzugriff erlauben')), el('span', { class: 'hint' }, _('Port')), portIn,
       h.enabled && !h.running ? el('span', { class: 'hint', style: 'color:var(--danger)' }, _('nicht gestartet')) : null),
     h.running ? el('p', { class: 'hint' }, _('Erreichbar unter: {list} · Port {port}', { list: h.addresses.map(a => a.address + (a.tailscale ? ' (Tailscale)' : '')).join(', ') || '–', port: h.listenPort })) : null,
+    h.running && h.publicAddress ? el('p', { class: 'hint' }, h.publicAddress.address
+      ? _('Internet: {ip} – von unterwegs nur mit Portfreigabe {port} (TCP) am Router auf diesen PC.', { ip: h.publicAddress.address, port: h.listenPort })
+      : h.publicAddress.found ? _('Internet: Der Anschluss hat keine eigene öffentliche IPv4-Adresse (z. B. DS-Lite) – von unterwegs nur per VPN (z. B. Tailscale).')
+        : _('Internet: Öffentliche Adresse nicht ermittelt (Router ohne UPnP-Statusinformationen).')) : null,
     h.running ? el('p', { class: 'hint' }, _('Übers Internet: am besten mit Tailscale (beide PCs im selben Tailnet, Adresse 100.x.x.x). Alternativ am Router den Port weiterleiten und die öffentliche Adresse oder einen DynDNS-Namen verwenden.')) : null,
     h.running ? (pairCode && left > 0
       ? el('div', {}, el('p', { class: 'hint' }, _('Auf dem anderen Gerät unter „Mit einem Haupt-PC verbinden“ eingeben (noch {s} s gültig, nur einmal):', { s: left })),
@@ -2467,6 +2471,12 @@ function bindPane(root) {
   q('input').addEventListener('input', autosize);
   q('input').addEventListener('input', () => { cmdState.index = cmdState.open ? cmdState.index : 0; updateCommandPopup(); });
   q('input').addEventListener('blur', () => setTimeout(closeCommandPopup, 150));
+  // Diktieren: Eingabefeld fokussieren, dann startet Windows die Spracheingabe (wie Windows + H) – der Text erscheint
+  // live im Feld und wird nicht automatisch gesendet
+  q('btn-mic').onclick = async () => {
+    q('input').focus();
+    if (!(await api.dictate())) toast(_('Spracheingabe konnte nicht gestartet werden – alternativ Windows + H drücken.'));
+  };
   q('btn-attach').onclick = async () => { const r = await api.pickAttachments(); if (r?.length) { attachments.push(...r); renderAttachments(); } };
   q('chat-view').addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); focusPane(panes.indexOf(paneByRoot(root))); $('#chat-view').classList.add('dropping'); } });
   q('chat-view').addEventListener('dragleave', e => { if (e.target === q('chat-view') || !e.relatedTarget) q('chat-view').classList.remove('dropping'); });

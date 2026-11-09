@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('api', {
     loadSession: data => invoke('history:loadSession', data),
     search: (profileId, query) => invoke('history:search', { profileId, query }),
   },
+  dictate: () => invoke('dictation:start'),
   session: {
     send: (tab, content) => invoke('session:send', { tab, content }),
     confirmBypass: tabId => invoke('session:confirmBypass', tabId),

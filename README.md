@@ -23,6 +23,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 - **Chat-Einstellungen** in einem Menü oben rechts: Konto, Modell, Aufwand, Berechtigungen (Nachfragen, Änderungen erlauben, Nur planen, Alles erlauben).
 - **Rückfragen als Karten:** Erlauben / Immer erlauben / Ablehnen, Fragen von Claude mit Antwortmöglichkeiten, Plan-Modus mit „Plan annehmen / Überarbeiten / Ablehnen“.
 - **Eingabe wie im Terminal:** /-Befehle mit Auswahlliste (Befehle und Skills des Kontos), Eingabe-Verlauf mit ↑/↓, Bilder und Dateien per Büroklammer, Strg+V oder Ziehen.
+- **Diktieren:** Mikrofon-Knopf im Eingabefeld (Windows-Spracheingabe, auch mit Windows + H); der Text wird erst mit „Senden“ verschickt.
 - **Hintergrund-Aufgaben** (z. B. Befehle mit `run_in_background`, Agenten) als Leiste über dem Eingabefeld, mit Status und Ausgabe; der Chat bleibt als aktiv markiert, solange eine Aufgabe läuft.
 - **Suche:** offene Chats inklusive Nachrichtentext, im Verlauf Volltextsuche durch alle Sitzungen.
 - **Erweiterungen:** Plugins aus den Marktplätzen installieren, aktivieren, deaktivieren und entfernen, Skills und Befehle des Kontos ansehen.
@@ -30,7 +31,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 - **Eigene Bilder** für Chats und Haupt-PCs (Rechtsklick).
 - **Anzeige nach Wunsch:** Werkzeug-Aufrufe alle, kompakt oder ausgeblendet; Recap („während du weg warst“); Antworten und Code kopieren; Chats umbenennen; Hell/Dunkel; Deutsch/Englisch.
 - **Benachrichtigungen:** Windows-Benachrichtigung bei fertiger Antwort oder Rückfrage, auf Wunsch bis zum Klick sichtbar, mit wählbarem Ton.
-- **Fernzugriff:** Chats und Konten dieses PCs von einem anderen eigenen PC mit Swapline nutzen – im Netzwerk oder übers Internet (siehe [Fernzugriff](#fernzugriff)).
+- **Fernzugriff:** Chats und Konten dieses PCs von einem anderen eigenen PC oder mit der **Swapline-App für Android** nutzen – im Netzwerk oder übers Internet (siehe [Fernzugriff](#fernzugriff)).
 - **Updates** aus den GitHub-Releases: Hinweis bei neuer Version, Installation per Klick (wahlweise automatisch oder aus).
 
 <p align="center">
@@ -64,7 +65,9 @@ Ein PC mit Swapline kann **Haupt-PC** sein: Andere eigene Geräte mit Swapline v
 
 **Freigabe je Gerät:** In der Geräteliste unter **Freigabe …** festlegen, was ein Gerät sieht – alle oder nur ausgewählte **Konten**, alle oder nur ausgewählte **Projekte** (alle Chats in deren Ordnern, neue Chats nur dort) und einzelne **Chats**. Einzelne Chats lassen sich auch per Rechtsklick auf den Chat → **Für Gerät freigeben …** teilen. Der Haupt-PC prüft die Freigabe bei jeder Anfrage; wird sie verkleinert, enden laufende Chats des Geräts, die nicht mehr freigegeben sind. Zugriff entziehen: Freigabe ändern, Gerät **Entfernen** (sofort getrennt) oder **Fernzugriff erlauben** ausschalten.
 
-**Übers Internet:** am einfachsten mit [Tailscale](https://tailscale.com) (beide PCs im selben Tailnet, Adresse 100.x.x.x) – der Haupt-PC bleibt fürs Internet unsichtbar. Alternativ am Router den Port per Weiterleitung auf den Haupt-PC lenken und die öffentliche Adresse bzw. einen DynDNS-Namen verwenden; der Port ist dann aus dem ganzen Internet erreichbar und nur durch Verschlüsselung und Kopplung geschützt.
+**Übers Internet:** am einfachsten mit [Tailscale](https://tailscale.com) (beide PCs im selben Tailnet, Adresse 100.x.x.x) – der Haupt-PC bleibt fürs Internet unsichtbar. Alternativ am Router den Port per Weiterleitung auf den Haupt-PC lenken (z. B. FritzBox: *Internet → Freigaben → Portfreigaben*, TCP 47820) und die öffentliche Adresse bzw. einen DynDNS-Namen verwenden; der Port ist dann aus dem ganzen Internet erreichbar und nur durch Verschlüsselung und Kopplung geschützt. Swapline zeigt die öffentliche Adresse unter „Erreichbar unter“ an (vom Router per UPnP abgefragt) und gibt sie im QR-Code mit; Geräte probieren die Adressen der Reihe nach.
+
+**Handy (Android):** Die App *Swapline für Android* (Ordner [android/](android/), APK in den Releases unter `android-v…`) koppelt sich per QR-Code wie ein weiteres Gerät – Claude läuft auch dann nur auf dem Haupt-PC.
 
 **Projekte:** In der Ansicht eines Haupt-PCs stehen dessen Projekte und Ordner als Filter über der Chat-Liste; **+** startet einen Chat im gewählten Projekt. Darf ein Gerät laut Geräteliste **Projekte anlegen**, legt es dort Projekte und Ordner an oder benennt sie um (Rechtsklick auf ein Projekt); löschen kann nur der Haupt-PC.
 
