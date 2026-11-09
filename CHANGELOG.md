@@ -7,6 +7,15 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.14.0] – 2026-11-09
+
+- Neu: **„!“-Befehle wie in der Claude CLI** – „!npm test“ im Eingabefeld führt den Befehl direkt im Ordner des Chats
+  aus (Git Bash, sonst PowerShell; höchstens 2 Minuten, „Stopp“ bricht ab), ohne Claude. Die Ausgabe erscheint als Karte
+  im Chat und geht mit der nächsten Nachricht an Claude. Das Eingabefeld zeigt den Befehlsmodus an; im Verlauf erscheinen
+  „!“-Befehle (auch aus der Claude CLI) als Karten statt ausgeblendet.
+- Fernzugriff: Geräte (Handy, anderer PC) dürfen „!“-Befehle nur mit der Freigabe „Alles erlauben“ in der Geräteliste –
+  sie laufen ohne Rückfrage – und nur in freigegebenen Ordnern.
+
 ## [0.13.0] – 2026-11-09
 
 - Neu: **Türkisch** als Sprache – Oberfläche, Dialoge und Meldungen. Einstellungen → Sprache → „Türkçe“, bei „Wie

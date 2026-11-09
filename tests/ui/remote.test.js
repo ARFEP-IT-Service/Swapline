@@ -80,8 +80,12 @@
   // „Alles erlauben“ je Gerät
   await api.remote.deviceSet({ id: devId, allowBypass: false });
   check('Ohne Gerätefreigabe kein „Alles erlauben“', (await R('session:confirmBypass', 'abcdefgh')) === false && !(await R('store:get')).allowBypass);
+  const bangTab = { id: 'bangtab1', profileId: 'test', cwd: WORK, sessionId: null, model: '', effort: '', permissionMode: 'default' };
+  check('„!“-Befehl vom Gerät ohne Freigabe „Alles erlauben“ abgelehnt', (await R('session:bash', { tab: bangTab, command: 'echo nein' })) === false);
   await api.remote.deviceSet({ id: devId, allowBypass: true });
   check('Mit Gerätefreigabe „Alles erlauben“ möglich', (await R('session:confirmBypass', 'abcdefgh')) === true);
+  check('„!“-Befehl vom Gerät mit Freigabe läuft am Haupt-PC', (await R('session:bash', { tab: bangTab, command: 'echo remote-bang' })) === true);
+  check('„!“-Befehl vom Gerät nur in freigegebenen Ordnern', (await R('session:bash', { tab: { ...bangTab, id: 'bangtab2', cwd: 'C:\\Windows' }, command: 'echo nein' })) === false);
 
   // Projekte und Ordner am Haupt-PC vom Gerät aus (nur mit Freigabe, Ordner nur freigegebene, nie löschen)
   const activeBefore = (await api.getStore()).activeProjectId;

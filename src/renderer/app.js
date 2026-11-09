@@ -253,6 +253,7 @@ function tapi(x) {
   return {
     session: {
       send: (tab, content) => call('session:send', { tab, content }),
+      bash: (tab, command) => call('session:bash', { tab, command }), bashStop: id => call('session:bashStop', id),
       respond: (tabId, requestId, response) => call('session:respond', { tabId, requestId, response }),
       interrupt: id => call('session:interrupt', id), restart: id => call('session:restart', id), close: id => call('session:close', id),
       confirmBypass: id => call('session:confirmBypass', id),
@@ -1286,6 +1287,7 @@ function renderItem(t, it) {
           el('button', { class: 'copy-answer', title: _('Antwort kopieren (Markdown)'), onclick: e => copyText(it.text, e.currentTarget) }, _('Kopieren'))));
     }
     case 'tool': return renderTool(it);
+    case 'bash': return renderBash(t, it);
     case 'perm': return renderPerm(t, it);
     case 'question': return renderQuestion(t, it);
     case 'plan': return renderPlan(t, it);
@@ -1350,6 +1352,21 @@ function renderTool(it) {
     if (it.result != null) body.append(el('div', { class: 't-label' }, it.isError ? _('Fehler') : _('Ergebnis')), el('pre', {}, truncate(it.result, 20000)));
     d.append(body);
   });
+  return d;
+}
+// „!“-Befehl: Karte mit Befehl, Status und Ausgabe (offen, solange er läuft)
+function renderBash(t, it) {
+  const state = it.state !== 'done' ? 'run' : Number(it.code) ? 'err' : 'ok';
+  const d = el('details', { class: 'tool bash', open: true },
+    el('summary', {},
+      el('span', { class: 't-state ' + state }, state === 'ok' ? '✓' : state === 'err' ? '✕' : ''),
+      el('span', { class: 't-name' }, '!'),
+      el('span', { class: 't-sum' }, it.command),
+      state === 'run' ? el('button', { class: 'ghost small', onclick: e => { e.preventDefault(); tapi(t).session.bashStop(t.id); } }, _('Stopp')) : null),
+    el('div', { class: 't-body' },
+      state === 'run' ? el('div', { class: 't-label' }, _('läuft …')) : null,
+      it.output ? el('pre', {}, truncate(it.output, 20000)) : state === 'run' ? null : el('div', { class: 't-label' }, _('(keine Ausgabe)')),
+      state !== 'run' ? el('div', { class: 't-label' }, (Number(it.code) ? _('Beendet mit Code {n}', { n: it.code }) + ' · ' : '') + _('Claude sieht die Ausgabe mit deiner nächsten Nachricht') + (it.from ? ' · ' + _('von {name}', { name: it.from }) : '')) : null));
   return d;
 }
 const truncate = (s, n) => (s && s.length > n ? s.slice(0, n) + '\n' + _('… ({n} Zeichen gekürzt)', { n: s.length - n }) : s);
@@ -1454,6 +1471,24 @@ const CLAUDE_TEXT = {
 };
 const hiddenUserText = s => !s || /^\s*<(command-|local-command|system-reminder|bash-|user-memory|task-notification)/.test(s) || s.startsWith('[Request interrupted');
 
+// „!“-Befehle im Verlauf (von Swapline oder der Claude CLI): <bash-input>…</bash-input> und <bash-stdout>…</bash-stdout>
+// am Anfang des Textes werden zu Befehls-Karten; zurück kommt der übrige Text
+const unescTag = s => s.replace(/<\\\/(bash-[a-z]+)>/g, '</$1>');
+function takeBash(t, text, add, time) {
+  let rest = String(text || '');
+  const re = /^\s*(?:<bash-input>([\s\S]*?)<\/bash-input>)?\s*(?:<bash-stdout>([\s\S]*?)<\/bash-stdout>)?\s*(?:<bash-stderr>([\s\S]*?)<\/bash-stderr>)?/;
+  for (let i = 0; i < 20; i++) {
+    const m = re.exec(rest);
+    if (!m || !m[0].trim()) break;
+    const out = [m[2], m[3]].filter(x => x && x.trim()).map(unescTag).join('\n');
+    const last = t.items[t.items.length - 1];
+    if (m[1] == null && last?.kind === 'bash' && !last.output) last.output = out; // CLI: Ausgabe als eigene Nachricht
+    else add({ kind: 'bash', id: 'h' + i + (time || ''), time, command: unescTag(m[1] || ''), state: 'done', output: out, code: /exit code (\d+)/.exec(m[3] || '')?.[1] || 0 });
+    rest = rest.slice(m[0].length);
+  }
+  return rest;
+}
+
 function ingest(t, m, fromHistory = false) {
   const add = it => (fromHistory ? t.items.push(it) : appendItem(t, it));
   switch (m.type) {
@@ -1464,6 +1499,14 @@ function ingest(t, m, fromHistory = false) {
       t.running = true; t.updated = Date.now(); t.preview = text.replace(/\s+/g, ' ').slice(0, 90);
       if (!t.title) t.title = text.replace(/\s+/g, ' ').slice(0, 60);
       setTyping(t); updateComposer(); renderList();
+      return;
+    }
+    case 'swapline_bash': {
+      const it = t.items.find(x => x.kind === 'bash' && x.id === m.id);
+      const data = { command: String(m.command || ''), state: m.state === 'done' ? 'done' : 'running', code: m.code, output: typeof m.output === 'string' ? m.output : '', from: String(m.from || '').slice(0, 40) };
+      if (it) { Object.assign(it, data); refreshItem(t, it); }
+      else add({ kind: 'bash', id: String(m.id || ''), time: Date.now(), ...data });
+      t.updated = Date.now();
       return;
     }
     case 'swapline_answered': {
@@ -1511,7 +1554,11 @@ function ingest(t, m, fromHistory = false) {
 
     case 'user': {
       const c = m.message?.content;
-      if (typeof c === 'string') { if (!hiddenUserText(c)) add({ kind: 'me', text: c, time: Date.parse(m.timestamp) || null }); break; }
+      if (typeof c === 'string') {
+        const rest = takeBash(t, c, add, Date.parse(m.timestamp) || null);
+        if (!hiddenUserText(rest)) add({ kind: 'me', text: rest, time: Date.parse(m.timestamp) || null });
+        break;
+      }
       if (!Array.isArray(c)) break;
       for (const block of c) {
         if (block.type === 'tool_result') {
@@ -1525,10 +1572,12 @@ function ingest(t, m, fromHistory = false) {
             tool.isError = !!block.is_error;
             if (!fromHistory) refreshItem(t, tool);
           }
-        } else if (block.type === 'text' && fromHistory && !hiddenUserText(block.text)) {
+        } else if (block.type === 'text' && fromHistory) {
+          const rest = takeBash(t, block.text, add, Date.parse(m.timestamp) || null);
+          if (hiddenUserText(rest)) continue;
           // Bilder derselben Nachricht (aus dem Verlauf) mit anzeigen
           const images = c.filter(b => b.type === 'image' && b.source?.type === 'base64' && IMG_TYPES.includes(b.source.media_type)).map(b => `data:${b.source.media_type};base64,${b.source.data}`);
-          add({ kind: 'me', text: block.text, time: Date.parse(m.timestamp) || null, images });
+          add({ kind: 'me', text: rest, time: Date.parse(m.timestamp) || null, images });
         }
       }
       break;
@@ -1873,6 +1922,8 @@ async function sendMessage() {
   const local = /^\/(\S+)\s*$/.exec(text) && LOCAL_COMMANDS.find(c => c.name === text.slice(1).trim());
   if (local && !attachments.length) { input.value = ''; autosize(); closeCommandPopup(); return local.run(); }
   if (!text && !attachments.length) return;
+  // „!befehl“: direkt im Ordner des Chats ausführen (wie in der Claude CLI); die Ausgabe bekommt Claude mit der nächsten Nachricht
+  if (text.startsWith('!') && !attachments.length) return runBang(t, text);
   const st = status[tk(t)];
   if (st && !st.loggedIn) {
     if (st.claudeMissing) { toast(_('Claude Code nicht gefunden – bitte installieren oder Pfad in den Einstellungen angeben')); return openSettings(); }
@@ -1899,6 +1950,25 @@ async function sendMessage() {
   saveTabs(); renderList();
   $('#ch-title').textContent = t.title;
   await claudeSend(t, content);
+}
+async function runBang(t, text) {
+  const command = text.slice(1).trim();
+  if (!command) return;
+  if (String(t.host || '').startsWith('ssh:')) return toast(_('„!“-Befehle gehen nur auf PCs, nicht auf SSH-Servern'));
+  closeCommandPopup();
+  rememberInput(text);
+  const input = $('#input');
+  input.value = ''; autosize(); updateBashMode();
+  if (!t.title) t.title = text.replace(/\s+/g, ' ').slice(0, 60);
+  t.updated = Date.now(); saveTabs(); renderList();
+  const r = await tapi(t).session.bash(plainTab(t), command).catch(e => ({ error: e.message }));
+  if (r?.error) toast(r.error);
+  else if (r !== true) toast(_('Befehl nicht ausgeführt'));
+}
+// Eingabe beginnt mit „!“: Feld als Befehlszeile markieren
+function updateBashMode() {
+  const input = $('#input');
+  input?.closest('footer')?.classList.toggle('bash-mode', input.value.startsWith('!'));
 }
 const plainTab = t => ({ id: t.id, hostTab: t.hostTab, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode });
 
@@ -2508,6 +2578,7 @@ function bindPane(root) {
   q('btn-send').onclick = sendMessage;
   q('btn-stop').onclick = () => { const t = currentTab(); if (t) tapi(t).session.interrupt(t.id); };
   q('input').addEventListener('input', autosize);
+  q('input').addEventListener('input', updateBashMode);
   q('input').addEventListener('input', () => { cmdState.index = cmdState.open ? cmdState.index : 0; updateCommandPopup(); });
   q('input').addEventListener('blur', () => setTimeout(closeCommandPopup, 150));
   // Diktieren: Eingabefeld fokussieren, dann startet Windows die Spracheingabe (wie Windows + H) – der Text erscheint

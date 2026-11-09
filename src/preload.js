@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('api', {
   dictate: () => invoke('dictation:start'),
   session: {
     send: (tab, content) => invoke('session:send', { tab, content }),
+    bash: (tab, command) => invoke('session:bash', { tab, command }),
+    bashStop: tabId => invoke('session:bashStop', tabId),
     confirmBypass: tabId => invoke('session:confirmBypass', tabId),
     respond: (tabId, requestId, response) => invoke('session:respond', { tabId, requestId, response }),
     interrupt: tabId => invoke('session:interrupt', tabId),

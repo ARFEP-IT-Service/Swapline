@@ -75,7 +75,7 @@ const EN = {
   'Ordner öffnen': 'Open folder',
   'Konto, Modell, Aufwand, Berechtigungen': 'Account, model, effort, permissions',
   'Bilder oder Dateien anhängen (auch per Strg+V oder Ziehen ins Fenster)': 'Attach images or files (also via Ctrl+V or drag and drop)',
-  'Nachricht an Claude …  (Enter = senden, Shift+Enter = neue Zeile, / = Befehle, ↑ = letzte Nachricht)': 'Message Claude …  (Enter = send, Shift+Enter = new line, / = commands, ↑ = last message)',
+  'Nachricht an Claude …  (Enter = senden, Shift+Enter = neue Zeile, / = Befehle, ! = Befehl am PC ausführen, ↑ = letzte Nachricht)': 'Message Claude …  (Enter = send, Shift+Enter = new line, / = commands, ! = run a command on the PC, ↑ = last message)',
   'Stoppen (Esc)': 'Stop (Esc)',
   'Senden': 'Send',
 
@@ -610,4 +610,10 @@ const EN = {
   'Swapline fragt dazu nur bei GitHub (github.com/ARFEP-IT-Service/Swapline) nach neuen Versionen – ohne Konto- oder Nutzungsdaten.': 'For this, Swapline only asks GitHub (github.com/ARFEP-IT-Service/Swapline) for new versions – without any account or usage data.',
   'IT-Hilfe anfragen': 'Request IT help',
   'Inoffizielles Projekt, nicht mit Anthropic verbunden. „Claude“ ist eine Marke von Anthropic.': 'Unofficial project, not affiliated with Anthropic. “Claude” is a trademark of Anthropic.',
+  'Stopp': 'Stop',
+  'läuft …': 'running …',
+  'Beendet mit Code {n}': 'Exited with code {n}',
+  'Claude sieht die Ausgabe mit deiner nächsten Nachricht': 'Claude sees the output with your next message',
+  '„!“-Befehle gehen nur auf PCs, nicht auf SSH-Servern': '“!” commands work only on PCs, not on SSH servers',
+  'Befehl nicht ausgeführt': 'Command not run',
 };

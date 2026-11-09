@@ -23,6 +23,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 - **Chat-Einstellungen** in einem Menü oben rechts: Konto, Modell, Aufwand, Berechtigungen (Nachfragen, Änderungen erlauben, Nur planen, Alles erlauben).
 - **Rückfragen als Karten:** Erlauben / Immer erlauben / Ablehnen, Fragen von Claude mit Antwortmöglichkeiten, Plan-Modus mit „Plan annehmen / Überarbeiten / Ablehnen“.
 - **Eingabe wie im Terminal:** /-Befehle mit Auswahlliste (Befehle und Skills des Kontos), Eingabe-Verlauf mit ↑/↓, Bilder und Dateien per Büroklammer, Strg+V oder Ziehen.
+- **„!“-Befehle:** „!git status“ im Eingabefeld führt den Befehl direkt im Ordner des Chats aus (wie in der Claude CLI); Claude sieht die Ausgabe mit der nächsten Nachricht. „/“ zeigt die Befehle und Skills des Kontos.
 - **Diktieren:** Mikrofon-Knopf im Eingabefeld (Windows-Spracheingabe, auch mit Windows + H); der Text wird erst mit „Senden“ verschickt.
 - **Hintergrund-Aufgaben** (z. B. Befehle mit `run_in_background`, Agenten) als Leiste über dem Eingabefeld, mit Status und Ausgabe; der Chat bleibt als aktiv markiert, solange eine Aufgabe läuft.
 - **Suche:** offene Chats inklusive Nachrichtentext, im Verlauf Volltextsuche durch alle Sitzungen.

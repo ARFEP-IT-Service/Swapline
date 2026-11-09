@@ -834,7 +834,7 @@ handle('session:send', (_e, { tab: rawTab, content }) => {
   let s = sessions.get(tab.id);
   if (!s) s = startSession(tab);
   s.busy = true; // Claude arbeitet an einer Antwort (bis zum result)
-  writeTo(tab.id, { type: 'user', message: { role: 'user', content } });
+  writeTo(tab.id, { type: 'user', message: { role: 'user', content: withBashContext(tab.id, content) } });
   if (!_e?.remote) pushAttached(tab.id, { type: 'swapline_user', content: userEcho(content), from: os.hostname().slice(0, 40) });
   return true;
 });
@@ -874,7 +874,65 @@ handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
   return true;
 });
 handle('session:interrupt', (_e, tabId) => {
+  stopBash(tabId);
   writeTo(tabId, { type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'interrupt' } });
+});
+// ---------- „!“-Befehle (wie in der Claude CLI) ----------
+// „!npm test“ führt den Befehl direkt im Ordner des Chats aus – ohne Claude. Die Ausgabe erscheint im Chat und geht mit
+// der nächsten Nachricht an Claude, im Format der CLI (<bash-input>/<bash-stdout>). Shell wie bei Claude Code unter
+// Windows: Git Bash, sonst PowerShell. Der Befehl ist ausdrücklich vom Nutzer – geprüft werden Chat, Ordner und Länge.
+const BASH_TIMEOUT = 120000, BASH_MAX = 30000;
+const bashRuns = new Map();    // Chat -> laufender Prozess
+const bashContext = new Map(); // Chat -> Ausgaben für die nächste Nachricht an Claude
+function bashShell() {
+  const pf = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')].filter(Boolean);
+  const env = process.env.CLAUDE_CODE_GIT_BASH_PATH;
+  const bash = [env, ...pf.map(p => path.join(p, 'Git', 'bin', 'bash.exe'))].find(p => p && !isUnc(p) && fs.existsSync(p));
+  if (bash) return { exe: bash, args: cmd => ['-c', cmd], name: 'bash' };
+  return { exe: path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), args: cmd => ['-NoProfile', '-NonInteractive', '-Command', cmd], name: 'powershell' };
+}
+function withBashContext(tabId, content) {
+  const ctx = bashContext.get(tabId);
+  if (!ctx?.length) return content;
+  bashContext.delete(tabId);
+  const pre = ctx.join('\n');
+  if (typeof content === 'string') return pre + '\n\n' + content;
+  return [{ type: 'text', text: pre }, ...content];
+}
+function stopBash(tabId) {
+  const p = bashRuns.get(tabId);
+  if (p?.pid) spawn('taskkill', ['/T', '/F', '/PID', String(p.pid)], { windowsHide: true, stdio: 'ignore' }).on('error', () => {});
+}
+const escTag = s => s.replace(/<\/(bash-[a-z]+)>/g, '<\\/$1>'); // Ausgabe darf die Markierung nicht vorzeitig schließen
+handle('session:bashStop', (_e, tabId) => { if (typeof tabId === 'string') stopBash(tabId); return true; });
+handle('session:bash', (_e, { tab: rawTab, command } = {}) => {
+  const tab = validTab(rawTab);
+  if (!tab || typeof command !== 'string' || !command.trim() || command.length > 8000 || command.includes('\0')) return false;
+  if (bashRuns.has(tab.id)) return { error: tr('Es läuft schon ein Befehl in diesem Chat', 'A command is already running in this chat') };
+  const cwd = tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME;
+  const sh = bashShell();
+  const id = crypto.randomBytes(6).toString('hex');
+  const from = _e?.remote ? _e.remote.name : os.hostname().slice(0, 40);
+  send(tab.id, { type: 'swapline_bash', id, command, state: 'running', shell: sh.name, from });
+  let out = '', cut = false;
+  const p = spawn(sh.exe, sh.args(command), { cwd, windowsHide: true });
+  bashRuns.set(tab.id, p);
+  const take = d => { if (out.length < BASH_MAX) out += d.toString('utf8'); else cut = true; };
+  p.stdout.on('data', take); p.stderr.on('data', take);
+  const timer = setTimeout(() => stopBash(tab.id), BASH_TIMEOUT);
+  const done = code => {
+    if (bashRuns.get(tab.id) !== p) return;
+    clearTimeout(timer); bashRuns.delete(tab.id);
+    if (out.length > BASH_MAX) { out = out.slice(0, BASH_MAX); cut = true; }
+    const output = out.replace(/\r\n/g, '\n').replace(/\s+$/, '') + (cut ? '\n' + '[… output truncated]' : '');
+    const list = bashContext.get(tab.id) || [];
+    list.push(`<bash-input>${escTag(command)}</bash-input>\n<bash-stdout>${escTag(output)}</bash-stdout>` + (code ? `\n<bash-stderr>exit code ${code}</bash-stderr>` : ''));
+    bashContext.set(tab.id, list.slice(-10));
+    send(tab.id, { type: 'swapline_bash', id, command, state: 'done', code: code ?? -1, output, shell: sh.name, from });
+  };
+  p.on('close', code => done(code));
+  p.on('error', e => { out += e.message; done(-1); });
+  return true;
 });
 // Einstellungen ändern -> Prozess beenden; die nächste Nachricht startet mit --resume neu
 handle('session:restart', (_e, tabId) => { stopSession(tabId); return true; });
@@ -1303,6 +1361,22 @@ async function hostDispatch(dev, ch, args) {
       const id = hostTabId(dev, t.id);
       return id ? call(ch, { ...a0, tab: { ...t, id } }) : false;
     }
+    // „!“-Befehle laufen ohne Rückfrage – deshalb nur für Geräte mit der Freigabe „Alles erlauben“
+    case 'session:bash': {
+      if (!dev.allowBypass) throw new Error(tr('„!“-Befehle sind für dieses Gerät nicht freigegeben – am Haupt-PC in der Geräteliste „Alles erlauben“ einschalten.', '“!” commands are not allowed for this device – turn on “Allow everything” for it in the device list on the host PC.'));
+      const t = a0?.tab || {};
+      if (typeof t.hostTab === 'string') {
+        const ht = openTabsFor(dev).find(x => x.id === t.hostTab);
+        if (!ht || typeof t.id !== 'string' || !/^[a-z0-9]{6,23}$/i.test(t.id)) return false;
+        attach(dev, t.id, ht.id);
+        return call(ch, { tab: { id: ht.id, profileId: ht.profileId, cwd: ht.cwd, sessionId: null, model: '', effort: '', permissionMode: 'default' }, command: a0.command });
+      }
+      if (!profileAllowed(dev, t.profileId)) notShared();
+      if (contentLimited(dev) && !folderAllowed(dev, t.cwd)) notShared();
+      const id = hostTabId(dev, t.id);
+      return id ? call(ch, { tab: { ...t, id, sessionId: null, permissionMode: 'default' }, command: a0.command }) : false;
+    }
+    case 'session:bashStop': { const id = attachOf.get(dev.id + ':' + a0) || hostTabId(dev, a0); return id ? call(ch, id) : false; }
     case 'session:respond': { const id = attachOf.get(dev.id + ':' + a0?.tabId) || hostTabId(dev, a0?.tabId); return id ? call(ch, { ...a0, tabId: id }) : false; }
     case 'session:interrupt': { const id = attachOf.get(dev.id + ':' + a0) || hostTabId(dev, a0); return id ? call(ch, id) : false; }
     case 'session:restart': { if (attachOf.has(dev.id + ':' + a0)) return false; const id = hostTabId(dev, a0); return id ? call(ch, id) : false; } // Einstellungen eines Haupt-PC-Chats ändert nur der Haupt-PC
@@ -1373,7 +1447,7 @@ const remoteHosts = () => getStore().remoteHosts || [];
 const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
 const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach', 'session:pending', 'files:upload',
-  'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
+  'session:send', 'session:bash', 'session:bashStop', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
   'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate', 'projects:remove', 'projects:groupRemove']);
 const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
 function connectHost(h) {

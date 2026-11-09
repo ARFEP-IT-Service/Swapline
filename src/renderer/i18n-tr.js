@@ -21,7 +21,7 @@ const TR = {
   'Ordner öffnen': 'Klasörü aç',
   'Konto, Modell, Aufwand, Berechtigungen': 'Hesap, model, efor, izinler',
   'Bilder oder Dateien anhängen (auch per Strg+V oder Ziehen ins Fenster)': 'Görsel veya dosya ekle (Ctrl+V ya da pencereye sürükleyerek de olur)',
-  'Nachricht an Claude …  (Enter = senden, Shift+Enter = neue Zeile, / = Befehle, ↑ = letzte Nachricht)': 'Claude\'a mesaj …  (Enter = gönder, Shift+Enter = yeni satır, / = komutlar, ↑ = son mesaj)',
+  'Nachricht an Claude …  (Enter = senden, Shift+Enter = neue Zeile, / = Befehle, ! = Befehl am PC ausführen, ↑ = letzte Nachricht)': 'Claude’a mesaj …  (Enter = gönder, Shift+Enter = yeni satır, / = komutlar, ! = bilgisayarda komut çalıştır, ↑ = son mesaj)',
   'Stoppen (Esc)': 'Durdur (Esc)',
   'Senden': 'Gönder',
   'Link entfernt: {href}': 'Bağlantı kaldırıldı: {href}',
@@ -589,6 +589,14 @@ const TR = {
   'Swapline schließen': 'Swapline\'ı kapat',
   'Claude arbeitet noch in 1 Chat (Antwort oder Hintergrund-Aufgabe).': 'Claude hâlâ 1 sohbette çalışıyor (yanıt veya arka plan görevi).',
   'Beim Schließen wird die laufende Antwort abgebrochen. Bisherige Änderungen und der Verlauf bleiben erhalten – danach kannst du den Chat mit „mach weiter“ fortsetzen.': 'Kapatıldığında devam eden yanıt iptal edilir. Şimdiye kadarki değişiklikler ve geçmiş korunur – ardından sohbete “devam et” yazarak devam edebilirsiniz.',
+  'Stopp': 'Durdur',
+  'läuft …': 'çalışıyor …',
+  'Beendet mit Code {n}': '{n} koduyla sonlandı',
+  'Claude sieht die Ausgabe mit deiner nächsten Nachricht': 'Claude çıktıyı bir sonraki mesajınızla görür',
+  '„!“-Befehle gehen nur auf PCs, nicht auf SSH-Servern': '“!” komutları yalnızca bilgisayarlarda çalışır, SSH sunucularında çalışmaz',
+  'Befehl nicht ausgeführt': 'Komut çalıştırılmadı',
+  'Es läuft schon ein Befehl in diesem Chat': 'Bu sohbette zaten bir komut çalışıyor',
+  '„!“-Befehle sind für dieses Gerät nicht freigegeben – am Haupt-PC in der Geräteliste „Alles erlauben“ einschalten.': '“!” komutlarına bu cihaz için izin verilmedi – ana bilgisayardaki cihaz listesinde “Her şeye izin ver” seçeneğini açın.',
 };
 
 if (typeof module !== 'undefined') module.exports = TR;

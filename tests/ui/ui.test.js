@@ -232,5 +232,19 @@
   $('#modal-root').replaceChildren();
   setLang('de'); translateStatic(); renderList();
   check('Zurück auf Deutsch', $('#search').placeholder === 'Suchen …' && $('#btn-settings').title === 'Einstellungen' && $('#seg [data-view="history"]').textContent === 'Verlauf');
+
+  // „!“-Befehle: direkt im Ordner des Chats ausführen, Ausgabe als Karte, im Verlauf wieder als Karte
+  const tb = makeTab({ title: 'Befehle', cwd: WORK }); tabs.push(tb); await openTab(tb.id);
+  typeInto(input, '!echo swapline-bang');
+  check('„!“: Eingabefeld im Befehlsmodus', $('#composer').classList.contains('bash-mode'));
+  key(input, 'Enter');
+  const ran = await until(() => tb.items.some(x => x.kind === 'bash' && x.state === 'done'), 20000);
+  const bi = tb.items.find(x => x.kind === 'bash');
+  check('„!“: Befehl läuft im Ordner des Chats, Ausgabe im Chat', ran && /swapline-bang/.test(bi.output) && !Number(bi.code) && !!document.querySelector('#messages .tool.bash'), JSON.stringify(bi));
+  check('„!“: kein Aufruf von Claude, Eingabefeld wieder normal', !tb.running && input.value === '' && !$('#composer').classList.contains('bash-mode'));
+  check('„!“: ungültiger Chat abgelehnt', (await api.session.bash({ id: 'x' }, 'echo nein')) === false && (await api.session.bash({ ...plainTab(tb), cwd: 'C:\\Windows' }, 'echo nein')) === false);
+  const th = makeTab({ title: 'Verlauf' });
+  ingest(th, { type: 'user', message: { role: 'user', content: '<bash-input>ls</bash-input>\n<bash-stdout>a.txt</bash-stdout>\n\nWas siehst du?' } }, true);
+  check('„!“ im Verlauf: Befehls-Karte und eigene Nachricht', th.items[0]?.kind === 'bash' && th.items[0].command === 'ls' && th.items[0].output === 'a.txt' && th.items[1]?.kind === 'me' && th.items[1].text === 'Was siehst du?', JSON.stringify(th.items));
   return T;
 })()
