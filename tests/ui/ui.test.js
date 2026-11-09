@@ -157,7 +157,7 @@
   // Projekte eines Haupt-PCs/Servers als Filter
   hostStores.hx = { profiles: [{ id: 'p', name: 'P', color: '#1581FF' }], activeProfileId: 'p', projects: [{ id: 'hp1', name: 'Web', color: '#1581FF', cwd: '/srv/web' }], projectGroups: [], favorites: [], allowedFolders: ['/srv/web'], settings: { model: '', effort: '', permissionMode: 'default' }, scope: { limited: false, newChats: true }, canEditProjects: true };
   const savedRemote = remoteState;
-  remoteState = { hosts: [{ id: 'hx', kind: 'ssh', name: 'VPS', address: 'ich@10.0.0.9', port: 22, state: 'connected' }], host: { devices: [] } };
+  remoteState = { hosts: [{ id: 'hx', kind: 'ssh', name: 'VPS', address: 'ich@vps.example', port: 22, state: 'connected' }], host: { devices: [] } };
   const w1 = makeTab({ title: 'In Web', host: 'hx', profileId: 'p', cwd: '/srv/web/app' }), w2 = makeTab({ title: 'Woanders', host: 'hx', profileId: 'p', cwd: '/tmp' });
   tabs.push(w1, w2); await switchProject('host:hx');
   const listTitles = () => [...document.querySelectorAll('#list .item .title')].map(e => e.textContent);
