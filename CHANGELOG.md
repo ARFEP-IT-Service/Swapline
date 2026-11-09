@@ -7,6 +7,12 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.8.0] – 2026-11-09
+
+- Fernzugriff: „Gerät koppeln …“ zeigt zusätzlich einen QR-Code (Adressen, Port und Einmal-Code) zum Koppeln mit der
+  kommenden Swapline-App für Android. Bestätigt wird wie bisher am Haupt-PC.
+- Tests öffnen keine Explorer-Fenster mehr.
+
 ## [0.7.1] – 2026-11-09
 
 - Leiste: Projekte und Ordner von Haupt-PCs und Servern stehen links unter dem jeweiligen Eintrag – aufklappbar

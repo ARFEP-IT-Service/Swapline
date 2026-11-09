@@ -13,6 +13,8 @@
   check('Koppeln ohne offenen Code abgelehnt', !!r.error && r.hosts.length === 0, r.error);
   const p = await api.remote.pairStart();
   check('Kopplungscode erzeugt (128 Bit)', /^[0-9A-Z]{4}(-[0-9A-Z]{1,4}){6}$/.test(p.code || ''), p.code);
+  const svg = atob(String(p.qr || '').replace('data:image/svg+xml;base64,', ''));
+  check('QR-Code für die Handy-App (SVG, ohne Skripte)', String(p.qr).startsWith('data:image/svg+xml;base64,') && svg.startsWith('<svg') && !/<script|on\w+=/i.test(svg), String(p.qr).slice(0, 60));
   // erstes Zeichen ändern – das letzte trägt bei 128 Bit nur Füllbits
   const wrong = (p.code[0] === '0' ? '1' : '0') + p.code.slice(1);
   r = await api.remote.pair({ address: '127.0.0.1', port, code: wrong });

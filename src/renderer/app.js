@@ -2246,6 +2246,7 @@ function openSettings() {
 // Dieser PC als Haupt-PC (andere Geräte verbinden sich) bzw. Verbindung zu einem Haupt-PC. Im Fernzugriff
 // zeigt Swapline Chats und Konten des Haupt-PCs; Claude läuft dort.
 let remoteState = null, pairCode = null, remoteTimer = null;
+let pairQrUrl = null; // QR-Code (SVG vom Hauptprozess) für die Swapline-App auf dem Handy
 async function openRemote() {
   remoteState = await api.remote.info();
   modal('remote', _('Fernzugriff'), el('div', { id: 'remote-body' }));
@@ -2334,7 +2335,7 @@ function drawRemote() {
   const box = $('#remote-body'); if (!box || !remoteState) return;
   const r = remoteState, h = r.host;
   if (!r.available) return fill(box, el('p', { class: 'hint' }, _('Fernzugriff braucht den verschlüsselten Windows-Speicher – er ist auf diesem PC nicht verfügbar.')));
-  if (!h.pairingExpires) pairCode = null;
+  if (!h.pairingExpires) { pairCode = null; pairQrUrl = null; }
   const portIn = el('input', { type: 'number', min: '1024', max: '65535', value: String(h.port), style: 'width:100px' });
   const setHost = async enabled => { remoteState = await api.remote.hostSet({ enabled, port: Number(portIn.value) }); if (remoteState.error) toast(remoteState.error); drawRemote(); };
   const toggle = el('input', { type: 'checkbox', checked: h.enabled });
@@ -2351,8 +2352,9 @@ function drawRemote() {
     h.running ? (pairCode && left > 0
       ? el('div', {}, el('p', { class: 'hint' }, _('Auf dem anderen Gerät unter „Mit einem Haupt-PC verbinden“ eingeben (noch {s} s gültig, nur einmal):', { s: left })),
         el('div', { class: 'row' }, el('div', { class: 'pair-code' }, pairCode), el('button', { class: 'ghost', onclick: () => { api.copyText(pairCode); toast(_('Code kopiert')); } }, _('Kopieren')),
-          el('button', { class: 'ghost', onclick: async () => { await api.remote.pairCancel(); pairCode = null; remoteState = await api.remote.info(); drawRemote(); } }, _('Abbrechen'))))
-      : el('button', { class: 'primary', onclick: async () => { const p = await api.remote.pairStart(); if (p.error) return toast(p.error); pairCode = p.code; remoteState = await api.remote.info(); drawRemote(); } }, _('Gerät koppeln …'))) : null,
+          el('button', { class: 'ghost', onclick: async () => { await api.remote.pairCancel(); pairCode = null; pairQrUrl = null; remoteState = await api.remote.info(); drawRemote(); } }, _('Abbrechen'))),
+        pairQrUrl ? el('div', { class: 'pair-qr' }, el('img', { src: pairQrUrl, alt: _('QR-Code zum Koppeln') }), el('p', { class: 'hint' }, _('Oder mit der Swapline-App auf dem Handy scannen (Haupt-PC koppeln → QR-Code scannen).'))) : null)
+      : el('button', { class: 'primary', onclick: async () => { const p = await api.remote.pairStart(); if (p.error) return toast(p.error); pairCode = p.code; pairQrUrl = typeof p.qr === 'string' && p.qr.startsWith('data:image/svg+xml;base64,') ? p.qr : null; remoteState = await api.remote.info(); drawRemote(); } }, _('Gerät koppeln …'))) : null,
     ...h.devices.map(d => {
       const bypass = el('input', { type: 'checkbox', checked: d.allowBypass });
       bypass.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBypass: bypass.checked }); drawRemote(); };

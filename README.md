@@ -58,7 +58,7 @@ Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: P
 Ein PC mit Swapline kann **Haupt-PC** sein: Andere eigene Geräte mit Swapline verbinden sich und nutzen dessen Chats und Claude-Konten – Claude läuft dabei auf dem Haupt-PC, die Anmeldedaten bleiben dort. So geht's:
 
 1. **Haupt-PC:** Fernzugriff-Symbol links (Bildschirm) → **Fernzugriff einrichten …** → **Fernzugriff erlauben** (Port 47820, änderbar). Windows fragt beim ersten Mal, ob Swapline Verbindungen annehmen darf – für private Netzwerke erlauben.
-2. **Gerät koppeln …** zeigt einen Einmal-Code (5 Minuten gültig).
+2. **Gerät koppeln …** zeigt einen Einmal-Code (5 Minuten gültig) und dazu einen QR-Code für die Swapline-App auf dem Handy.
 3. **Anderes Gerät:** Fernzugriff einrichten → **Mit einem Haupt-PC verbinden** → Adresse, Port und Code eingeben. Am Haupt-PC das Koppeln bestätigen.
 4. Gekoppelte Haupt-PCs bleiben im Hintergrund verbunden und stehen links in der Leiste unter den Projekten. Ihre Chats laufen neben den eigenen: **Allgemein** zeigt alle Chats zusammen (Haupt-PC-Chats mit 🖥 markiert), ein Klick auf den Haupt-PC zeigt nur dessen Chats und Verlauf, **+** startet dort einen neuen Chat mit dessen Konten und Ordnern. Am Haupt-PC **offene Chats** erscheinen automatisch; wer einen davon öffnet, tritt dem laufenden Chat bei – beide PCs sehen dieselben Antworten und können abwechselnd schreiben.
 

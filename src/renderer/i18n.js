@@ -503,6 +503,8 @@ const EN = {
   'Projekt „{name}“ aus der Liste entfernen? Der Ordner auf dem Server bleibt erhalten.': 'Remove project “{name}” from the list? The folder on the server is kept.',
   'Projekt entfernen': 'Remove project',
   'Klicken: öffnen · erneut klicken: Projekte zuklappen': 'Click: open · click again: collapse projects',
+  'QR-Code zum Koppeln': 'QR code for pairing',
+  'Oder mit der Swapline-App auf dem Handy scannen (Haupt-PC koppeln → QR-Code scannen).': 'Or scan it with the Swapline app on your phone (Pair host PC → Scan QR code).',
   'Update ist nicht mehr verfügbar': 'The update is no longer available',
   'Version {v} ist verfügbar.': 'Version {v} is available.',
   'Version {v} verfügbar': 'Version {v} available',

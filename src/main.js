@@ -1362,7 +1362,23 @@ handle('remote:hostSet', async (_e, { enabled, port } = {}) => {
   pushRemoteStatus();
   return { ...remoteInfo(), error };
 });
-handle('remote:pairStart', () => (remoteHost?.running ? remoteHost.startPairing() : { error: tr('Fernzugriff ist aus', 'Remote access is off') }));
+// QR-Code zum Koppeln mit der Swapline-App auf dem Handy: swapline://pair?v=1&a=<Adressen>&p=<Port>&c=<Code>&n=<Name>.
+// Adressen im Heimnetz zuerst, Tailscale danach, virtuelle Adapter (WSL, Hyper-V …) zuletzt – das Handy probiert sie der Reihe nach.
+const VIRTUAL_NIC = /vEthernet|WSL|Hyper-V|VirtualBox|VMware|Loopback|Docker/i;
+function pairQr(code) {
+  const rank = a => (VIRTUAL_NIC.test(a.name) ? 2 : a.tailscale ? 1 : 0);
+  const addrs = remote.localAddresses().sort((x, y) => rank(x) - rank(y)).map(a => a.address).slice(0, 6);
+  const url = 'swapline://pair?v=1&a=' + addrs.join(',') + '&p=' + remoteHost.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(os.hostname().slice(0, 40));
+  const q = require('qrcode-generator')(0, 'M');
+  q.addData(url);
+  q.make();
+  return 'data:image/svg+xml;base64,' + Buffer.from(q.createSvgTag({ cellSize: 6, margin: 4, scalable: true })).toString('base64');
+}
+handle('remote:pairStart', () => {
+  if (!remoteHost?.running) return { error: tr('Fernzugriff ist aus', 'Remote access is off') };
+  const p = remoteHost.startPairing();
+  return { ...p, qr: pairQr(p.code) };
+});
 handle('remote:pairCancel', () => { remoteHost?.cancelPairing(); return true; });
 handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, scope } = {}) => {
   if (!getDevices().some(d => d.id === id)) return remoteInfo();
