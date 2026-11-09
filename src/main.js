@@ -24,6 +24,7 @@ function saveStore(s) {
   fs.mkdirSync(path.dirname(STORE_FILE), { recursive: true });
   fs.writeFileSync(STORE_FILE, JSON.stringify(s, null, 2));
 }
+const UPDATE_MODES = ['notify', 'auto', 'off']; // Nur benachrichtigen (Standard) / Automatisch / Aus
 function getStore() {
   let s = loadStore();
   if (!s) {
@@ -42,6 +43,10 @@ function getStore() {
   s.projects ||= [];
   s.activeProjectId ||= 'all';
   s.settings ||= { model: '', permissionMode: 'default', claudePath: '' };
+  // Updates: früher autoUpdate (an/aus, Standard an = automatisch laden). Neuer Standard „Nur benachrichtigen“;
+  // auch bisher „Automatisch“ wird darauf umgestellt, nur „Aus“ bleibt aus.
+  if (!UPDATE_MODES.includes(s.settings.updateMode)) s.settings.updateMode = s.settings.autoUpdate === false ? 'off' : 'notify';
+  delete s.settings.autoUpdate;
   return s;
 }
 function updateStore(fn) { const s = getStore(); fn(s); saveStore(s); return s; }
@@ -563,7 +568,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else if (k === 'sound' && SOUND.includes(v)) ok.sound = v;
     else if (k === 'toolView' && TOOLVIEW.includes(v)) ok.toolView = v;
     else if (k === 'notifyStay' && NOTIFYSTAY.includes(v)) ok.notifyStay = v;
-    else if (k === 'autoUpdate' && typeof v === 'boolean') ok.autoUpdate = v;
+    else if (k === 'updateMode' && UPDATE_MODES.includes(v)) ok.updateMode = v;
     else if (k === 'language' && LANGS.includes(v)) ok.language = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
@@ -572,7 +577,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else return reject(`Schlüssel/Wert nicht erlaubt: ${String(k).slice(0, 40)}`);
   }
   const r = updateStore(s => { Object.assign(s.settings, ok); });
-  if (ok.autoUpdate === true) checkForUpdates();
+  if (ok.updateMode) { applyUpdateMode(); if (ok.updateMode !== 'off') checkForUpdates(); }
   return r;
 });
 // claudePath nur über einen Datei-Dialog im Hauptprozess
@@ -761,7 +766,8 @@ ipcMain.handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
   if (!response || !['allow', 'deny'].includes(response.behavior)) return reject('ungültige Antwort');
   let out;
   if (response.behavior === 'deny') {
-    out = { behavior: 'deny', message: String(response.message || 'Abgelehnt.').slice(0, 500) };
+    // Claude liest den Text: Standard immer Englisch
+    out = { behavior: 'deny', message: String(response.message || 'Declined.').slice(0, 500) };
   } else {
     let input = req.input;
     if (req.toolName === 'AskUserQuestion') {
@@ -883,37 +889,49 @@ function openExternalSafe(url) {
 }
 
 // ---------- Automatische Updates (nur die installierte App) ----------
-// Prüft beim Start und alle 6 Stunden die GitHub-Releases von ARFEP-IT-Service/Swapline (latest.yml),
-// lädt eine neue Version im Hintergrund und installiert sie beim Neustart. In den Einstellungen abschaltbar.
+// Prüft beim Start und alle 6 Stunden die GitHub-Releases von ARFEP-IT-Service/Swapline (latest.yml).
+// Standard „Nur benachrichtigen“: zeigt „Version X verfügbar“, geladen und installiert wird erst auf Klick.
+// „Automatisch“: lädt im Hintergrund und installiert beim Neustart. „Aus“: prüft nur über „Jetzt prüfen“.
 // Das ist die einzige Netzverbindung, die Swapline selbst aufbaut (alles andere macht claude.exe).
 // Die ZIP-Variante und der Entwicklungsmodus aktualisieren sich nicht selbst.
 const UPDATE_SUPPORTED = app.isPackaged && process.platform === 'win32' && fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall Swapline.exe'));
 const UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
-let updater = null, updateState = { status: 'idle' };
+let updater = null, updateState = { status: 'idle' }, installAfterDownload = false;
+const updateMode = () => getStore().settings.updateMode;
+function applyUpdateMode() {
+  if (!updater) return;
+  const auto = updateMode() === 'auto';
+  updater.autoDownload = auto;
+  updater.autoInstallOnAppQuit = auto;
+}
 function setUpdateState(st) { updateState = st; if (win && !win.isDestroyed()) win.webContents.send('update:status', { ...st, supported: UPDATE_SUPPORTED }); }
 function initUpdater() {
   if (!UPDATE_SUPPORTED) return null;
   if (updater) return updater;
   try { updater = require('electron-updater').autoUpdater; } catch (e) { logError('Updater: ' + e.message); return null; }
-  updater.autoDownload = true;
-  updater.autoInstallOnAppQuit = true;
+  applyUpdateMode();
   updater.allowPrerelease = false;
   updater.allowDowngrade = false;
   updater.logger = null;
   updater.on('checking-for-update', () => { if (updateState.status !== 'ready') setUpdateState({ status: 'checking' }); });
-  updater.on('update-available', i => setUpdateState({ status: 'downloading', version: i.version, percent: 0 }));
+  updater.on('update-available', i => setUpdateState(updater.autoDownload ? { status: 'downloading', version: i.version, percent: 0 } : { status: 'available', version: i.version }));
   updater.on('update-not-available', () => setUpdateState({ status: 'latest', checked: Date.now() }));
   updater.on('download-progress', p => setUpdateState({ status: 'downloading', version: updateState.version, percent: Math.round(p.percent || 0) }));
-  updater.on('update-downloaded', i => setUpdateState({ status: 'ready', version: i.version }));
+  updater.on('update-downloaded', i => {
+    setUpdateState({ status: 'ready', version: i.version });
+    // „Herunterladen und installieren“ geklickt: direkt neu starten (laufende Antworten fragt das Schließen-Fenster ab)
+    if (installAfterDownload) { installAfterDownload = false; setImmediate(() => updater.quitAndInstall(true, true)); }
+  });
   updater.on('error', e => {
     logError('Updater: ' + (e?.stack || e));
+    installAfterDownload = false;
     if (updateState.status !== 'ready') setUpdateState({ status: 'error', error: String(e?.message || e).split('\n')[0].slice(0, 200) });
   });
   return updater;
 }
 function checkForUpdates(manual = false) {
-  if (!manual && getStore().settings.autoUpdate === false) return false;
-  if (updateState.status === 'ready' || updateState.status === 'downloading') return true;
+  if (!manual && updateMode() === 'off') return false;
+  if (['ready', 'downloading', 'available'].includes(updateState.status)) return true;
   const u = initUpdater();
   if (!u) return false;
   u.checkForUpdates().catch(() => {}); // Fehler kommen über das 'error'-Ereignis
@@ -921,10 +939,15 @@ function checkForUpdates(manual = false) {
 }
 ipcMain.handle('update:state', () => ({ ...updateState, supported: UPDATE_SUPPORTED }));
 ipcMain.handle('update:check', () => checkForUpdates(true));
-// Neu starten und installieren – läuft noch eine Antwort, fragt das Schließen-Fenster nach
+// Installieren: ist das Update schon geladen, sofort neu starten; sonst erst laden, dann neu starten.
+// Läuft noch eine Antwort, fragt das Schließen-Fenster nach.
 ipcMain.handle('update:install', () => {
-  if (updateState.status !== 'ready' || !updater) return false;
-  setImmediate(() => updater.quitAndInstall(true, true));
+  if (!updater) return false;
+  if (updateState.status === 'ready') { setImmediate(() => updater.quitAndInstall(true, true)); return true; }
+  if (updateState.status !== 'available') return false;
+  installAfterDownload = true;
+  setUpdateState({ status: 'downloading', version: updateState.version, percent: 0 });
+  updater.downloadUpdate().catch(() => {}); // Fehler kommen über das 'error'-Ereignis
   return true;
 });
 

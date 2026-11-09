@@ -343,7 +343,6 @@ const EN = {
   'Bild ist größer als 5 MB': 'Image is larger than 5 MB',
   'Siehe angehängtes Bild.': 'See attached image.',
   'Siehe angehängte Datei.': 'See attached file.',
-  'Angehängte Dateien:': 'Attached files:',
 
   // ---------- Neuer Chat ----------
   'Mit welchem Konto?': 'Which account?',
@@ -356,7 +355,7 @@ const EN = {
   'im Benutzerordner': 'in your home folder',
 
   // ---------- Updates ----------
-  'Automatische Updates gibt es nur in der installierten App (SWAP-Installer.exe).': 'Automatic updates are only available in the installed app (SWAP-Installer.exe).',
+  'Automatische Updates gibt es nur in der installierten App (Swapline-Setup-<Version>.exe).': 'Automatic updates are only available in the installed app (Swapline-Setup-<version>.exe).',
   'Noch nicht geprüft.': 'Not checked yet.',
   'Suche nach Updates …': 'Checking for updates …',
   'Lade Version {v} … {p} %': 'Downloading version {v} … {p}%',
@@ -369,6 +368,12 @@ const EN = {
   'Später – wird beim nächsten Beenden installiert': 'Later – will be installed the next time you quit',
   'Claude arbeitet noch. Trotzdem neu starten und das Update installieren?': 'Claude is still working. Restart and install the update anyway?',
   'Update ist nicht mehr verfügbar': 'The update is no longer available',
+  'Version {v} ist verfügbar.': 'Version {v} is available.',
+  'Version {v} verfügbar': 'Version {v} available',
+  'Herunterladen und installieren': 'Download and install',
+  'Später': 'Later',
+  'Update wird geladen – Swapline startet danach neu': 'Downloading the update – Swapline will restart afterwards',
+  'Nur benachrichtigen (Standard)': 'Notify only (default)',
 
   // ---------- Erweiterungen ----------
   'Erweiterungen': 'Extensions',

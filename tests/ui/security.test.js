@@ -28,7 +28,11 @@
   check('settings:set fremder Schlüssel abgelehnt', !!(await api.setSettings({ evil: 1 })).rejected);
   check('settings:set claudePath nur per Dialog', !!(await api.setSettings({ claudePath: win })).rejected);
   check('settings:set bypassAcknowledged nicht setzbar', !!(await api.setSettings({ bypassAcknowledged: true })).rejected);
-  check('settings:set autoUpdate nur true/false', !!(await api.setSettings({ autoUpdate: 'yes' })).rejected);
+  check('settings:set updateMode nur notify/auto/off', !!(await api.setSettings({ updateMode: 'yes' })).rejected);
+  check('settings:set alter Schlüssel autoUpdate abgelehnt', !!(await api.setSettings({ autoUpdate: true })).rejected);
+  const um = await api.setSettings({ updateMode: 'auto' });
+  check('settings:set updateMode auto angenommen (Gegenprobe)', !um.rejected && um.settings.updateMode === 'auto');
+  await api.setSettings({ updateMode: 'notify' });
   check('Update installieren ohne fertiges Update abgelehnt', (await api.update.install()) === false);
   check('settings:set gültiger Wert übernommen (Gegenprobe)', !(await api.setSettings({ theme: 'dark' })).rejected);
   check('settings:set language nur auto/de/en', !!(await api.setSettings({ language: 'fr' })).rejected);

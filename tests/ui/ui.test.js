@@ -73,6 +73,34 @@
   check('Suche findet Chat über Nachrichtentext', [...document.querySelectorAll('#list .item .title')].some(e => e.textContent === 'Neuer Name s'));
   $('#search').value = ''; renderList();
 
+  // Feste Antworttexte an Claude: immer Englisch, auch bei deutscher Oberfläche
+  const sentToClaude = [];
+  const origRespond = claudeRespond, origSend = claudeSend;
+  claudeRespond = (_t, id, resp) => { sentToClaude.push(resp); return Promise.resolve(true); };
+  claudeSend = (_t, content) => { sentToClaude.push(content); return Promise.resolve(true); };
+  const tc = makeTab({ title: 'Antworttexte' }); tabs.push(tc); await openTab(tc.id);
+  const card = (tool, input) => { ingest(tc, { type: 'control_request', request_id: 'r' + sentToClaude.length + tool, request: { subtype: 'can_use_tool', tool_name: tool, input } }); return [...document.querySelectorAll('#messages .card')].at(-1); };
+  [...card('Bash', { command: 'ls' }).querySelectorAll('button')].at(-1).click();
+  [...card('ExitPlanMode', { plan: 'P' }).querySelectorAll('button')].at(-1).click();
+  const pc = card('ExitPlanMode', { plan: 'P2' }); pc.querySelector('textarea').value = 'kürzer bitte'; pc.querySelectorAll('button')[1].click();
+  [...card('AskUserQuestion', { questions: [{ question: 'Q?', options: [{ label: 'A' }] }] }).querySelectorAll('button')].at(-1).click();
+  check('Antworttexte an Claude auf Englisch (Ablehnen, Plan ablehnen/überarbeiten, Frage überspringen)',
+    JSON.stringify(sentToClaude.map(r => r.message)) === JSON.stringify(['The user declined this action.', 'The user rejected the plan.', 'Please revise the plan: kürzer bitte', 'The user does not want to answer the question.']),
+    JSON.stringify(sentToClaude.map(r => r.message)));
+  check('Oberfläche zeigt dazu deutsche Texte', /Abgelehnt/.test($('#messages').textContent) && /Übersprungen/.test($('#messages').textContent));
+  status[tc.profileId] = { loggedIn: true };
+  sentToClaude.length = 0;
+  attachments = [{ kind: 'image', name: 'a.png', media: 'image/png', data: 'iVBORw0KGgo=' }, { kind: 'file', name: 'b.txt', path: 'C:\\x\\b.txt', size: 1 }];
+  $('#input').value = ''; await sendMessage();
+  const sentText = sentToClaude[0]?.find?.(b => b.type === 'text')?.text || '';
+  check('Platzhalter bei Anhängen an Claude auf Englisch', sentText.startsWith('See attached image.') && sentText.includes('Attached files:'), sentText);
+  check('Sprechblase zeigt Platzhalter übersetzt', tc.items.at(-1).text === 'Siehe angehängtes Bild.', tc.items.at(-1).text);
+  claudeRespond = origRespond; claudeSend = origSend; tc.running = false;
+  tabs.splice(tabs.indexOf(tc), 1); delete status[tc.profileId];
+
+  // Updates: neuer Standard „Nur benachrichtigen“, alte Einstellung „Automatisch“ wurde umgestellt
+  check('Update-Standard: alte Einstellung autoUpdate → „Nur benachrichtigen“', store.settings.updateMode === 'notify' && !('autoUpdate' in store.settings), JSON.stringify(store.settings));
+
   // Einstellungen und Erweiterungen öffnen
   openSettings();
   check('Einstellungen öffnen', !!$('.modal.settings'));
@@ -81,6 +109,12 @@
   check('Update bereit: Hinweis und Neustart-Knopf', /9.9.9/.test($('#update-banner')?.textContent || '') && !$('#update-restart').hidden);
   $('#update-banner button.ghost').click();
   check('Update-Hinweis lässt sich wegklicken', !$('#update-banner'));
+  const modeSel = [...document.querySelectorAll('.modal.settings select')].find(s => s.querySelector('option[value="notify"]'));
+  check('Einstellung Updates: Nur benachrichtigen (Standard) / Automatisch / Aus', !!modeSel && [...modeSel.options].map(o => o.value).join() === 'notify,auto,off' && modeSel.value === 'notify');
+  showUpdate({ status: 'available', version: '9.9.8', supported: true });
+  check('Update verfügbar: Hinweis mit „Herunterladen und installieren“', /Version 9\.9\.8 verfügbar/.test($('#update-banner')?.textContent || '') && /Herunterladen und installieren/.test($('#update-banner button.primary')?.textContent || '') && $('#update-restart').textContent === 'Herunterladen und installieren');
+  showUpdate({ status: 'latest', supported: true });
+  check('Kein Hinweis, wenn aktuell', !$('#update-banner') && $('#update-restart').hidden);
   $('#modal-root').replaceChildren();
 
   // Sprache: Englisch (feste Texte aus index.html, Einstellungen, Platzhalter) und zurück

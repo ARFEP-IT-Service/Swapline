@@ -72,7 +72,7 @@ for (const file of files) {
     profiles: [{ id: 'test', name: 'Testkonto', color: '#1581FF', configDir }], activeProfileId: 'test',
     favorites: [], usage: {}, projects: [], activeProjectId: 'all', costFixV1: true, knownFoldersSeeded: true, knownFolders: [work],
     // language: 'de' – die Prüfungen erwarten deutsche Texte, auch auf Rechnern mit englischem System
-    settings: { model: '', permissionMode: 'default', claudePath: '', theme: 'system', notify: 'off', sound: 'off', language: 'de' },
+    settings: { model: '', permissionMode: 'default', claudePath: '', theme: 'system', notify: 'off', sound: 'off', autoUpdate: true, language: 'de' },
   }));
   // kleines Bild außerhalb des App-Ordners: die Oberfläche darf es nicht laden
   fs.writeFileSync(path.join(work, 'probe.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));

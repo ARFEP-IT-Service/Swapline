@@ -901,14 +901,17 @@ function renderPerm(t, it) {
     el('button', { class: 'ghost danger', onclick: () => answerPerm(t, it, 'deny') }, _('Ablehnen'))));
   return card;
 }
+// Antworten und Nachrichten an Claude laufen über diese beiden Funktionen (Tests können sie abfangen)
+function claudeRespond(t, requestId, resp) { return api.session.respond(t.id, requestId, resp); }
+function claudeSend(t, content) { return api.session.send(plainTab(t), content); }
 function answerPerm(t, it, how) {
   if (how === 'deny') {
-    api.session.respond(t.id, it.requestId, { behavior: 'deny', message: 'Der Nutzer hat diese Aktion abgelehnt.' });
+    claudeRespond(t, it.requestId, { behavior: 'deny', message: CLAUDE_TEXT.denied });
     it.answered = _('✕ Abgelehnt');
   } else {
     const resp = { behavior: 'allow', updatedInput: it.input };
     if (how === 'always' && it.suggestions) resp.updatedPermissions = it.suggestions;
-    api.session.respond(t.id, it.requestId, resp);
+    claudeRespond(t, it.requestId, resp);
     it.answered = how === 'always' ? _('✓ Immer erlaubt') : _('✓ Erlaubt');
   }
   refreshItem(t, it);
@@ -923,15 +926,15 @@ function renderPlan(t, it) {
   if (it.answered) { card.append(el('div', { class: 'muted', style: 'margin-top:8px' }, it.answered)); return card; }
   const feedback = el('textarea', { class: 'plan-feedback', rows: '2', placeholder: _('Optional: Was soll Claude am Plan ändern?') });
   const answer = (resp, label, mode) => {
-    api.session.respond(t.id, it.requestId, resp);
+    claudeRespond(t, it.requestId, resp);
     it.answered = label;
     if (mode) { t.permissionMode = mode; saveTabs(); renderChatChip(t); }
     refreshItem(t, it);
   };
   card.append(feedback, el('div', { class: 'actions', style: 'margin-top:10px' },
     el('button', { class: 'primary', onclick: () => answer({ behavior: 'allow', updatedInput: it.input }, _('✓ Plan angenommen – Claude setzt ihn um (Berechtigungen: Nachfragen)'), 'default') }, _('Plan annehmen')),
-    el('button', { class: 'ghost', onclick: () => { if (!feedback.value.trim()) return feedback.focus(); answer({ behavior: 'deny', message: 'Bitte überarbeite den Plan: ' + feedback.value.trim() }, _('✎ Überarbeitung gewünscht: {text}', { text: feedback.value.trim() })); } }, _('Überarbeiten lassen')),
-    el('button', { class: 'ghost danger', onclick: () => answer({ behavior: 'deny', message: 'Der Nutzer hat den Plan abgelehnt.' }, _('✕ Plan abgelehnt')) }, _('Ablehnen'))));
+    el('button', { class: 'ghost', onclick: () => { if (!feedback.value.trim()) return feedback.focus(); answer({ behavior: 'deny', message: CLAUDE_TEXT.planRevise + feedback.value.trim() }, _('✎ Überarbeitung gewünscht: {text}', { text: feedback.value.trim() })); } }, _('Überarbeiten lassen')),
+    el('button', { class: 'ghost danger', onclick: () => answer({ behavior: 'deny', message: CLAUDE_TEXT.planRejected }, _('✕ Plan abgelehnt')) }, _('Ablehnen'))));
   return card;
 }
 function renderQuestion(t, it) {
@@ -956,12 +959,12 @@ function renderQuestion(t, it) {
     el('button', { class: 'primary', onclick: () => {
       const out = {};
       for (const [k, v] of Object.entries(answers)) out[k] = Array.isArray(v) ? v.join(', ') : v;
-      api.session.respond(t.id, it.requestId, { behavior: 'allow', updatedInput: { ...it.input, answers: out } });
+      claudeRespond(t, it.requestId, { behavior: 'allow', updatedInput: { ...it.input, answers: out } });
       it.answered = Object.entries(out).map(([k, v]) => `${k} → ${v}`).join('\n');
       refreshItem(t, it);
     } }, _('Antworten')),
     el('button', { class: 'ghost danger', onclick: () => {
-      api.session.respond(t.id, it.requestId, { behavior: 'deny', message: 'Der Nutzer möchte die Frage nicht beantworten.' });
+      claudeRespond(t, it.requestId, { behavior: 'deny', message: CLAUDE_TEXT.questionSkipped });
       it.answered = _('✕ Übersprungen'); refreshItem(t, it);
     } }, _('Überspringen'))));
   return card;
@@ -973,6 +976,17 @@ function textOf(content) {
   if (Array.isArray(content)) return content.map(c => c.type === 'text' ? c.text : c.type === 'image' ? _('[Bild]') : '').join('\n');
   return '';
 }
+// Feste Texte, die Claude liest (Antworten auf Rückfragen, Platzhalter bei Anhängen): immer Englisch,
+// unabhängig von der Sprache der Oberfläche – die Oberfläche zeigt ihre eigenen, übersetzten Texte.
+const CLAUDE_TEXT = {
+  denied: 'The user declined this action.',
+  planRevise: 'Please revise the plan: ',
+  planRejected: 'The user rejected the plan.',
+  questionSkipped: 'The user does not want to answer the question.',
+  seeImage: 'See attached image.',
+  seeFile: 'See attached file.',
+  attachedFiles: 'Attached files:',
+};
 const hiddenUserText = s => !s || /^\s*<(command-|local-command|system-reminder|bash-|user-memory|task-notification)/.test(s) || s.startsWith('[Request interrupted');
 
 function ingest(t, m, fromHistory = false) {
@@ -1222,13 +1236,15 @@ api.onEvent(({ tabId, msg }) => {
 });
 // Klick auf eine Windows-Benachrichtigung: passenden Chat öffnen
 // ---------- Updates ----------
-// Hinweis unten links, sobald eine neue Version geladen ist; Details und Schalter in den Einstellungen
+// Hinweis unten links, sobald eine neue Version verfügbar (bzw. im Modus „Automatisch“ geladen) ist;
+// Details und Schalter in den Einstellungen
 let updateInfo = { status: 'idle' }, updateDismissed = '';
 function updateText(st = updateInfo) {
-  if (!st.supported) return _('Automatische Updates gibt es nur in der installierten App (SWAP-Installer.exe).');
+  if (!st.supported) return _('Automatische Updates gibt es nur in der installierten App (Swapline-Setup-<Version>.exe).');
   return {
     idle: _('Noch nicht geprüft.'), checking: _('Suche nach Updates …'),
     downloading: _('Lade Version {v} … {p} %', { v: st.version || '', p: st.percent || 0 }),
+    available: _('Version {v} ist verfügbar.', { v: st.version }),
     ready: _('Version {v} ist bereit – wird beim Neustart installiert.', { v: st.version }),
     latest: _('Swapline ist aktuell ({v}).', { v: VERSION }),
     error: _('Update-Prüfung fehlgeschlagen: {e}', { e: st.error || _('unbekannter Fehler') }),
@@ -1237,17 +1253,19 @@ function updateText(st = updateInfo) {
 function showUpdate(st) {
   updateInfo = st;
   const info = $('#update-info'); if (info) info.textContent = updateText(st);
-  const btn = $('#update-restart'); if (btn) btn.hidden = st.status !== 'ready';
+  const ready = st.status === 'ready', avail = st.status === 'available';
+  const btn = $('#update-restart'); if (btn) { btn.hidden = !(ready || avail); btn.textContent = ready ? _('Neu starten') : _('Herunterladen und installieren'); }
   $('#update-banner')?.remove();
-  if (st.status !== 'ready' || updateDismissed === st.version) return;
+  if (!(ready || avail) || updateDismissed === st.version) return;
   document.body.append(el('div', { id: 'update-banner' },
-    el('span', {}, el('b', {}, `Swapline ${st.version}`), ' ' + _('ist bereit')),
-    el('button', { class: 'primary', onclick: installUpdate }, _('Neu starten')),
-    el('button', { class: 'ghost', title: _('Später – wird beim nächsten Beenden installiert'), onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); } }, icon(ICONS.x))));
+    el('span', {}, avail ? _('Version {v} verfügbar', { v: st.version }) : el('span', {}, el('b', {}, `Swapline ${st.version}`), ' ' + _('ist bereit'))),
+    el('button', { class: 'primary', onclick: installUpdate }, ready ? _('Neu starten') : _('Herunterladen und installieren')),
+    el('button', { class: 'ghost', title: ready ? _('Später – wird beim nächsten Beenden installiert') : _('Später'), onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); } }, icon(ICONS.x))));
 }
 async function installUpdate() {
   if (tabs.some(t => t.running || bgRunning(t)) && !confirm(_('Claude arbeitet noch. Trotzdem neu starten und das Update installieren?'))) return;
   if (!(await api.update.install())) toast(_('Update ist nicht mehr verfügbar'));
+  else if (updateInfo.status === 'available') toast(_('Update wird geladen – Swapline startet danach neu'));
 }
 api.update.onStatus(showUpdate);
 api.update.state().then(showUpdate);
@@ -1371,8 +1389,10 @@ async function sendMessage() {
   // Anhänge: Bilder als Bild-Blöcke, Dateien als Pfadliste im Text (Claude liest sie selbst)
   const imgs = attachments.filter(a => a.kind === 'image'), files = attachments.filter(a => a.kind === 'file');
   attachments = []; renderAttachments();
+  // ohne eigenen Text: Claude bekommt einen englischen Platzhalter, die Sprechblase zeigt ihn übersetzt
+  const sent = text || (imgs.length ? CLAUDE_TEXT.seeImage : CLAUDE_TEXT.seeFile);
   if (!text) text = imgs.length ? _('Siehe angehängtes Bild.') : _('Siehe angehängte Datei.');
-  const fullText = files.length ? text + '\n\n' + _('Angehängte Dateien:') + '\n' + files.map(f => '- ' + f.path).join('\n') : text;
+  const fullText = files.length ? sent + '\n\n' + CLAUDE_TEXT.attachedFiles + '\n' + files.map(f => '- ' + f.path).join('\n') : sent;
   const content = imgs.length ? [...imgs.map(a => ({ type: 'image', source: { type: 'base64', media_type: a.media, data: a.data } })), { type: 'text', text: fullText }] : fullText;
   input.value = ''; autosize();
   if (!t.title) t.title = text.replace(/\s+/g, ' ').slice(0, 60);
@@ -1382,7 +1402,7 @@ async function sendMessage() {
   t.running = true; setTyping(t); updateComposer();
   saveTabs(); renderList();
   $('#ch-title').textContent = t.title;
-  await api.session.send(plainTab(t), content);
+  await claudeSend(t, content);
 }
 const plainTab = t => ({ id: t.id, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode });
 
@@ -1700,12 +1720,13 @@ function openSettings() {
     el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Pfad zu Claude Code (claude.exe)')), path),
     el('div', { class: 'row' },
       el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, _('Updates')), (() => {
-        const e = el('select', { disabled: !updateInfo.supported }, el('option', { value: 'on', selected: s.autoUpdate !== false }, _('Automatisch laden und beim Neustart installieren')), el('option', { value: 'off', selected: s.autoUpdate === false }, _('Aus')));
-        e.addEventListener('change', async () => { store = await api.setSettings({ autoUpdate: e.value === 'on' }); });
+        const mode = s.updateMode || 'notify';
+        const e = el('select', { disabled: !updateInfo.supported }, [['notify', _('Nur benachrichtigen (Standard)')], ['auto', _('Automatisch laden und beim Neustart installieren')], ['off', _('Aus')]].map(([v, l]) => el('option', { value: v, selected: mode === v }, l)));
+        e.addEventListener('change', async () => { store = await api.setSettings({ updateMode: e.value }); });
         return e;
       })()),
       el('button', { class: 'ghost', style: 'align-self:flex-end', disabled: !updateInfo.supported, onclick: () => api.update.check() }, _('Jetzt prüfen')),
-      el('button', { id: 'update-restart', class: 'primary', style: 'align-self:flex-end', hidden: updateInfo.status !== 'ready', onclick: installUpdate }, _('Neu starten'))),
+      el('button', { id: 'update-restart', class: 'primary', style: 'align-self:flex-end', hidden: !['ready', 'available'].includes(updateInfo.status), onclick: installUpdate }, updateInfo.status === 'ready' ? _('Neu starten') : _('Herunterladen und installieren'))),
     el('p', { class: 'hint', id: 'update-info' }, updateText()),
     el('p', { class: 'hint' }, _('Swapline fragt dazu nur bei GitHub (github.com/ARFEP-IT-Service/Swapline) nach neuen Versionen – ohne Konto- oder Nutzungsdaten.')),
     el('div', { class: 'about' },
