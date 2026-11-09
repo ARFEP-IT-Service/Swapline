@@ -88,14 +88,14 @@ SWAPLINE_PROFILE=test npm start
 | `src/renderer/i18n.js` | Übersetzungen (Deutsch ist Quelltext, Englisch als Wörterbuch) |
 | `tests/` | Testlauf (`tests/run.js`) und Testdateien (`tests/ui/*.test.js`) |
 | `tools/` | Lizenzsammlung, Bundle-Prüfung, Release-Hilfen |
-| `.github/workflows/` | CI (Tests + Build) und Release (Build, Prüfsummen, Release-Entwurf) |
+| `.github/workflows/` | CI (Tests + Build) und Release (Tests, Build, Prüfsummen, Veröffentlichung) |
 | `src/renderer/assets/swapline.ico`, `.svg` | App-Icon (exe, Fenster, Taskleiste, Benachrichtigungen, README) |
 
 Wie man mitmacht: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Versionen
 
-Swapline folgt [Semantic Versioning](https://semver.org/lang/de/) (MAJOR.MINOR.PATCH). Die Nummer steht nur in `package.json`; Änderungen je Version in [CHANGELOG.md](CHANGELOG.md). Ein Tag `vX.Y.Z` baut über GitHub Actions einen Release-Entwurf; installierte Apps sehen das Update erst, wenn der Entwurf veröffentlicht ist.
+Swapline folgt [Semantic Versioning](https://semver.org/lang/de/) (MAJOR.MINOR.PATCH). Die Nummer steht nur in `package.json`; Änderungen je Version in [CHANGELOG.md](CHANGELOG.md). Ein Tag `vX.Y.Z` baut über GitHub Actions einen Release und veröffentlicht ihn selbst, sobald Tests und Build bestanden sind: Versionen ohne Zusatz (z. B. 0.1.2) als „Latest“ – installierte Apps bekommen das Update –, Versionen mit Zusatz (z. B. 0.2.0-beta.1) als Pre-release, die installierte Apps nicht anbieten. Schlägt ein Schritt fehl, entsteht kein Release.
 
 ## Lizenz
 

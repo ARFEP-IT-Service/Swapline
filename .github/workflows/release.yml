@@ -1,16 +1,19 @@
 name: Release
 
-# Builds a release for a version tag (v0.1.0, v0.2.0 …) and creates a DRAFT release on GitHub with
-# Swapline-Setup-<version>.exe, the ZIP, latest.yml (for the in-app auto-update) and SHA-256 checksums.
-# Nothing reaches users until the draft is published by hand: the auto-update only sees published releases.
-# The builds are not code-signed.
+# Builds and PUBLISHES a release for a version tag (v0.1.2, v0.2.0-beta.1 …) with Swapline-Setup-<version>.exe,
+# the ZIP, latest.yml (update info) and SHA-256 checksums.
+#   - version without suffix (0.1.2)        → normal release, marked "Latest" → installed apps get the update
+#   - version with suffix (0.2.0-beta.1)    → pre-release, not "Latest"     → installed apps ignore it
+#     (they read latest.yml only from the release marked "Latest")
+# The release is only created after tests, version check and build have passed; if any step fails,
+# the workflow is red and nothing is published. The builds are not code-signed.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
+  workflow_dispatch:   # builds and uploads the artifact only; publishing needs a tag
 
 permissions:
-  contents: write   # create the draft release
+  contents: write   # create the release
 
 jobs:
   windows:
@@ -60,14 +63,23 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create draft release
+      # gh uploads all files first and publishes the release only when every upload has succeeded
+      - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
           node tools/release-notes.js $env:GITHUB_REF_NAME > dist/notes.md
-          $zip = (Get-ChildItem dist/Swapline-*-windows.zip).FullName
-          $setup = (Get-ChildItem dist/Swapline-Setup-*.exe).FullName
-          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --title "Swapline $env:GITHUB_REF_NAME" --notes-file dist/notes.md `
-            $setup $zip dist/latest.yml dist/SHA256SUMS.txt
+          $files = @(
+            (Get-ChildItem dist/Swapline-Setup-*.exe).FullName
+            (Get-ChildItem dist/Swapline-*-windows.zip).FullName
+            'dist/latest.yml'
+            'dist/SHA256SUMS.txt'
+          )
+          if ($v -match '-') { $kind = @('--prerelease', '--latest=false'); $label = 'pre-release' }
+          else { $kind = @('--latest'); $label = 'release (Latest)' }
+          gh release create $env:GITHUB_REF_NAME --verify-tag --title "Swapline $env:GITHUB_REF_NAME" --notes-file dist/notes.md @kind @files
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
+          "Published $env:GITHUB_REF_NAME as $label with: $($files | ForEach-Object { Split-Path $_ -Leaf })" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY

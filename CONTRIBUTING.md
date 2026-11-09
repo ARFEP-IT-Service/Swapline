@@ -61,9 +61,17 @@ Nur eine Datei laufen lassen: `npm test -- security`.
 ## Versionen und Releases
 
 [Semantic Versioning](https://semver.org/lang/de/). Die Version steht nur in `package.json`, Änderungen in
-`CHANGELOG.md`. Ein Release entsteht durch einen Tag `vX.Y.Z` (muss zu `package.json` passen): Der Workflow
-`release.yml` baut (ohne Code-Signierung), erzeugt Prüfsummen und
-legt einen **Entwurf** auf GitHub an. Erst nach dem Veröffentlichen des Entwurfs sehen installierte Apps das Update.
+`CHANGELOG.md`. Ein Release entsteht durch einen Tag `vX.Y.Z`, der zu `package.json` passen muss. Der Workflow
+`release.yml` testet, baut (ohne Code-Signierung), erzeugt Prüfsummen und **veröffentlicht den Release selbst**:
+
+| Version | Release auf GitHub | Installierte Apps |
+|---|---|---|
+| ohne Zusatz, z. B. `0.1.2` | normaler Release, als „Latest“ markiert | bekommen das Update angeboten |
+| mit Zusatz, z. B. `0.2.0-beta.1` | Pre-release, nicht „Latest“ | bekommen es nicht angeboten |
+
+Schlägt ein Test, die Versionsprüfung oder der Build fehl, ist der Workflow rot und es entsteht kein Release.
+Vor dem Tag deshalb die Version in `package.json` und den Abschnitt in `CHANGELOG.md` setzen – er wird zur
+Release-Beschreibung.
 
 ## Lizenz
 

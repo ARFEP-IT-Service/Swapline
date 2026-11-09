@@ -21,16 +21,20 @@ for (const p of listed) if (!bundled.has(p)) errors.push(`Lizenzeintrag, aber ni
 for (const f of ['Swapline.exe', 'ffmpeg.dll', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses/FFmpeg-LGPL-2.1.txt', 'licenses/Chromium-LICENSES.chromium.html']) {
   if (!fs.existsSync(path.join(unpacked, f))) errors.push(`fehlt im Build: ${f}`);
 }
-// Installer heißt Swapline-Setup-<Version>.exe, latest.yml (Auto-Update) verweist genau darauf
+// Installer heißt Swapline-Setup-<Version>.exe, latest.yml (Auto-Update) verweist genau darauf.
+// electron-builder schreibt latest.yml auch bei Vorabversionen (0.2.0-beta.1); installierte Apps lesen sie nur
+// aus dem Release, das auf GitHub als „Latest“ markiert ist – Vorabversionen sind das nie.
 const version = require(path.join(root, 'package.json')).version;
 const setup = `Swapline-Setup-${version}.exe`;
+const channelFile = 'latest.yml';
+const esc = s => s.replace(/[.+-]/g, '\\$&');
 if (!fs.existsSync(path.join(root, 'dist', setup))) errors.push(`fehlt im Build: dist/${setup}`);
 try {
-  const yml = fs.readFileSync(path.join(root, 'dist', 'latest.yml'), 'utf8');
-  if (!new RegExp(`^path: ${setup.replace(/\./g, '\\.')}$`, 'm').test(yml) || !yml.includes(`url: ${setup}`)) errors.push(`latest.yml verweist nicht auf ${setup}`);
-  if (!new RegExp(`^version: ${version.replace(/\./g, '\\.')}$`, 'm').test(yml)) errors.push(`latest.yml hat nicht die Version ${version}`);
-} catch { errors.push('fehlt im Build: dist/latest.yml'); }
+  const yml = fs.readFileSync(path.join(root, 'dist', channelFile), 'utf8');
+  if (!new RegExp(`^path: ${esc(setup)}$`, 'm').test(yml) || !yml.includes(`url: ${setup}`)) errors.push(`${channelFile} verweist nicht auf ${setup}`);
+  if (!new RegExp(`^version: ${esc(version)}$`, 'm').test(yml)) errors.push(`${channelFile} hat nicht die Version ${version}`);
+} catch { errors.push(`fehlt im Build: dist/${channelFile}`); }
 if (fs.existsSync(path.join(root, 'dist', 'SWAP-Installer.exe'))) errors.push('alter Installername dist/SWAP-Installer.exe liegt noch im Build');
 if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
-console.log(`Installer ok: dist/${setup}, latest.yml verweist darauf`);
+console.log(`Installer ok: dist/${setup}, ${channelFile} verweist darauf`);
 console.log(`Bundle ok: ${bundled.size} npm-Pakete gebündelt = ${listed.size} mit Lizenz (${[...bundled].join(', ')})`);
