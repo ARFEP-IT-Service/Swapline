@@ -43,6 +43,8 @@ function createRelay({ secret, maxHosts = 50, maxPipesPerHost = 20, log = () => 
     let buf = Buffer.alloc(0);
     const onData = chunk => {
       buf = Buffer.concat([buf, chunk]);
+      // TLS statt Anmeldung (0x16 = Handshake): jemand hat den Vermittler wie einen Haupt-PC angesprochen
+      if (buf[0] === 0x16) { s.off('data', onData); return cb(null, 'tls'); }
       const i = buf.indexOf(10);
       if (i < 0) { if (buf.length > MAX_LINE) s.destroy(); return; }
       s.off('data', onData);
@@ -64,8 +66,9 @@ function createRelay({ secret, maxHosts = 50, maxPipesPerHost = 20, log = () => 
     const nonce = crypto.randomBytes(16).toString('hex');
     const timer = setTimeout(() => s.destroy(), AUTH_TIMEOUT);
     send(s, { t: 'hello', v: 1, nonce });
-    firstLine(s, m => {
+    firstLine(s, (m, kind) => {
       clearTimeout(timer);
+      if (kind === 'tls') return fail(s, ip, 'verschlüsselte Verbindung statt Anmeldung – vermutlich wurde in Swapline die Adresse des Vermittlers als Haupt-PC eingetragen (richtig: Kopplungslink vom Haupt-PC)');
       if (!m) return fail(s, ip, 'ungültige Anmeldung');
       if (m.t === 'host') return onHost(s, ip, nonce, m);
       if (m.t === 'accept') return onAccept(s, ip, nonce, m);

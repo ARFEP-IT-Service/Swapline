@@ -3,6 +3,14 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC und der Android-App.
 Tags: `relay-v<Version>`.
 
+## [0.2.1] – 2026-11-09
+
+- Neu: Knopf **„Nach Updates suchen“** oben rechts – prüft sofort und meldet auch „ist aktuell“.
+- Behoben: Das Fenster zeigte „Gestoppt“ und keine angemeldeten Swapline-PCs, obwohl der Dienst lief – Windows verweigert
+  die Abfrage eines Prozesses unter „Lokaler Dienst“, das wurde als „läuft nicht“ gewertet.
+- Protokoll: Spricht jemand den Vermittler wie einen Haupt-PC an (Adresse des Vermittlers in Swapline unter „Mit einem
+  Haupt-PC verbinden“ eingetragen), steht jetzt ein verständlicher Hinweis statt „ungültige Anmeldung“.
+
 ## [0.2.0] – 2026-11-09
 
 - Neu: **Eingebautes Update** – die App sucht beim Öffnen und alle 6 Stunden nach einer neuen Version. „Jetzt

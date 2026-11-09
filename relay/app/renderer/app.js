@@ -118,17 +118,27 @@ async function refresh(force) {
   logText = await window.relay.log(); render();
   setInterval(() => refresh(false), 3000);
   setInterval(async () => { logText = await window.relay.log(); if (document.activeElement?.tagName !== 'INPUT') render(); }, 10000);
+  const cu = $('#check-update');
+  cu.textContent = tr('Nach Updates suchen', 'Check for updates');
+  cu.onclick = () => checkUpdate(true);
   checkUpdate();
   setInterval(checkUpdate, 6 * 3600e3);
 })();
 
 // Update: Banner oben rechts; Klick lädt, prüft und installiert (ohne Setup im Release: Release-Seite öffnen)
 let installing = false;
-async function checkUpdate() {
+async function checkUpdate(manual) {
   if (installing) return;
+  const cu = $('#check-update');
+  if (manual) { cu.disabled = true; cu.textContent = tr('Suche …', 'Checking …'); }
   const u = await window.relay.checkUpdate();
+  if (manual) { cu.disabled = false; cu.textContent = tr('Nach Updates suchen', 'Check for updates'); }
   const b = $('#update');
-  if (!u || u.error) { b.hidden = true; return; }
+  if (!u || u.error) {
+    b.hidden = true;
+    if (manual) toast(u?.error ? tr('Update-Prüfung fehlgeschlagen: ', 'Update check failed: ') + u.error : tr(`Swapline Relay ist aktuell (Version ${S?.version || ''})`, `Swapline Relay is up to date (version ${S?.version || ''})`));
+    return;
+  }
   b.textContent = u.installable ? tr(`Version ${u.version} verfügbar – jetzt aktualisieren`, `Version ${u.version} available – update now`) : tr(`Version ${u.version} verfügbar`, `Version ${u.version} available`);
   b.hidden = false;
   b.onclick = async () => {

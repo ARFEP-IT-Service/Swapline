@@ -78,7 +78,8 @@ function readStatus() {
   try {
     const s = JSON.parse(fs.readFileSync(P.file('status.json'), 'utf8'));
     let alive = false;
-    try { process.kill(s.pid, 0); alive = true; } catch {}
+    // EPERM: der Dienst läuft als „Lokaler Dienst“ – Windows verweigert dann die Abfrage, der Prozess lebt aber
+    try { process.kill(s.pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
     return { ...s, alive: alive && Date.now() - s.updated < 8000 };
   } catch { return null; }
 }
@@ -159,7 +160,7 @@ handle('dir:open', () => shell.openPath(P.dataDir()));
 // startet den Dienst wieder und öffnet danach die App (--force-run).
 let updateInfo = null, updating = false;
 handle('update:check', async () => {
-  try { updateInfo = await U.check(app.getVersion()); } catch { updateInfo = null; }
+  try { updateInfo = await U.check(app.getVersion()); } catch { updateInfo = null; return { error: tr('GitHub nicht erreichbar', 'GitHub not reachable') }; }
   return updateInfo && { version: updateInfo.version, url: updateInfo.url, installable: !!updateInfo.setup };
 });
 handle('update:install', async () => {
