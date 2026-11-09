@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.3.0] – 2026-11-09
 
 - Projekt-Ordner: Projekte in der Leiste in Ordnern zusammenfassen (auf-/zuklappbar, Projekte per Ziehen oder im
   Projekt zuordnen; Ordner löschen behält die Projekte).
