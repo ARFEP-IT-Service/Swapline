@@ -3,6 +3,16 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.2.0] – 2026-11-09
+
+- Neu: **Im Hintergrund verbunden bleiben** – Antworten und Rückfragen melden sich auch bei geschlossener App
+  (dauerhafte, stille Benachrichtigung; abschaltbar in den Einstellungen, dort auch der Hinweis zur Akku-Optimierung).
+  Lebenszeichen alle 4 Minuten erkennen tote Verbindungen; beim Wechsel WLAN ↔ Mobilfunk wird sofort neu verbunden.
+- Neu: **Bilder an Claude schicken** – Büroklammer im Chat: Foto aufnehmen oder aus der Galerie (bis zu 6 je Nachricht,
+  auf dem Handy verkleinert). Kamera-Fotos werden nach dem Einlesen gelöscht.
+- Sicherheit: Nach dem Scannen eines QR-Codes zeigt die App erst den Namen des PCs und koppelt erst auf Tippen;
+  Benachrichtigungen zeigen auf dem Sperrbildschirm keine Chat-Inhalte; Diagnose-Ausgaben nur noch in Testversionen.
+
 ## [0.1.1] – 2026-11-09
 
 - Neu: **Einstellungen** (Zahnrad oben auf der Startseite): Diktieren an/aus, „Nur auf dem Gerät erkennen“, Status der

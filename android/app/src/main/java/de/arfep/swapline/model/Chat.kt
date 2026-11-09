@@ -45,6 +45,8 @@ object ClaudeText {
     const val PLAN_REVISE = "Please revise the plan: "
     const val PLAN_REJECTED = "The user rejected the plan."
     const val QUESTION_SKIPPED = "The user does not want to answer the question."
+    const val SEE_IMAGE = "See attached image."
+    const val SEE_IMAGES = "See attached images."
 }
 
 private fun hiddenUserText(s: String) =
@@ -104,9 +106,9 @@ class Chat(
     }
 
     // Eigene Nachricht sofort anzeigen (der Haupt-PC schickt sie dem Absender nicht zurück)
-    fun addOwn(text: String) {
+    fun addOwn(text: String, images: Int = 0) {
         val now = System.currentTimeMillis()
-        add(Item.Me(text, now))
+        add(Item.Me(text, now, images = images))
         running = true
         updated = now
         preview = text.replace(Regex("\\s+"), " ").take(90)
@@ -239,6 +241,20 @@ class Chat(
         return null
     }
 }
+
+// Inhalt für session:send: nur Text als Zeichenkette, mit Bildern als Liste aus Bild-Blöcken (JPEG, base64) und Text
+fun messageContent(text: String, images: List<String>): JsonElement = if (images.isEmpty()) JsonPrimitive(text) else JsonArray(
+    images.map { data ->
+        kotlinx.serialization.json.buildJsonObject {
+            put("type", JsonPrimitive("image"))
+            put("source", kotlinx.serialization.json.buildJsonObject {
+                put("type", JsonPrimitive("base64")); put("media_type", JsonPrimitive("image/jpeg")); put("data", JsonPrimitive(data))
+            })
+        }
+    } + kotlinx.serialization.json.buildJsonObject {
+        put("type", JsonPrimitive("text"))
+        put("text", JsonPrimitive(text.ifBlank { if (images.size == 1) ClaudeText.SEE_IMAGE else ClaudeText.SEE_IMAGES }))
+    })
 
 fun requestIdOf(it: Item): String? = when (it) { is Item.Perm -> it.requestId; is Item.Question -> it.requestId; is Item.Plan -> it.requestId; else -> null }
 fun answerOf(it: Item): Answer? = when (it) { is Item.Perm -> it.answer; is Item.Question -> it.answer; is Item.Plan -> it.answer; else -> null }

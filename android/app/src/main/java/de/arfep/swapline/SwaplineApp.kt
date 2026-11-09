@@ -26,7 +26,24 @@ class SwaplineApp : Application() {
         super.onCreate()
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, tr("Antworten und Rückfragen", "Replies and requests"), NotificationManager.IMPORTANCE_HIGH))
+        ConnectionService.createChannel(this)
         model = AppModel(this, AndroidNotifier())
+        watchNetwork()
+    }
+
+    // Netzwechsel: Verbindungen sofort über das neue Netz aufbauen (statt auf Zeitüberschreitung zu warten)
+    private fun watchNetwork() {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        var last: android.net.Network? = null
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    val switched = last != null && last != network
+                    last = network
+                    if (switched) android.os.Handler(mainLooper).post { model.networkChanged() }
+                }
+            })
+        }
     }
 
     // Benachrichtigung bei fertiger Antwort oder Rückfrage, wenn der Chat gerade nicht sichtbar ist
@@ -52,9 +69,15 @@ class SwaplineApp : Application() {
                 .setContentIntent(pi)
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                // Sperrbildschirm: ohne Chat-Inhalt
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(NotificationCompat.Builder(this@SwaplineApp, CHANNEL).setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle("Swapline").setContentText(tr("Neue Nachricht von Claude", "New message from Claude")).build())
                 .build()
             runCatching { NotificationManagerCompat.from(this@SwaplineApp).notify(chat.id.hashCode(), n) }
         }
+
+        override fun status() = ConnectionService.refresh(this@SwaplineApp)
 
         override fun clear(chat: Chat) = NotificationManagerCompat.from(this@SwaplineApp).cancel(chat.id.hashCode())
     }

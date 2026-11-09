@@ -10,6 +10,10 @@ const remote = require(path.join(__dirname, '..', '..', 'src', 'remote.js'));
 
 let devices = [];
 let denyNext = false;
+let mute = false; // „stumm“: Anfragen bleiben unbeantwortet (tote Verbindung nachstellen)
+// validContent aus src/main.js (der echte Code, nicht nachgebaut): prüft, was ein Gerät als Nachricht schickt
+const mainSrc = require('node:fs').readFileSync(path.join(__dirname, '..', '..', 'src', 'main.js'), 'utf8');
+const validContent = new Function(/^const IMAGE_MEDIA = .*$/m.exec(mainSrc)[0] + '\n' + /^function validContent[\s\S]*?^}/m.exec(mainSrc)[0] + '\nreturn validContent;')();
 const out = o => process.stdout.write(JSON.stringify(o) + '\n');
 
 const host = remote.createHost({
@@ -19,8 +23,15 @@ const host = remote.createHost({
   decrypt: s => Buffer.from(s, 'base64').toString(),
   confirmPair: async ({ name }) => { out({ confirm: name }); const ok = !denyNext; denyNext = false; return ok; },
   dispatch: async (dev, ch, args) => {
+    if (mute) return new Promise(() => {});
     if (ch === 'echo') return { device: dev.name, args };
     if (ch === 'fail') throw new Error('absichtlich');
+    if (ch === 'content') return validContent(args[0]);
+    if (ch === 'session:send') { // Rauchtest: Nachricht wie der Haupt-PC prüfen und Eckdaten melden
+      const c = args[0]?.content, ok = validContent(c);
+      out({ sent: { ok, images: Array.isArray(c) ? c.filter(b => b.type === 'image').length : 0, text: Array.isArray(c) ? c.find(b => b.type === 'text')?.text : c } });
+      return ok;
+    }
     if (ch === 'big') return 'x'.repeat(Number(args[0]) || 0);
     // Beispieldaten für einen Rauchtest der App (Emulator: Adresse des PCs aus Sicht des Emulators)
     if (ch === 'store:get') return { profiles: [{ id: 'p1', name: 'Testkonto', color: '#1581FF' }], activeProfileId: 'p1',
@@ -43,6 +54,7 @@ host.start(0, '127.0.0.1').then(port => {
     const [cmd, arg] = line.trim().split(/\s+/);
     if (cmd === 'pair') out({ code: host.startPairing().code, port });
     else if (cmd === 'deny') { denyNext = true; out({ ok: true }); }
+    else if (cmd === 'mute') { mute = arg !== 'off'; out({ ok: true }); }
     else if (cmd === 'push') { host.broadcast(arg || 'test', { hello: 'welt', n: 1 }); out({ ok: true }); }
     else if (cmd === 'remove') { for (const d of devices) host.disconnect(d.id); devices = []; out({ ok: true }); }
   }).on('close', () => { host.stop(); process.exit(0); });

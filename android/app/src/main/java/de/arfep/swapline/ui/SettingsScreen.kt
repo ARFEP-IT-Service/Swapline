@@ -98,6 +98,21 @@ fun SettingsScreen(model: AppModel, onBack: () -> Unit, onHosts: () -> Unit) {
             }
 
             Section(tr("Verbindung", "Connection"))
+            SwitchRow(tr("Im Hintergrund verbunden bleiben", "Stay connected in the background"),
+                tr("Antworten und Rückfragen melden sich auch bei geschlossener App (dauerhafte, stille Benachrichtigung; etwas mehr Akku)",
+                    "Replies and requests also arrive while the app is closed (permanent silent notification; uses a little more battery)"),
+                model.backgroundEnabled) { on -> model.changeBackground(on); de.arfep.swapline.ConnectionService.sync(ctx) }
+            if (model.backgroundEnabled) {
+                val pm = ctx.getSystemService(android.os.PowerManager::class.java)
+                val free = pm?.isIgnoringBatteryOptimizations(ctx.packageName) == true
+                InfoRow(tr("Akku-Optimierung", "Battery optimization"),
+                    if (free) tr("für Swapline aus ✓ – die Verbindung bleibt auch im Standby", "off for Swapline ✓ – the connection stays up in standby")
+                    else tr("an – Android kann die Verbindung im Standby trennen. Antippen und Swapline auf „Nicht optimieren“ bzw. „Nicht eingeschränkt“ stellen.",
+                        "on – Android may drop the connection in standby. Tap and set Swapline to “Don't optimize” / “Unrestricted”."), warn = !free) {
+                    runCatching { ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        .onFailure { openAppSettings(ctx) }
+                }
+            }
             InfoRow(tr("Haupt-PCs", "Host PCs"), tr("${model.hosts.size} gekoppelt – koppeln, Adressen ändern, entfernen", "${model.hosts.size} paired – pair, change addresses, remove"), arrow = true, onClick = onHosts)
 
             Section(tr("Über", "About"))

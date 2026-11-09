@@ -10,8 +10,11 @@ läuft **kein** Claude Code und es gibt keine Claude-Anmeldung – die App ist e
 - **Chats des Haupt-PCs:** am PC offene Chats live sehen und beitreten, Verlauf mit Suche, Filter nach Konto und Projekt.
 - **Neuer Chat** mit Konto, Ordner, Modell, Aufwand und Berechtigungen („Alles erlauben“ nur, wenn am Haupt-PC für das Gerät freigegeben).
 - **Antworten live** mit Markdown und Code, Werkzeug-Aufrufe kompakt, **Rückfragen, Fragen und Pläne als Karten**, Claude anhalten.
+- **Bilder an Claude:** Büroklammer im Chat – Foto aufnehmen oder aus der Galerie (bis zu 6 je Nachricht, auf dem Handy verkleinert).
 - **Diktieren:** Mikrofon im Eingabefeld (Spracherkennung von Android, wenn möglich auf dem Gerät); gesendet wird erst mit „Senden“.
-- **Benachrichtigung** bei fertiger Antwort oder Rückfrage, solange die App läuft.
+- **Benachrichtigung** bei fertiger Antwort oder Rückfrage – mit „Im Hintergrund verbunden bleiben“ auch bei geschlossener App
+  (dauerhafte, stille Benachrichtigung; Lebenszeichen erkennen abgerissene Verbindungen, Netzwechsel verbindet sofort neu).
+- **Einstellungen** (Zahnrad): Diktieren, Hintergrund-Verbindung, Akku-Optimierung, Berechtigungen, Haupt-PCs, Updates, Lizenzen.
 - **Mehrere Adressen je Haupt-PC** (Heimnetz, Tailscale, öffentliche Adresse) – die App probiert sie der Reihe nach und übernimmt neue Adressen vom Haupt-PC.
 - **Update-Hinweis**, wenn in den Releases eine neuere Version liegt (Download über den Browser, Android fragt vor der Installation).
 - Deutsch und Englisch nach Systemsprache, hell/dunkel nach System.
@@ -34,9 +37,10 @@ Haupt-PC). Swapline zeigt am PC unter „Erreichbar unter“ die öffentliche Ad
 | Berechtigung | Wofür |
 |---|---|
 | Internet, lokales Netzwerk | Verbindung zum Haupt-PC (Android 17 verlangt für das Heimnetz eine eigene Freigabe) |
-| Kamera | nur zum Scannen des QR-Codes beim Koppeln; Bilder werden nicht gespeichert |
+| Kamera | QR-Code beim Koppeln und Fotos für Claude; Fotos werden nach dem Einlesen gelöscht |
 | Mikrofon | nur beim Diktieren |
-| Benachrichtigungen | Hinweis bei fertiger Antwort oder Rückfrage |
+| Benachrichtigungen | Hinweis bei fertiger Antwort oder Rückfrage (Sperrbildschirm ohne Inhalt) |
+| Vordergrund-Dienst | „Im Hintergrund verbunden bleiben“ (abschaltbar) |
 
 ## Sicherheit
 
@@ -44,8 +48,9 @@ Haupt-PC). Swapline zeigt am PC unter „Erreichbar unter“ die öffentliche Ad
   ChaCha20-Poly1305, über BouncyCastle). Der Geräteschlüssel liegt mit dem **Android Keystore** verschlüsselt auf dem Handy
   und ist von Backups und Geräteübertragung ausgenommen.
 - Der Haupt-PC prüft jede Anfrage selbst (Freigaben je Gerät, Konten, Ordner). Gerät am PC entfernen = Zugriff sofort weg.
-- QR-Codes werden streng geprüft (nur `swapline://pair`, gültige Adressen, Port und Code); die Kopplung braucht immer die
-  Bestätigung am Haupt-PC.
+- QR-Codes werden streng geprüft (nur `swapline://pair`, gültige Adressen, Port und Code); die App zeigt erst den Namen des
+  PCs und koppelt erst auf Tippen, der Haupt-PC fragt zusätzlich nach Bestätigung.
+- Bilder gehen nur als verkleinerte JPEGs an den eigenen Haupt-PC; Kamera-Fotos werden danach gelöscht, Galerie-Bilder nur gelesen.
 - **Nur eigene Geräte koppeln** – das Teilen eines Claude-Kontos erlauben Anthropics Bedingungen nicht.
 
 ## Entwicklung

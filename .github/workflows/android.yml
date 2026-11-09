@@ -1,0 +1,74 @@
+name: Android
+
+# Swapline für Android (android/): Tests und ein unsignierter Release-Build bei jedem Push auf main und jedem
+# Pull Request, der die App oder den Fernzugriff (src/remote.js, src/main.js) betrifft. Die Verbindungstests laufen
+# gegen den echten Fernzugriff aus src/remote.js (android/testhost/host.js, braucht Node).
+# Signiert und veröffentlicht wird hier nichts – der Signaturschlüssel liegt nicht in GitHub.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "src/remote.js"
+      - "src/main.js"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "src/remote.js"
+      - "src/main.js"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v7
+
+      # Gradle-Wrapper nur mit geprüfter Prüfsumme ausführen
+      - uses: gradle/actions/wrapper-validation@v6.4.1
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: android-actions/setup-android@v4.0.4
+        with:
+          packages: "platforms;android-37 build-tools;37.0.0"
+
+      - uses: gradle/actions/setup-gradle@v6.4.1
+
+      - name: Tests (inkl. Verbindung gegen src/remote.js)
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Release-Build (unsigniert, nicht veröffentlicht)
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Testberichte bei Fehlern
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-test-reports-${{ github.sha }}
+          path: android/app/build/reports/tests/
+          retention-days: 7
+
+      - name: APK aufbewahren
+        uses: actions/upload-artifact@v7
+        with:
+          name: swapline-android-ci-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7

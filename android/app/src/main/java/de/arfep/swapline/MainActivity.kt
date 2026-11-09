@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         model.foreground = true
         model.reconnectAll()
         model.checkUpdate()
+        ConnectionService.sync(this)
     }
 
     override fun onStop() {
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
             Screen.Hosts -> HostsScreen(m, onBack = ::pop, onPair = { push(Screen.Pair()) }, onPicked = { hostId = it; stack = listOf(Screen.Home) })
             is Screen.Pair -> PairScreen(m, top.data, onBack = ::pop, onScan = { push(Screen.Scan) }, onPaired = { id ->
                 hostId = id; stack = listOf(Screen.Home)
+                ConnectionService.sync(this@MainActivity)
                 if (Build.VERSION.SDK_INT >= 33) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
             })
             Screen.Scan -> QrScanner(onBack = ::pop) { text ->

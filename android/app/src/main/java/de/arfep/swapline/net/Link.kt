@@ -48,10 +48,13 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 const val DEFAULT_PORT = 47820
-private val DEBUG_LOG = runCatching { Class.forName("android.util.Log"); true }.getOrDefault(false)
+// Diagnose im Log nur in Debug-Builds (Release: keine Adressen oder Fehlertexte im Systemprotokoll)
+private val DEBUG_LOG = runCatching { Class.forName("android.util.Log"); de.arfep.swapline.BuildConfig.DEBUG }.getOrDefault(false)
 private const val MAX_FRAME = 48 * 1024 * 1024
 private const val CONNECT_TIMEOUT = 15_000
 private const val CALL_TIMEOUT = 120_000L
+private const val HEARTBEAT = 4 * 60_000L
+private const val HEARTBEAT_TIMEOUT = 30_000L
 private const val PAIR_TIMEOUT = 5 * 60_000L + 10_000L
 private val DEVICE_ID_RE = Regex("^[0-9a-f]{16}$")
 
@@ -223,6 +226,8 @@ class HostLink(
     private val scope: CoroutineScope,
     private val onEvent: (kind: String, data: JsonElement) -> Unit,
     private val onState: (LinkState, String?) -> Unit,
+    private val heartbeat: Long = HEARTBEAT,
+    private val heartbeatTimeout: Long = HEARTBEAT_TIMEOUT,
 ) {
     @Volatile var state = LinkState.OFF
         private set
@@ -259,13 +264,26 @@ class HostLink(
                 channel = ch
                 backoff = 2_000L
                 setState(LinkState.CONNECTED)
-                while (true) {
-                    val line = ch.readLine()
-                    if (line == null) { detail = "closed"; break }
-                    val m = runCatching { json.parseToJsonElement(line) as? JsonObject }.getOrNull()
-                    if (m == null) { detail = "bad json: " + line.take(120); break }
-                    handle(m)
+                // Lebenszeichen: Router und Mobilfunk kappen stille Verbindungen oft ohne Meldung. Alle paar Minuten eine
+                // kleine Anfrage; bleibt die Antwort aus, gilt die Verbindung als tot und wird neu aufgebaut.
+                val beat = scope.launch {
+                    while (channel === ch) {
+                        delay(heartbeat)
+                        if (channel !== ch) break
+                        try { withTimeout(heartbeatTimeout) { call("tabs:list") } }
+                        catch (e: kotlinx.coroutines.TimeoutCancellationException) { ch.close(); break }
+                        catch (e: Exception) { /* Fehler vom Haupt-PC = Verbindung lebt */ }
+                    }
                 }
+                try {
+                    while (true) {
+                        val line = ch.readLine()
+                        if (line == null) { detail = "closed"; break }
+                        val m = runCatching { json.parseToJsonElement(line) as? JsonObject }.getOrNull()
+                        if (m == null) { detail = "bad json: " + line.take(120); break }
+                        handle(m)
+                    }
+                } finally { beat.cancel() }
             } catch (e: Exception) {
                 detail = e.javaClass.simpleName + ": " + e.message
                 if (DEBUG_LOG) runCatching { android.util.Log.w("SwaplineLink", "Verbindung beendet", e) }

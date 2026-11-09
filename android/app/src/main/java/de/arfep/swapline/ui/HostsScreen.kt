@@ -3,6 +3,7 @@
 package de.arfep.swapline.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -158,13 +159,18 @@ fun PairScreen(model: AppModel, initial: PairData?, onBack: () -> Unit, onScan: 
             } finally { busy = false }
         }
     }
-    // aus dem QR-Code: gleich koppeln, der Haupt-PC fragt nach Bestätigung
-    LaunchedEffect(initial) { if (initial != null) start() }
     Scaffold(topBar = {
         TopAppBar(title = { Text(tr("Haupt-PC koppeln", "Pair host PC")) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, tr("Zurück", "Back")) } })
     }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // aus dem QR-Code: erst zeigen, mit wem gekoppelt wird – ein fremder QR-Code soll kein fremdes Gerät unterschieben
+            if (initial != null) Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(14.dp)) {
+                Text(tr("QR-Code erkannt", "QR code recognized"), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text(tr("Haupt-PC: ", "Host PC: ") + initial.name.ifBlank { "?" }, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text(tr("Nur koppeln, wenn das dein eigener PC ist – dann auf „Koppeln“ tippen und am PC bestätigen.",
+                    "Only pair if this is your own PC – then tap “Pair” and confirm on the PC."), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
             Text(tr("Am PC in Swapline: Fernzugriff (Symbol in der Leiste links) → „Fernzugriff erlauben“ → „Gerät koppeln …“. Dort stehen Adresse und Einmal-Code (5 Minuten gültig).",
                 "In Swapline on the PC: Remote access (icon in the left rail) → “Allow remote access” → “Pair device …”. It shows the address and a one-time code (valid for 5 minutes)."),
                 color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)

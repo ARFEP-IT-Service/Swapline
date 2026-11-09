@@ -31,6 +31,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.filled.Stop
@@ -127,6 +135,7 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
     var menu by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
     val list = rememberLazyListState()
+    val attachments = remember(chat.id) { mutableStateListOf<Attach>() }
     val items = chat.items
     LaunchedEffect(chat.id) { model.open(chat) }
 
@@ -171,11 +180,13 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                     Icon(Icons.Default.KeyboardArrowDown, tr("Ganz nach unten", "Scroll to bottom"))
                 }
             }
-            Composer(text, { text = it }, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly) {
+            Composer(text, { text = it }, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly) {
                 val t = text.trim()
-                if (t.isEmpty()) return@Composer
+                if (t.isEmpty() && attachments.isEmpty()) return@Composer
+                val imgs = attachments.map { it.data }
                 text = ""
-                scope.launch { model.send(chat, t); list.scrollToItem(0) }
+                attachments.clear()
+                scope.launch { model.send(chat, t, imgs); list.scrollToItem(0) }
             }
         }
     }
@@ -197,15 +208,37 @@ private fun Typing() {
 }
 
 @Composable
-private fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, offline: Boolean, mic: Boolean, onDeviceOnly: Boolean, onSend: () -> Unit) {
+private fun Composer(text: String, onText: (String) -> Unit, attachments: MutableList<Attach>, enabled: Boolean, offline: Boolean, mic: Boolean, onDeviceOnly: Boolean, onSend: () -> Unit) {
+    var attachMenu by remember { mutableStateOf(false) }
     var micError by remember { mutableStateOf<String?>(null) }
     val (dictation, toggleMic) = rememberDictation(onDeviceOnly, onText = { micError = null; onText(it) }, onError = { micError = it })
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.navigationBarsPadding()) {
             if (offline) Text(tr("Nicht mit dem Haupt-PC verbunden", "Not connected to the host PC"), Modifier.padding(start = 16.dp, top = 6.dp), fontSize = 12.sp, color = Danger)
             micError?.let { Text(it, Modifier.padding(start = 16.dp, top = 6.dp), fontSize = 12.sp, color = Danger) }
+            val picker = rememberAttachPicker(remaining = { MAX_ATTACH - attachments.size }, onAdd = { micError = null; attachments.addAll(it) }, onError = { micError = it })
+            if (attachments.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                attachments.forEachIndexed { i, a ->
+                    Box {
+                        androidx.compose.foundation.Image(a.thumb, null, Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        Box(Modifier.align(Alignment.TopEnd).padding(2.dp).size(22.dp).background(Color.Black.copy(alpha = 0.6f), androidx.compose.foundation.shape.CircleShape)
+                            .clickable { attachments.removeAt(i) }, contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Close, tr("Entfernen", "Remove"), Modifier.size(14.dp), tint = Color.White)
+                        }
+                    }
+                }
+            }
             if (dictation.listening) Text(tr("Ich höre zu … zum Beenden aufs Mikrofon tippen", "Listening … tap the microphone to stop"), Modifier.padding(start = 16.dp, top = 6.dp), fontSize = 12.sp, color = Accent)
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
+                Box {
+                    IconButton(onClick = { attachMenu = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.AttachFile, tr("Bild anhängen", "Attach image"), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    DropdownMenu(attachMenu, { attachMenu = false }) {
+                        DropdownMenuItem(text = { Text(tr("Foto aufnehmen", "Take photo")) }, leadingIcon = { Icon(Icons.Outlined.PhotoCamera, null) }, onClick = { attachMenu = false; picker.camera() })
+                        DropdownMenuItem(text = { Text(tr("Aus Galerie", "From gallery")) }, leadingIcon = { Icon(Icons.Outlined.Image, null) }, onClick = { attachMenu = false; picker.gallery() })
+                    }
+                }
                 TextField(text, onText, Modifier.weight(1f), placeholder = { Text(tr("Nachricht an Claude …", "Message Claude …")) }, maxLines = 6,
                     shape = RoundedCornerShape(22.dp), colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent))
                 if (mic) {
@@ -219,7 +252,7 @@ private fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, o
                     }
                 }
                 Spacer(Modifier.width(4.dp))
-                FilledIconButton(onClick = { if (dictation.listening) dictation.stop(); onSend() }, enabled = enabled && text.isNotBlank(), modifier = Modifier.size(48.dp)) {
+                FilledIconButton(onClick = { if (dictation.listening) dictation.stop(); onSend() }, enabled = enabled && (text.isNotBlank() || attachments.isNotEmpty()), modifier = Modifier.size(48.dp)) {
                     Icon(Icons.AutoMirrored.Filled.Send, tr("Senden", "Send"))
                 }
             }
@@ -237,7 +270,9 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
             if (it.from.isNotEmpty()) Text(it.from, fontSize = 11.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp, bottom = 2.dp))
             Surface(color = Accent, contentColor = Color.White, shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp), modifier = Modifier.widthIn(max = 320.dp)) {
                 SelectionContainer {
-                    Text(it.text + if (it.images > 0) "\n" + tr("[Bild]", "[image]").repeat(1) else "", Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
+                    Text(listOfNotNull(it.text.takeIf { t -> t.isNotBlank() && t != ClaudeText.SEE_IMAGE && t != ClaudeText.SEE_IMAGES },
+                        if (it.images > 0) "📷 " + if (it.images == 1) tr("1 Bild", "1 image") else tr("${it.images} Bilder", "${it.images} images") else null).joinToString("\n"),
+                        Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
                 }
             }
             it.time?.let { t -> Text(timeFmt.format(Date(t)), fontSize = 10.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp, top = 2.dp)) }

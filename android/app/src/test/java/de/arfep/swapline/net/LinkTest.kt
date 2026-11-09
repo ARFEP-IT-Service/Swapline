@@ -100,6 +100,42 @@ class LinkTest {
         scope.cancel()
     }
 
+    @Test fun imageMessagesPassHostValidation() = runBlocking {
+        val p = pairOk("Bilder")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val link = HostLink(scope, { _, _ -> }, { _, _ -> })
+        link.use(Target("127.0.0.1", port, p.deviceId, p.key))
+        withTimeout(15_000) { while (link.state != LinkState.CONNECTED) delay(20) }
+        val img = java.util.Base64.getEncoder().encodeToString(ByteArray(300_000) { (it % 251).toByte() }) // ~400 KB base64
+        // so wie die App sendet – geprüft mit validContent aus src/main.js
+        for (c in listOf(de.arfep.swapline.model.messageContent("Hallo", emptyList()),
+            de.arfep.swapline.model.messageContent("Was siehst du?", listOf(img)),
+            de.arfep.swapline.model.messageContent("", List(6) { img }))) {
+            assertEquals("true", link.call("content", c).toString())
+        }
+        // Gegenprobe: ungültige Bilddaten lehnt der Haupt-PC ab
+        assertEquals("false", link.call("content", de.arfep.swapline.model.messageContent("x", listOf("kein base64!"))).toString())
+        link.close()
+        scope.cancel()
+    }
+
+    @Test fun heartbeatDetectsDeadConnection() = runBlocking {
+        val p = pairOk("Lebenszeichen")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val states = CopyOnWriteArrayList<LinkState>()
+        // Lebenszeichen alle 300 ms, Antwort muss binnen 500 ms kommen
+        val link = HostLink(scope, { _, _ -> }, { s, _ -> states += s }, heartbeat = 300, heartbeatTimeout = 500)
+        link.use(Target("127.0.0.1", port, p.deviceId, p.key))
+        withTimeout(15_000) { while (link.state != LinkState.CONNECTED) delay(20) }
+        cmd("mute")  // Haupt-PC antwortet nicht mehr, Verbindung bleibt aber offen
+        withTimeout(10_000) { while (LinkState.RECONNECTING !in states) delay(20) }
+        cmd("mute off")
+        withTimeout(15_000) { while (link.state != LinkState.CONNECTED) delay(20) }
+        assertEquals("Lebenszeichen", link.call("echo").jsonObject.getValue("device").jsonPrimitive.content)
+        link.close()
+        scope.cancel()
+    }
+
     @Test fun triesAddressesInOrder() = runBlocking {
         val p = pairOk("Mehrere")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

@@ -36,6 +36,7 @@ fun newId(len: Int = 12) = String(CharArray(len) { ID_CHARS[rnd.nextInt(ID_CHARS
 interface Notifier {
     fun notify(chat: Chat, host: HostState, notice: Notice)
     fun clear(chat: Chat)
+    fun status() {}   // Verbindungsstatus geändert (dauerhafte Benachrichtigung aktualisieren)
 }
 
 class AppModel(context: Context, private val notifier: Notifier) {
@@ -55,6 +56,9 @@ class AppModel(context: Context, private val notifier: Notifier) {
     var onDeviceOnly by mutableStateOf(prefs.getBoolean("onDeviceOnly", false))
         private set
     fun changeMic(on: Boolean) { micEnabled = on; prefs.edit().putBoolean("micEnabled", on).apply() }
+    var backgroundEnabled by mutableStateOf(prefs.getBoolean("background", true))
+        private set
+    fun changeBackground(on: Boolean) { backgroundEnabled = on; prefs.edit().putBoolean("background", on).apply() }
     fun changeOnDeviceOnly(on: Boolean) { onDeviceOnly = on; prefs.edit().putBoolean("onDeviceOnly", on).apply() }
 
     fun checkUpdate(force: Boolean = false) = scope.launch {
@@ -156,7 +160,9 @@ class AppModel(context: Context, private val notifier: Notifier) {
     }
 
     private fun onState(h: HostState, s: LinkState, detail: String?) {
+        val changed = h.state != s
         h.state = s
+        if (changed) notifier.status()
         if (s == LinkState.CONNECTED) { h.error = null; refresh(h) }
         else if (detail != null) h.error = detail
     }
@@ -261,10 +267,13 @@ class AppModel(context: Context, private val notifier: Notifier) {
         }
     }
 
-    suspend fun send(c: Chat, text: String): Boolean {
+    // Nachricht an Claude: Text, optional mit Bildern (base64-JPEG). Ohne Text steht ein fester englischer Hinweis
+    // im Inhalt, den Claude liest (wie in Swapline am PC).
+    suspend fun send(c: Chat, text: String, images: List<String> = emptyList()): Boolean {
         val h = host(c.hostId) ?: return false
-        c.addOwn(text)
-        val ok = runCatching { h.link.call("session:send", buildJsonObject { put("tab", tabJson(c)); put("content", text) }) }
+        c.addOwn(text, images.size)
+        val content = messageContent(text, images)
+        val ok = runCatching { h.link.call("session:send", buildJsonObject { put("tab", tabJson(c)); put("content", content) }) }
         val sent = ok.getOrNull().let { it is JsonPrimitive && it.booleanOrNull == true }
         if (!sent) {
             c.running = false
@@ -316,6 +325,9 @@ class AppModel(context: Context, private val notifier: Notifier) {
         saveChats()
         runCatching { host(c.hostId)?.link?.call("session:restart", JsonPrimitive(c.id)) }
     }
+
+    // Netz gewechselt (z. B. WLAN → Mobilfunk): bestehende Verbindungen laufen über das alte Netz ins Leere – neu verbinden
+    fun networkChanged() { for (h in hosts) connect(h) }
 
     fun reconnectAll() { for (h in hosts) if (h.state == LinkState.RECONNECTING || h.state == LinkState.OFF) connect(h) }
 }
