@@ -955,7 +955,8 @@ handle('clipboard:write', (_e, text) => { if (typeof text !== 'string') return f
 handle('app:attention', () => { if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true); });
 handle('shell:openPath', (_e, p) => {
   if (!isDir(p)) { logError('openPath abgelehnt (kein Ordner): ' + String(p).slice(0, 200)); return false; }
-  shell.openPath(p);
+  // Testlauf (nur unverpackt): Prüfung wie sonst, aber kein Explorer-Fenster öffnen
+  if (!(DEV && process.env.SWAPLINE_TEST_JS)) shell.openPath(p);
   return true;
 });
 
