@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.6.0] – 2026-11-09
 
 - Fernzugriff: Projekte und Ordner eines Haupt-PCs (bzw. die Ordner eines Servers) erscheinen in dessen Ansicht als
   Filter; ein neuer Chat startet im Projektordner. Mit der neuen Gerätefreigabe „Projekte anlegen“ kann ein Gerät dort
