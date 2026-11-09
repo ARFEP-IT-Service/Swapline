@@ -163,6 +163,14 @@
   const listTitles = () => [...document.querySelectorAll('#list .item .title')].map(e => e.textContent);
   check('Projekte des Haupt-PCs als Filter sichtbar', !$('#host-projects').hidden && [...document.querySelectorAll('#host-projects .hp-chip span')].some(x => x.textContent === 'Web') && !!document.querySelector('#host-projects .hp-add'));
   check('Ohne Filter alle Chats des Haupt-PCs', listTitles().includes('In Web') && listTitles().includes('Woanders'));
+  openHosts.add('hx'); renderRail();
+  check('Leiste: Projekte des Haupt-PCs aufgeklappt', !!document.querySelector('#rail-hosts .rail-host-wrap.open .rail-group-kids .rail-profile'));
+  clickHost('hx'); // schon offen und ohne Filter -> zuklappen
+  check('Leiste: erneuter Klick klappt zu (Anzahl sichtbar)', !document.querySelector('#rail-hosts .rail-host-wrap.open') && document.querySelector('#rail-hosts .count')?.textContent === '1');
+  clickHost('hx');
+  document.querySelector('#rail-hosts .rail-group-kids .rail-profile').click();
+  check('Leiste: Klick auf Projekt filtert die Chats', hostProjectFilter.hx === 'hp1' && listTitles().join() === 'In Web', listTitles().join());
+  delete hostProjectFilter.hx; openHosts.delete('hx');
   hostProjectFilter.hx = 'hp1'; renderList();
   check('Filter zeigt nur Chats im Projektordner', listTitles().join() === 'In Web', listTitles().join());
   delete hostProjectFilter.hx; delete hostStores.hx; remoteState = savedRemote;

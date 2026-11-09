@@ -502,6 +502,7 @@ const EN = {
   'Ordner auf dem Server anlegen, falls er fehlt': 'Create the folder on the server if it is missing',
   'Projekt „{name}“ aus der Liste entfernen? Der Ordner auf dem Server bleibt erhalten.': 'Remove project “{name}” from the list? The folder on the server is kept.',
   'Projekt entfernen': 'Remove project',
+  'Klicken: öffnen · erneut klicken: Projekte zuklappen': 'Click: open · click again: collapse projects',
   'Update ist nicht mehr verfügbar': 'The update is no longer available',
   'Version {v} ist verfügbar.': 'Version {v} is available.',
   'Version {v} verfügbar': 'Version {v} available',

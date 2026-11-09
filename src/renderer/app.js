@@ -442,16 +442,55 @@ function openGroupForm(g = {}) {
   name.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
 }
 // Gekoppelte Haupt-PCs in der Leiste – wie Projekte: ein Klick zeigt deren Chats, die eigenen bleiben offen
+// Haupt-PCs/Server in der Leiste mit ihren Projekten und Ordnern – auf- und zuklappbar wie eigene Ordner.
+// Klick auf den Haupt-PC: öffnen und aufklappen; erneuter Klick (wenn schon offen): zuklappen.
+const LS_HOSTS_OPEN = 'swapline.railHostsOpen.v1';
+const openHosts = new Set((() => { try { return JSON.parse(localStorage.getItem(LS_HOSTS_OPEN)) || []; } catch { return []; } })());
+const saveOpenHosts = () => { try { localStorage.setItem(LS_HOSTS_OPEN, JSON.stringify([...openHosts])); } catch {} };
+function clickHost(id) {
+  const view = 'host:' + id;
+  if (activeProjectId() === view && !hostProjectFilter[id] && openHosts.has(id)) { openHosts.delete(id); saveOpenHosts(); return renderRail(); }
+  openHosts.add(id); saveOpenHosts();
+  delete hostProjectFilter[id]; historyCache = {};
+  if (activeProjectId() === view) { renderList(); renderRail(); renderProjectHead(); } else switchProject(view);
+}
+function pickHostProject(host, projectId) {
+  hostProjectFilter[host] = projectId; historyCache = {};
+  if (activeProjectId() === 'host:' + host) { renderList(); renderRail(); renderProjectHead(); } else switchProject('host:' + host);
+}
 function renderRailHosts() {
   const hosts = remoteState?.hosts || [], pid = activeProjectId();
   $('#rail-hosts-sep').hidden = !hosts.length;
-  $('#rail-hosts').replaceChildren(...hosts.map(h => el('button', {
-    class: 'rail-profile' + (pid === 'host:' + h.id ? ' active' : ''),
-    title: (h.kind === 'ssh' ? _('Server: {name}', { name: h.name }) : _('Haupt-PC: {name}', { name: h.name })) + '\n' + h.address + ':' + h.port + '\n' + (h.state === 'connected' ? _('verbunden') : h.error || _('nicht verbunden')),
-    onclick: () => switchProject('host:' + h.id),
-    oncontextmenu: e => { e.preventDefault(); openHostForm(h); },
-  }, hostAvatar(h),
-    el('span', { class: 'badge ' + (h.state === 'connected' ? (tabs.some(t => t.host === h.id && (t.running || t.unread)) ? 'on busy' : 'on') : 'off') }))));
+  $('#rail-hosts').replaceChildren(...hosts.map(h => {
+    const hs = hostStores[h.id], open = openHosts.has(h.id) && !!hs?.projects?.length;
+    const inView = pid === 'host:' + h.id, filter = hostProjectFilter[h.id];
+    const busyIn = cwd => tabs.some(t => t.host === h.id && (t.running || t.unread) && (!cwd || within(t.cwd, cwd)));
+    const projBtn = p => el('button', {
+      class: 'rail-profile' + (inView && filter === p.id ? ' active' : ''),
+      title: p.name + (p.cwd ? '\n' + p.cwd : '') + '\n' + hostName(h.id) + (hs.canEditProjects ? '\n' + _('Rechtsklick: bearbeiten') : ''),
+      onclick: () => pickHostProject(h.id, p.id),
+      oncontextmenu: e => { e.preventDefault(); if (hs.canEditProjects) openHostProjectForm(h.id, p); },
+    }, avatar(p), p.cwd && busyIn(p.cwd) ? el('span', { class: 'badge on' }) : null);
+    const groups = hs?.projectGroups || [], projects = hs?.projects || [];
+    const groupNodes = groups.filter(g => projects.some(p => p.groupId === g.id)).map(g => {
+      const key = 'host:' + h.id + ':' + g.id, gOpen = !collapsedGroups.has(key), kids = projects.filter(p => p.groupId === g.id);
+      return el('div', { class: 'rail-group-wrap' + (gOpen ? ' open' : '') },
+        el('button', { class: 'rail-profile rail-group' + (gOpen ? ' open' : '') + (!gOpen && inView && kids.some(p => p.id === filter) ? ' active' : ''), title: g.name, onclick: () => toggleGroup(key) },
+          el('div', { class: 'avatar group', style: `background:${g.color}` }, icon(ICONS.folder)), !gOpen ? el('span', { class: 'count' }, String(kids.length)) : null),
+        gOpen ? el('div', { class: 'rail-group-kids' }, ...kids.map(projBtn)) : null);
+    });
+    return el('div', { class: 'rail-host-wrap' + (open ? ' open' : '') },
+      el('button', {
+        class: 'rail-profile' + (inView && !filter ? ' active' : ''),
+        title: (h.kind === 'ssh' ? _('Server: {name}', { name: h.name }) : _('Haupt-PC: {name}', { name: h.name })) + '\n' + h.address + ':' + h.port + '\n' + (h.state === 'connected' ? _('verbunden') : h.error || _('nicht verbunden'))
+          + (hs?.projects?.length ? '\n' + _('Klicken: öffnen · erneut klicken: Projekte zuklappen') : ''),
+        onclick: () => clickHost(h.id),
+        oncontextmenu: e => { e.preventDefault(); openHostForm(h); },
+      }, hostAvatar(h),
+        el('span', { class: 'badge ' + (h.state === 'connected' ? (busyIn() ? 'on busy' : 'on') : 'off') }),
+        !open && hs?.projects?.length ? el('span', { class: 'count' }, String(hs.projects.length)) : null),
+      open ? el('div', { class: 'rail-group-kids' }, ...groupNodes, ...projects.filter(p => !groups.some(g => g.id === p.groupId)).map(projBtn)) : null);
+  }));
 }
 
 function openHostForm(h) {
@@ -486,7 +525,7 @@ function renderHostProjects(host) {
   box.hidden = !projects.length && !hs?.canEditProjects;
   if (box.hidden) return;
   const cur = hostProjectFilter[host] || null;
-  const pick = id => { hostProjectFilter[host] = id; historyCache = {}; renderList(); renderProjectHead(); };
+  const pick = id => pickHostProject(host, id);
   const chip = p => el('button', { class: 'hp-chip' + (cur === p.id ? ' sel' : ''), title: p.cwd || '', onclick: () => pick(cur === p.id ? null : p.id),
     oncontextmenu: e => { e.preventDefault(); if (hs.canEditProjects) openHostProjectForm(host, p); } }, avatar(p, 'sm'), el('span', {}, p.name));
   const inGroup = p => groups.some(g => g.id === p.groupId);

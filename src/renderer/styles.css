@@ -304,7 +304,7 @@ button.link:hover { color: var(--accent); }
 
 /* Projektleiste */
 /* Projekt-Ordner und Geräte in der Leiste */
-#rail-projects { width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; padding: 2px 0; }
+#rail-projects { width: 100%; flex: none; padding: 2px 0; display: flex; flex-direction: column; gap: 10px; align-items: center; }
 #rail-projects::-webkit-scrollbar { display: none; }
 .rail-group-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 54px; border-radius: 18px; }
 .rail-group-wrap.open { background: var(--surface); padding: 5px 0 7px; }
@@ -314,7 +314,12 @@ button.link:hover { color: var(--accent); }
 .avatar.group svg { width: 22px; height: 22px; stroke: #fff; }
 .rail-group.open .avatar.group { border-radius: 14px; }
 .rail-group .count { position: absolute; right: -4px; top: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--raised); border: 2px solid var(--bg); font-size: 10px; line-height: 13px; color: var(--text); }
-#rail-hosts { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+#rail-hosts { display: flex; flex-direction: column; gap: 10px; align-items: center; width: 100%; flex: none; padding: 2px 0; }
+#rail-hosts::-webkit-scrollbar { display: none; }
+.rail-host-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 54px; border-radius: 18px; }
+.rail-host-wrap.open { background: var(--surface); padding: 5px 0 7px; }
+.rail-host-wrap > .rail-profile .count { position: absolute; right: -4px; top: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--raised); border: 2px solid var(--bg); font-size: 10px; line-height: 13px; color: var(--text); }
+.rail-host-wrap .rail-group-wrap { width: 46px; }
 .avatar.host-pc { background: var(--raised); color: var(--text); border: 1px solid var(--line); }
 .avatar.host-pc svg { width: 21px; height: 21px; }
 .avatar.host { position: relative; background: #475569; }
@@ -527,3 +532,6 @@ button.link:hover { color: var(--accent); }
 #chat.split .chat-chip { max-width: 100%; }
 .avatar.img.host { overflow: visible; }
 .avatar.img.host img { border-radius: inherit; }
+#rail-scroll { flex: 1 1 auto; min-height: 0; width: 100%; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 2px 0 6px; }
+#rail-scroll::-webkit-scrollbar { display: none; }
+#rail-scroll > .rail-btn, #rail-scroll > .rail-sep { flex: none; }

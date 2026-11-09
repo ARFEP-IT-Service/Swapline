@@ -7,6 +7,12 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Leiste: Projekte und Ordner von Haupt-PCs und Servern stehen links unter dem jeweiligen Eintrag – aufklappbar
+  (Klick öffnet und klappt auf, erneuter Klick klappt zu), Ordner darin ebenfalls. Die mittlere Leiste scrollt bei
+  vielen Einträgen, statt sie zu stauchen.
+
 ## [0.7.0] – 2026-11-09
 
 - Fernzugriff: Änderungen am Haupt-PC (Freigaben, Projekte, Ordner, Konten) kommen sofort beim Gerät an – kein
