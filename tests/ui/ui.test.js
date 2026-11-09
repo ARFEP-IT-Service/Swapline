@@ -82,5 +82,19 @@
   $('#update-banner button.ghost').click();
   check('Update-Hinweis lässt sich wegklicken', !$('#update-banner'));
   $('#modal-root').replaceChildren();
+
+  // Sprache: Englisch (feste Texte aus index.html, Einstellungen, Platzhalter) und zurück
+  check('Start auf Deutsch (Testprofil language: de)', LANG === 'de' && document.documentElement.lang === 'de' && $('#search').placeholder === 'Suchen …');
+  setLang('en'); translateStatic(); renderList(); openSettings();
+  check('Englisch: Titel der Einstellungen', ($('.modal.settings h2')?.firstChild?.textContent || '') === 'Settings', $('.modal.settings h2')?.textContent);
+  check('Englisch: Sprachauswahl als erstes Feld', ($('.modal.settings .field span')?.textContent || '') === 'Language' && !!$('.modal.settings select option[value="en"]'));
+  check('Englisch: Suchfeld und Reiter', $('#search').placeholder === 'Search …' && $('#seg [data-view="history"]').textContent === 'History', $('#search').placeholder);
+  check('Englisch: title-Attribute', $('#btn-settings').title === 'Settings' && $('#btn-new-chat').title === 'New chat (Ctrl+N)');
+  check('Englisch: Platzhalter {v} werden ersetzt', _('Lade Version {v} … {p} %', { v: '1', p: 50 }) === 'Downloading version 1 … 50%' && _('{n} Schritte', { n: 3 }) === '3 steps');
+  check('Englisch: Datumsgruppen', groupLabel(Date.now()) === 'Today' && document.documentElement.lang === 'en');
+  check('Unbekannter Text bleibt deutsch', _('Gibt es nicht {x}', { x: 1 }) === 'Gibt es nicht 1');
+  $('#modal-root').replaceChildren();
+  setLang('de'); translateStatic(); renderList();
+  check('Zurück auf Deutsch', $('#search').placeholder === 'Suchen …' && $('#btn-settings').title === 'Einstellungen' && $('#seg [data-view="history"]').textContent === 'Verlauf');
   return T;
 })()

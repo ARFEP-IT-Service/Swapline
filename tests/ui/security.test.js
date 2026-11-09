@@ -31,6 +31,10 @@
   check('settings:set autoUpdate nur true/false', !!(await api.setSettings({ autoUpdate: 'yes' })).rejected);
   check('Update installieren ohne fertiges Update abgelehnt', (await api.update.install()) === false);
   check('settings:set gültiger Wert übernommen (Gegenprobe)', !(await api.setSettings({ theme: 'dark' })).rejected);
+  check('settings:set language nur auto/de/en', !!(await api.setSettings({ language: 'fr' })).rejected);
+  const langEn = await api.setSettings({ language: 'en' });
+  check('settings:set language en übernommen (Gegenprobe)', !langEn.rejected && langEn.settings.language === 'en');
+  await api.setSettings({ language: 'de' });
 
   // Sitzungen und Pfade
   check('Session-ID ..\\..\\x beim Laden abgelehnt', (await api.history.loadSession({ profileId: 'test', sessionId: '..' + BS + '..' + BS + 'x' })).length === 0);

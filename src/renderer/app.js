@@ -42,7 +42,7 @@ DOMPurify.addHook('afterSanitizeAttributes', node => {
   if (node.hasAttribute('href')) {
     const href = node.getAttribute('href').trim();
     if (/^https:\/\/[^/\\]/i.test(href)) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
-    else { node.removeAttribute('href'); node.setAttribute('title', 'Link entfernt: ' + href.slice(0, 120)); }
+    else { node.removeAttribute('href'); node.setAttribute('title', _('Link entfernt: {href}', { href: href.slice(0, 120) })); }
   }
   if (node.tagName === 'IMG' && !/^data:image\//i.test(node.getAttribute('src') || '')) node.remove();
   for (const attr of ['src', 'srcset', 'action', 'formaction', 'xlink:href', 'poster', 'background']) {
@@ -94,17 +94,17 @@ const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p || 'Ho
 // Uhrzeit an Nachrichten: heute nur HH:MM, sonst mit Datum
 function msgTime(ts) {
   const d = new Date(ts);
-  const hm = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-  return d.toDateString() === new Date().toDateString() ? hm : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' ' + hm;
+  const hm = d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? hm : d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' }) + ' ' + hm;
 }
 function fmtTime(ts) {
   if (!ts) return '';
   const d = new Date(ts), now = new Date();
-  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
   const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return 'Gestern';
-  if (now - d < 6 * 864e5) return d.toLocaleDateString('de-DE', { weekday: 'short' });
-  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  if (d.toDateString() === y.toDateString()) return _('Gestern');
+  if (now - d < 6 * 864e5) return d.toLocaleDateString(locale(), { weekday: 'short' });
+  return d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -134,7 +134,7 @@ function renderRail() {
   const busyIn = id => tabs.some(t => t.projectId === id && (t.unread || t.running || bgRunning(t)));
   $('#rail-projects').replaceChildren(...(store.projects || []).map(pr => el('button', {
     class: 'rail-profile' + (pr.id === pid ? ' active' : ''),
-    title: pr.name + (pr.cwd ? '\n' + pr.cwd : '') + '\nRechtsklick: bearbeiten',
+    title: pr.name + (pr.cwd ? '\n' + pr.cwd : '') + '\n' + _('Rechtsklick: bearbeiten'),
     onclick: () => switchProject(pr.id),
     oncontextmenu: e => { e.preventDefault(); openProjectForm(pr); },
     draggable: 'true',
@@ -147,7 +147,7 @@ function renderRail() {
   // Konto-Knopf unten: Avatar des aktiven Kontos mit Status-Punkt
   const p = activeProfile(), st = status[p.id];
   $('#btn-account').replaceChildren(avatar(p), el('span', { class: 'badge ' + (st ? (st.loggedIn ? 'on' : 'off') : '') }));
-  $('#btn-account').title = `Konto: ${p.name}${st?.email ? '\n' + st.email : ''}${st && !st.loggedIn ? '\n(' + stateText(st) + ')' : ''}\nKlicken zum Wechseln`;
+  $('#btn-account').title = _('Konto: {name}', { name: p.name }) + (st?.email ? '\n' + st.email : '') + (st && !st.loggedIn ? '\n(' + stateText(st) + ')' : '') + '\n' + _('Klicken zum Wechseln');
   renderProjectHead();
 }
 
@@ -156,9 +156,9 @@ function renderProjectHead() {
   const av = pr ? avatar(pr, 'lg') : el('div', { class: 'avatar lg globe' }, icon(GLOBE));
   av.id = 'ph-avatar';
   $('#ph-avatar').replaceWith(av);
-  $('#ph-name').textContent = pr ? pr.name : 'Allgemein';
+  $('#ph-name').textContent = pr ? pr.name : _('Allgemein');
   const count = tabs.filter(t => tabInProject(t, pid)).length;
-  $('#ph-sub').textContent = pr ? `${pr.cwd || 'ohne festen Ordner'} · ${count} Chat${count === 1 ? '' : 's'}` : `Alle Chats · ${count}`;
+  $('#ph-sub').textContent = pr ? (pr.cwd || _('ohne festen Ordner')) + ' · ' + (count === 1 ? _('1 Chat') : _('{n} Chats', { n: count })) : _('Alle Chats · {n}', { n: count });
   $('#ph-sub').title = pr?.cwd || '';
   $('#btn-project-edit').hidden = !pr;
 }
@@ -195,34 +195,34 @@ function moveChatToProject(chatId, projectId) {
   if (!t) return;
   t.projectId = projectId === 'all' ? null : projectId;
   saveTabs(); renderRail(); renderList();
-  toast(projectId === 'all' ? 'Chat ist jetzt ohne Projekt' : `Chat verschoben nach „${project(projectId).name}“`);
+  toast(projectId === 'all' ? _('Chat ist jetzt ohne Projekt') : _('Chat verschoben nach „{name}“', { name: project(projectId).name }));
 }
 
 function openProjectForm(pr = {}) {
   let color = pr.color || COLORS[(store.projects || []).length % COLORS.length];
   let cwd = pr.cwd || '';
-  const name = el('input', { type: 'text', value: pr.name || '', placeholder: 'z. B. Glassbed, Website, Verein' });
+  const name = el('input', { type: 'text', value: pr.name || '', placeholder: _('z. B. Glassbed, Website, Verein') });
   const colors = el('div', { class: 'colors' });
   const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
   drawColors();
   const folder = el('div', { class: 'folder-row' });
   const drawFolder = () => fill(folder,
-    el('span', { class: 'mono ' + (cwd ? '' : 'muted') }, cwd || 'kein Ordner – wird pro Chat gewählt'),
-    el('button', { class: 'ghost', onclick: async () => { const d = await api.pickFolder(); if (d) { cwd = d; if (!name.value.trim()) name.value = baseName(d); drawFolder(); } } }, 'Wählen …'),
-    cwd ? el('button', { class: 'ghost', onclick: () => { cwd = ''; drawFolder(); } }, 'Entfernen') : null);
+    el('span', { class: 'mono ' + (cwd ? '' : 'muted') }, cwd || _('kein Ordner – wird pro Chat gewählt')),
+    el('button', { class: 'ghost', onclick: async () => { const d = await api.pickFolder(); if (d) { cwd = d; if (!name.value.trim()) name.value = baseName(d); drawFolder(); } } }, _('Wählen …')),
+    cwd ? el('button', { class: 'ghost', onclick: () => { cwd = ''; drawFolder(); } }, _('Entfernen')) : null);
   drawFolder();
   // Projektbild (SVG, PNG, JPG, WebP, GIF, ICO bis 512 KB) – gewählt über den Datei-Dialog des Hauptprozesses
   let icon = pr.icon || null;
   const iconRow = el('div', { class: 'folder-row' });
   const drawIcon = () => fill(iconRow,
     avatar({ name: name.value || pr.name || '?', color, icon }, 'lg'),
-    el('span', { class: 'hint', style: 'flex:1' }, icon ? 'eigenes Bild' : 'Initialen auf Farbe'),
+    el('span', { class: 'hint', style: 'flex:1' }, icon ? _('eigenes Bild') : _('Initialen auf Farbe')),
     el('button', { class: 'ghost', onclick: async () => {
       const r = await api.projects.pickIcon();
       if (r?.error) return toast(r.error);
       if (r?.icon) { icon = r.icon; drawIcon(); }
-    } }, 'Bild wählen …'),
-    icon ? el('button', { class: 'ghost', onclick: () => { icon = null; drawIcon(); } }, 'Entfernen') : null);
+    } }, _('Bild wählen …')),
+    icon ? el('button', { class: 'ghost', onclick: () => { icon = null; drawIcon(); } }, _('Entfernen')) : null);
   drawIcon();
   name.addEventListener('input', () => { if (!icon) drawIcon(); });
   colors.addEventListener('click', () => { if (!icon) setTimeout(drawIcon); });
@@ -232,20 +232,21 @@ function openProjectForm(pr = {}) {
     store = pr.id ? await api.projects.update(pr.id, data) : await api.projects.add(data);
     m.close(); renderRail(); renderList();
   };
-  const m = modal('project', pr.id ? 'Projekt bearbeiten' : 'Neues Projekt',
-    el('label', { class: 'field' }, el('span', {}, 'Name'), name),
-    el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Bild (optional)'), iconRow),
-    el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Farbe'), colors),
-    el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Projektordner (neue Chats starten hier)'), folder),
+  const m = modal('project', pr.id ? _('Projekt bearbeiten') : _('Neues Projekt'),
+    el('label', { class: 'field' }, el('span', {}, _('Name')), name),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Bild (optional)')), iconRow),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Projektordner (neue Chats starten hier)')), folder),
     el('div', { class: 'row', style: 'margin-top:16px' },
-      el('button', { class: 'primary', onclick: save }, pr.id ? 'Speichern' : 'Projekt anlegen'),
+      el('button', { class: 'primary', onclick: save }, pr.id ? _('Speichern') : _('Projekt anlegen')),
       pr.id ? el('button', { class: 'ghost danger', style: 'margin-left:auto', onclick: async () => {
         const n = tabs.filter(t => t.projectId === pr.id).length;
-        if (!confirm(`Projekt „${pr.name}“ löschen?${n ? `\n\nDie ${n} Chat(s) bleiben erhalten und landen unter „Allgemein“.` : ''}`)) return;
+        const kept = n === 1 ? _('Der Chat bleibt erhalten und landet unter „Allgemein“.') : _('Die {n} Chats bleiben erhalten und landen unter „Allgemein“.', { n });
+        if (!confirm(_('Projekt „{name}“ löschen?', { name: pr.name }) + (n ? '\n\n' + kept : ''))) return;
         tabs.forEach(t => { if (t.projectId === pr.id) t.projectId = null; });
         saveTabs();
         store = await api.projects.remove(pr.id); m.close(); renderRail(); renderList();
-      } }, 'Projekt löschen') : null));
+      } }, _('Projekt löschen')) : null));
   name.focus();
   name.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
 }
@@ -255,7 +256,7 @@ function openAccountMenu() {
   closeMenus();
   const r = $('#btn-account').getBoundingClientRect();
   const menu = el('div', { class: 'popmenu', id: 'account-menu', style: `left:${r.right + 10}px; bottom:${window.innerHeight - r.bottom}px` },
-    el('div', { class: 'pm-title' }, 'Konto wechseln'),
+    el('div', { class: 'pm-title' }, _('Konto wechseln')),
     ...store.profiles.map(p => {
       const st = status[p.id];
       return el('button', { class: 'pm-item' + (p.id === store.activeProfileId ? ' sel' : ''), onclick: () => { closeMenus(); switchProfile(p.id); } },
@@ -264,8 +265,8 @@ function openAccountMenu() {
         p.id === store.activeProfileId ? el('span', { class: 'pm-check' }, '✓') : null);
     }),
     el('div', { class: 'pm-sep' }),
-    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openAddProfile(); } }, el('span', { class: 'pm-ic' }, '+'), 'Konto hinzufügen'),
-    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openAccounts(); } }, el('span', { class: 'pm-ic' }, '⚙'), 'Konten verwalten'));
+    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openAddProfile(); } }, el('span', { class: 'pm-ic' }, '+'), _('Konto hinzufügen')),
+    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openAccounts(); } }, el('span', { class: 'pm-ic' }, '⚙'), _('Konten verwalten')));
   document.body.append(menu);
 }
 function closeMenus() { document.querySelectorAll('.popmenu').forEach(x => x.remove()); }
@@ -274,14 +275,14 @@ document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') 
 // Rechtsklick auf einen Chat: in Projekt verschieben / schließen
 function openChatMenu(e, t) {
   e.preventDefault(); closeMenus();
-  const items = [el('div', { class: 'pm-title' }, 'Verschieben nach')];
+  const items = [el('div', { class: 'pm-title' }, _('Verschieben nach'))];
   items.push(el('button', { class: 'pm-item' + (!t.projectId ? ' sel' : ''), onclick: () => { closeMenus(); moveChatToProject(t.id, 'all'); } },
-    el('span', { class: 'pm-av' }, el('div', { class: 'avatar sm globe' }, icon(GLOBE))), 'Allgemein (ohne Projekt)'));
+    el('span', { class: 'pm-av' }, el('div', { class: 'avatar sm globe' }, icon(GLOBE))), _('Allgemein (ohne Projekt)')));
   for (const pr of store.projects || []) items.push(el('button', { class: 'pm-item' + (t.projectId === pr.id ? ' sel' : ''), onclick: () => { closeMenus(); moveChatToProject(t.id, pr.id); } },
     el('span', { class: 'pm-av' }, avatar(pr, 'sm')), pr.name));
-  items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), 'Neues Projekt …'));
-  items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), 'Umbenennen …'));
-  items.push(el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), 'Chat schließen'));
+  items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), _('Neues Projekt …')));
+  items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), _('Umbenennen …')));
+  items.push(el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), _('Chat schließen')));
   const menu = el('div', { class: 'popmenu', style: `left:${e.clientX}px; top:${e.clientY}px` }, ...items);
   document.body.append(menu);
   const r = menu.getBoundingClientRect();
@@ -289,12 +290,11 @@ function openChatMenu(e, t) {
 }
 
 // Statuszeile eines Kontos – unterscheidet „Claude Code fehlt“ von „nicht angemeldet“
-const CLAUDE_MISSING_TEXT = 'Claude Code nicht gefunden';
 function stateText(st, long = false) {
-  if (!st) return 'wird geprüft …';
-  if (st.claudeMissing) return CLAUDE_MISSING_TEXT;
+  if (!st) return _('wird geprüft …');
+  if (st.claudeMissing) return _('Claude Code nicht gefunden');
   if (st.loggedIn) return [st.email, planLabel(st), long ? st.orgName : null].filter(Boolean).join(' · ');
-  return 'Nicht angemeldet';
+  return _('Nicht angemeldet');
 }
 const badgeClass = st => 'badge ' + (st ? (st.loggedIn ? 'on' : 'off') : '');
 function planLabel(st) {
@@ -305,7 +305,7 @@ function planLabel(st) {
 async function refreshStatus(id) {
   const ids = id ? [id] : store.profiles.map(p => p.id);
   await Promise.all(ids.map(async pid => { status[pid] = await api.profiles.status(pid); }));
-  if (Object.values(status).some(s => s?.claudeMissing)) toast(CLAUDE_MISSING_TEXT + ' – siehe Einstellungen');
+  if (Object.values(status).some(s => s?.claudeMissing)) toast(_('Claude Code nicht gefunden – siehe Einstellungen'));
   renderRail();
   if ($('.modal.accounts')) renderAccountsList();
 }
@@ -319,8 +319,8 @@ async function switchProfile(id) {
   if (t && t.profileId !== id) {
     // Übertragung abgelehnt -> aktives Konto bleibt das des Chats
     if ((await moveTabToProfile(t, id)) === false) store = await api.profiles.setActive(t.profileId);
-  } else if (st && !st.loggedIn) toast(st.claudeMissing ? CLAUDE_MISSING_TEXT : `„${profile(id).name}“ ist nicht angemeldet`);
-  else toast(`Konto: ${profile(id).name}`);
+  } else if (st && !st.loggedIn) toast(st.claudeMissing ? _('Claude Code nicht gefunden') : _('„{name}“ ist nicht angemeldet', { name: profile(id).name }));
+  else toast(_('Konto: {name}', { name: profile(id).name }));
   renderRail(); renderList(); renderUsage();
 }
 
@@ -329,7 +329,7 @@ async function moveTabToProfile(t, to) {
   if (t.profileId === to) return;
   if (t.running) {
     t.pendingProfile = to;
-    toast(`Wechsel zu „${profile(to).name}“ nach dieser Antwort`);
+    toast(_('Wechsel zu „{name}“ nach dieser Antwort', { name: profile(to).name }));
     if (t.id === activeTabId) renderChat();
     return;
   }
@@ -337,16 +337,17 @@ async function moveTabToProfile(t, to) {
   if (t.sessionId) {
     // Der Hauptprozess fragt vorher nach (Verlauf inkl. Dateiinhalten wird kopiert)
     const r = await api.session.moveProfile({ sessionId: t.sessionId, cwd: t.cwd, fromProfileId: t.profileId, toProfileId: to });
-    if (r?.cancelled) { toast('Übertragung abgebrochen – der Chat bleibt im bisherigen Konto'); if (t.id === activeTabId) renderChat(); return false; }
-    if (!r?.ok) { toast('Verlauf konnte nicht übernommen werden – der Chat startet neu'); t.sessionId = null; }
+    if (r?.cancelled) { toast(_('Übertragung abgebrochen – der Chat bleibt im bisherigen Konto')); if (t.id === activeTabId) renderChat(); return false; }
+    if (!r?.ok) { toast(_('Verlauf konnte nicht übernommen werden – der Chat startet neu')); t.sessionId = null; }
   }
   const st = status[to];
-  await changeTab({ profileId: to }, `Weiter mit Konto „${profile(to).name}“${st?.email ? ' (' + st.email + ')' : ''}${st && !st.loggedIn ? ' – nicht angemeldet!' : ''}`, t);
+  await changeTab({ profileId: to }, _('Weiter mit Konto „{name}“', { name: profile(to).name }) + (st?.email ? ' (' + st.email + ')' : '') + (st && !st.loggedIn ? ' – ' + _('nicht angemeldet!') : ''), t);
 }
 
 // ---------- Modelle & Aufwand ----------
 const modelInfo = {}; // profileId -> { models, effortLevel, ... }
-const EFFORT_LABEL = { low: 'Niedrig', medium: 'Mittel', high: 'Hoch', xhigh: 'Sehr hoch', max: 'Maximum' };
+const EFFORT_LABEL = { low: N_('Niedrig'), medium: N_('Mittel'), high: N_('Hoch'), xhigh: N_('Sehr hoch'), max: N_('Maximum') };
+const effortName = l => (EFFORT_LABEL[l] ? _(EFFORT_LABEL[l]) : l);
 async function loadModels(pid, refresh = false) {
   if (modelInfo[pid] && !refresh) return modelInfo[pid];
   const info = await api.profiles.models(pid, refresh);
@@ -371,20 +372,20 @@ function effortLevelsFor(pid, model) {
 }
 // ---------- Chat-Einstellungen: ein Knopf oben rechts, Menü wie beim Konto ----------
 const MODES = [
-  { value: 'default', label: 'Nachfragen', desc: 'Claude fragt vor Befehlen und Änderungen' },
-  { value: 'acceptEdits', label: 'Änderungen erlauben', desc: 'Dateien ändern ohne Rückfrage, Befehle mit' },
-  { value: 'plan', label: 'Nur planen', desc: 'Claude liest und plant, ändert nichts' },
-  { value: 'bypassPermissions', label: '⚠ Alles erlauben', desc: 'keine Rückfragen (--dangerously-skip-permissions)' },
+  { value: 'default', label: N_('Nachfragen'), desc: N_('Claude fragt vor Befehlen und Änderungen') },
+  { value: 'acceptEdits', label: N_('Änderungen erlauben'), desc: N_('Dateien ändern ohne Rückfrage, Befehle mit') },
+  { value: 'plan', label: N_('Nur planen'), desc: N_('Claude liest und plant, ändert nichts') },
+  { value: 'bypassPermissions', label: N_('⚠ Alles erlauben'), desc: N_('keine Rückfragen (--dangerously-skip-permissions)') },
 ];
 function modelLabel(t) {
-  if (!t.model) return defaultModelName(t.profileId) || 'Standard';
+  if (!t.model) return defaultModelName(t.profileId) || _('Standard');
   return modelEntry(t.profileId, t.model)?.displayName || t.model;
 }
 function effortLabel(t) {
   if (!effortLevelsFor(t.profileId, t.model).length) return '';
-  if (t.effort) return EFFORT_LABEL[t.effort] || t.effort;
+  if (t.effort) return effortName(t.effort);
   const d = modelInfo[t.profileId]?.effortLevel;
-  return d ? EFFORT_LABEL[d] || d : 'Auto';
+  return d ? effortName(d) : 'Auto';
 }
 function renderChatChip(t) {
   const p = profile(t.profileId);
@@ -397,10 +398,17 @@ function renderChatChip(t) {
     el('span', { class: 'cc-text' },
       el('b', {}, p?.name || '?'), el('span', { class: 'cc-sep' }, '·'), modelLabel(t),
       eff ? [el('span', { class: 'cc-sep' }, '·'), eff] : null,
-      bypass ? [el('span', { class: 'cc-sep' }, '·'), el('span', { class: 'cc-warn' }, '⚠ Alles erlaubt')] : null),
+      bypass ? [el('span', { class: 'cc-sep' }, '·'), el('span', { class: 'cc-warn' }, _('⚠ Alles erlaubt'))] : null),
     icon('<path d="m6 9 6 6 6-6"/>'));
   const mode = MODES.find(m => m.value === (t.permissionMode || 'default'));
-  chip.title = `Konto: ${p?.name}${status[t.profileId]?.email ? ' (' + status[t.profileId].email + ')' : ''}\nModell: ${modelLabel(t)}${t.model ? '' : ' (Standard)'}\nAufwand: ${eff || '–'}${t.effort ? '' : ' (Standard)'}\nBerechtigungen: ${mode?.label}`;
+  const email = status[t.profileId]?.email;
+  const std = ' (' + _('Standard') + ')';
+  chip.title = [
+    _('Konto: {name}', { name: p?.name || '?' }) + (email ? ' (' + email + ')' : ''),
+    _('Modell: {m}', { m: modelLabel(t) }) + (t.model ? '' : std),
+    _('Aufwand: {e}', { e: eff || '–' }) + (t.effort ? '' : std),
+    _('Berechtigungen: {m}', { m: mode ? _(mode.label) : '' }),
+  ].join('\n');
 }
 
 let showAllModels = false;
@@ -413,7 +421,7 @@ function openChatSettingsMenu() {
   const check = on => (on ? el('span', { class: 'pm-check' }, '✓') : null);
 
   // Konto
-  const items = [el('div', { class: 'pm-title' }, 'Konto für diesen Chat')];
+  const items = [el('div', { class: 'pm-title' }, _('Konto für diesen Chat'))];
   for (const p of store.profiles) {
     const st = status[p.id];
     items.push(el('button', { class: 'pm-item' + (p.id === t.profileId ? ' sel' : ''), onclick: async () => {
@@ -428,17 +436,17 @@ function openChatSettingsMenu() {
   }
 
   // Modell (die wichtigsten zuerst, ältere hinter "Weitere")
-  items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, 'Modell'));
+  items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, _('Modell')));
   const list = (modelInfo[t.profileId]?.models || []).filter(m => m.value !== 'default');
   const def = modelEntry(t.profileId, 'default');
   const setModel = (value, label) => {
     done();
     const patch = { model: value };
     if (t.effort && !effortLevelsFor(t.profileId, value).includes(t.effort)) patch.effort = '';
-    changeTab(patch, `Modell: ${label}`);
+    changeTab(patch, _('Modell: {m}', { m: label }));
   };
-  items.push(el('button', { class: 'pm-item' + (!t.model ? ' sel' : ''), onclick: () => setModel('', 'Standard · ' + (defaultModelName(t.profileId) || '')) },
-    el('span', { class: 'pm-text' }, el('b', {}, `Standard · ${defaultModelName(t.profileId) || 'laut Konto'}`), el('small', {}, def?.description || 'Empfehlung von Claude für dieses Konto')),
+  items.push(el('button', { class: 'pm-item' + (!t.model ? ' sel' : ''), onclick: () => setModel('', _('Standard') + ' · ' + (defaultModelName(t.profileId) || '')) },
+    el('span', { class: 'pm-text' }, el('b', {}, _('Standard') + ' · ' + (defaultModelName(t.profileId) || _('laut Konto'))), el('small', {}, def?.description || _('Empfehlung von Claude für dieses Konto'))),
     check(!t.model)));
   const main = list.slice(0, 4), more = list.slice(4);
   const modelItem = m => el('button', { class: 'pm-item' + (t.model === m.value ? ' sel' : ''), onclick: () => setModel(m.value, m.displayName) },
@@ -446,23 +454,24 @@ function openChatSettingsMenu() {
   main.forEach(m => items.push(modelItem(m)));
   if (more.length) {
     if (showAllModels || more.some(m => m.value === t.model)) more.forEach(m => items.push(modelItem(m)));
-    else items.push(el('button', { class: 'pm-more', onclick: e => { e.stopPropagation(); showAllModels = true; openChatSettingsMenu(); } }, `Weitere Modelle (${more.length}) …`));
+    else items.push(el('button', { class: 'pm-more', onclick: e => { e.stopPropagation(); showAllModels = true; openChatSettingsMenu(); } }, _('Weitere Modelle ({n}) …', { n: more.length })));
   }
-  if (!list.length) items.push(el('div', { class: 'pm-note' }, 'Modelle werden geladen …'));
+  if (!list.length) items.push(el('div', { class: 'pm-note' }, _('Modelle werden geladen …')));
 
   // Aufwand als Segment-Leiste
   const levels = effortLevelsFor(t.profileId, t.model);
   const defEff = modelInfo[t.profileId]?.effortLevel;
-  items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, 'Aufwand'));
+  const defEffName = defEff ? effortName(defEff) : _('automatisch');
+  items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, _('Aufwand')));
   if (levels.length) {
     const seg = el('div', { class: 'pm-seg' },
-      el('button', { class: !t.effort ? 'sel' : '', title: `Standard: ${defEff ? EFFORT_LABEL[defEff] || defEff : 'automatisch'}`, onclick: () => { done(); changeTab({ effort: '' }, `Aufwand: Standard (${defEff ? EFFORT_LABEL[defEff] || defEff : 'automatisch'})`); } }, 'Standard'),
-      ...levels.map(l => el('button', { class: t.effort === l ? 'sel' : '', onclick: () => { done(); changeTab({ effort: l }, `Aufwand: ${EFFORT_LABEL[l] || l}`); } }, EFFORT_LABEL[l] || l)));
-    items.push(seg, el('div', { class: 'pm-note' }, `Standard für dieses Konto: ${defEff ? EFFORT_LABEL[defEff] || defEff : 'automatisch (Claude entscheidet)'}`));
-  } else items.push(el('div', { class: 'pm-note' }, 'Dieses Modell hat keine Aufwandsstufen.'));
+      el('button', { class: !t.effort ? 'sel' : '', title: _('Standard: {e}', { e: defEffName }), onclick: () => { done(); changeTab({ effort: '' }, _('Aufwand: Standard ({e})', { e: defEffName })); } }, _('Standard')),
+      ...levels.map(l => el('button', { class: t.effort === l ? 'sel' : '', onclick: () => { done(); changeTab({ effort: l }, _('Aufwand: {e}', { e: effortName(l) })); } }, effortName(l))));
+    items.push(seg, el('div', { class: 'pm-note' }, _('Standard für dieses Konto: {e}', { e: defEff ? effortName(defEff) : _('automatisch (Claude entscheidet)') })));
+  } else items.push(el('div', { class: 'pm-note' }, _('Dieses Modell hat keine Aufwandsstufen.')));
 
   // Berechtigungen
-  items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, 'Berechtigungen'));
+  items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, _('Berechtigungen')));
   for (const m of MODES) {
     const on = (t.permissionMode || 'default') === m.value;
     items.push(el('button', { class: 'pm-item' + (on ? ' sel' : '') + (m.value === 'bypassPermissions' ? ' risk' : ''), onclick: async () => {
@@ -470,14 +479,14 @@ function openChatSettingsMenu() {
       if (on) return;
       // Warnung und Bestätigung kommen als nativer Dialog aus dem Hauptprozess
       if (m.value === 'bypassPermissions' && !(await api.session.confirmBypass(t.id))) return;
-      changeTab({ permissionMode: m.value }, m.value === 'bypassPermissions' ? '⚠ Alles erlauben: keine Rückfragen mehr (--dangerously-skip-permissions)' : `Berechtigungen: ${m.label}`);
-    } }, el('span', { class: 'pm-text' }, el('b', {}, m.label), el('small', {}, m.desc)), check(on)));
+      changeTab({ permissionMode: m.value }, m.value === 'bypassPermissions' ? _('⚠ Alles erlauben: keine Rückfragen mehr (--dangerously-skip-permissions)') : _('Berechtigungen: {m}', { m: _(m.label) }));
+    } }, el('span', { class: 'pm-text' }, el('b', {}, _(m.label)), el('small', {}, _(m.desc))), check(on)));
   }
 
   // Sonstiges
   items.push(el('div', { class: 'pm-sep' }),
-    el('button', { class: 'pm-item', onclick: () => { done(); api.profiles.openTerminal(t.profileId, t.cwd); } }, el('span', { class: 'pm-ic' }, '›_'), 'Im Terminal öffnen'),
-    t.cwd ? el('button', { class: 'pm-item', onclick: () => { done(); api.openPath(t.cwd); } }, el('span', { class: 'pm-ic' }, '📁'), 'Ordner im Explorer öffnen') : null);
+    el('button', { class: 'pm-item', onclick: () => { done(); api.profiles.openTerminal(t.profileId, t.cwd); } }, el('span', { class: 'pm-ic' }, '›_'), _('Im Terminal öffnen')),
+    t.cwd ? el('button', { class: 'pm-item', onclick: () => { done(); api.openPath(t.cwd); } }, el('span', { class: 'pm-ic' }, '📁'), _('Ordner im Explorer öffnen')) : null);
 
   const menu = el('div', { class: 'popmenu chat-menu', id: 'chat-menu', style: `top:${r.bottom + 8}px; right:${Math.max(8, window.innerWidth - r.right)}px` }, ...items);
   document.body.append(menu);
@@ -513,25 +522,25 @@ function renderList() {
       const pr = pid === 'all' ? project(t.projectId) : null;
       return el('div', { class: 'item' + (t.id === activeTabId ? ' active' : ''), onclick: () => openTab(t.id),
         oncontextmenu: e => openChatMenu(e, t), draggable: 'true', ondragstart: e => e.dataTransfer.setData('text/chat', t.id),
-        title: `Konto: ${p?.name || '?'}${pr ? '\nProjekt: ' + pr.name : ''}\nRechtsklick oder auf ein Projekt ziehen zum Verschieben` },
+        title: _('Konto: {name}', { name: p?.name || '?' }) + (pr ? '\n' + _('Projekt: {name}', { name: pr.name }) : '') + '\n' + _('Rechtsklick oder auf ein Projekt ziehen zum Verschieben') },
         avatar(p),
         el('div', { class: 'meta' },
-          el('div', { class: 'row1' }, el('span', { class: 'title' }, t.title || 'Neuer Chat'), el('span', { class: 'time' }, fmtTime(t.updated))),
+          el('div', { class: 'row1' }, el('span', { class: 'title' }, t.title || _('Neuer Chat')), el('span', { class: 'time' }, fmtTime(t.updated))),
           el('div', { class: 'sub' }, t.preview || baseName(t.cwd))),
-        t.running ? el('span', { class: 'busy', title: 'arbeitet …' }) : bgRunning(t) ? el('span', { class: 'busy bg', title: 'Hintergrund-Aufgabe läuft …' }) : t.unread ? el('span', { class: 'unread' }) : null,
-        el('button', { class: 'close', title: 'Chat schließen', onclick: e => { e.stopPropagation(); closeTab(t.id); } }, icon(ICONS.x)));
+        t.running ? el('span', { class: 'busy', title: _('arbeitet …') }) : bgRunning(t) ? el('span', { class: 'busy bg', title: _('Hintergrund-Aufgabe läuft …') }) : t.unread ? el('span', { class: 'unread' }) : null,
+        el('button', { class: 'close', title: _('Chat schließen'), onclick: e => { e.stopPropagation(); closeTab(t.id); } }, icon(ICONS.x)));
     });
-    if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, q ? 'Keine Treffer in offenen Chats.' : pid === 'all' ? 'Noch keine Chats. Klicke auf + für einen neuen Chat.' : 'Noch keine Chats in diesem Projekt. Klicke auf + oder ziehe einen Chat auf das Projekt links.')];
-    if (q.length >= 2) nodes.push(el('button', { class: 'search-all', onclick: () => { view = 'history'; setSeg(); renderList(); } }, `🔎 „${q}“ in allen Sitzungen suchen`));
+    if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, q ? _('Keine Treffer in offenen Chats.') : pid === 'all' ? _('Noch keine Chats. Klicke auf + für einen neuen Chat.') : _('Noch keine Chats in diesem Projekt. Klicke auf + oder ziehe einen Chat auf das Projekt links.'))];
+    if (q.length >= 2) nodes.push(el('button', { class: 'search-all', onclick: () => { view = 'history'; setSeg(); renderList(); } }, '🔎 ' + _('„{q}“ in allen Sitzungen suchen', { q })));
   }
 
   if (view === 'favorites') {
     nodes = store.favorites.filter(f => match(f.name, f.path)).map(f =>
-      el('div', { class: 'item', onclick: () => newChat(f.path), title: 'Neuen Chat in diesem Ordner starten' },
+      el('div', { class: 'item', onclick: () => newChat(f.path), title: _('Neuen Chat in diesem Ordner starten') },
         el('div', { class: 'folder-ic' }, icon(ICONS.folder)),
         el('div', { class: 'meta' }, el('div', { class: 'title' }, f.name), el('div', { class: 'sub mono' }, f.path)),
-        el('button', { class: 'close', title: 'Favorit entfernen', onclick: async e => { e.stopPropagation(); store = await api.favorites.remove(f.path); renderList(); } }, icon(ICONS.x))));
-    nodes.push(el('div', { style: 'padding:10px' }, el('button', { class: 'ghost', style: 'width:100%', onclick: async () => { store = await api.favorites.add(); renderList(); } }, '+ Ordner hinzufügen')));
+        el('button', { class: 'close', title: _('Favorit entfernen'), onclick: async e => { e.stopPropagation(); store = await api.favorites.remove(f.path); renderList(); } }, icon(ICONS.x))));
+    nodes.push(el('div', { style: 'padding:10px' }, el('button', { class: 'ghost', style: 'width:100%', onclick: async () => { store = await api.favorites.add(); renderList(); } }, _('+ Ordner hinzufügen'))));
   }
 
   if (view === 'history') {
@@ -547,21 +556,21 @@ function renderList() {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(async () => { const r = await api.history.search(pid, q); if (searchState === s0) { s0.results = r; s0.loading = false; if (view === 'history') renderList(); } }, 250);
       }
-      if (searchState.loading) { list.replaceChildren(el('div', { class: 'list-empty' }, 'Durchsuche alle Sitzungen …')); return; }
+      if (searchState.loading) { list.replaceChildren(el('div', { class: 'list-empty' }, _('Durchsuche alle Sitzungen …'))); return; }
       const hits = searchState.results.filter(inProject);
       nodes = hits.map(h => el('div', { class: 'item search-hit', onclick: () => resumeFromHistory(h), title: h.cwd },
         el('div', { class: 'folder-ic' }, icon(ICONS.clock)),
         el('div', { class: 'meta' },
           el('div', { class: 'row1' }, el('span', { class: 'title' }, h.title), el('span', { class: 'time' }, fmtTime(h.when || h.mtime))),
           el('div', { class: 'snippet' }, highlight(h.snippet, q)),
-          el('div', { class: 'sub mono' }, `${h.hits} Treffer · ${baseName(h.cwd)}`))));
-      if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, `Keine Nachricht mit „${q}“ gefunden.`)];
+          el('div', { class: 'sub mono' }, (h.hits === 1 ? _('1 Treffer') : _('{n} Treffer', { n: h.hits })) + ' · ' + baseName(h.cwd)))));
+      if (!nodes.length) nodes = [el('div', { class: 'list-empty' }, _('Keine Nachricht mit „{q}“ gefunden.', { q }))];
       list.replaceChildren(...nodes);
       renderRail();
       return;
     }
     if (!historyCache[pid]) {
-      list.replaceChildren(el('div', { class: 'list-empty' }, 'Verlauf wird geladen …'));
+      list.replaceChildren(el('div', { class: 'list-empty' }, _('Verlauf wird geladen …')));
       api.history.list(pid).then(h => { historyCache[pid] = h; if (view === 'history') renderList(); });
       return;
     }
@@ -574,9 +583,9 @@ function renderList() {
         el('div', { class: 'folder-ic' }, icon(ICONS.clock)),
         el('div', { class: 'meta' },
           el('div', { class: 'row1' }, el('span', { class: 'title' }, h.title), el('span', { class: 'time' }, fmtTime(h.mtime))),
-          el('div', { class: 'sub mono' }, isLive(h) ? el('span', { class: 'live' }, '● läuft gerade · ') : '', baseName(h.cwd)))));
+          el('div', { class: 'sub mono' }, isLive(h) ? el('span', { class: 'live' }, '● ' + _('läuft gerade') + ' · ') : '', baseName(h.cwd)))));
     }
-    if (!items.length) nodes = [el('div', { class: 'list-empty' }, q ? 'Keine Treffer.' : 'Für dieses Konto gibt es noch keinen Verlauf.')];
+    if (!items.length) nodes = [el('div', { class: 'list-empty' }, q ? _('Keine Treffer.') : _('Für dieses Konto gibt es noch keinen Verlauf.'))];
   }
   list.replaceChildren(...nodes);
   renderRail();
@@ -585,11 +594,11 @@ function renderList() {
 const isLive = h => Date.now() - h.mtime < 120000 && !tabs.some(t => t.sessionId === h.sessionId && t.running);
 function groupLabel(ts) {
   const d = new Date(ts), now = new Date();
-  if (d.toDateString() === now.toDateString()) return 'Heute';
+  if (d.toDateString() === now.toDateString()) return _('Heute');
   const days = Math.floor((now - d) / 864e5);
-  if (days < 7) return 'Diese Woche';
-  if (days < 31) return 'Diesen Monat';
-  return d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+  if (days < 7) return _('Diese Woche');
+  if (days < 31) return _('Diesen Monat');
+  return d.toLocaleDateString(locale(), { month: 'long', year: 'numeric' });
 }
 
 // Nutzung: Limits aus rate_limit_event + Kosten aus result
@@ -603,26 +612,26 @@ function renderUsage() {
     const pct = Math.round((util || 0) * 100);
     const cls = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
     rows.push(el('div', { class: 'u-row' }, el('span', { class: 'u-label' }, label),
-      el('span', { class: 'u-val', title: resets ? 'Zurückgesetzt: ' + new Date(resets * 1000).toLocaleString('de-DE') : '' },
-        `${pct} %${resets ? ' · ' + resetIn(resets) : ''}`)));
+      el('span', { class: 'u-val', title: resets ? _('Zurückgesetzt: {t}', { t: new Date(resets * 1000).toLocaleString(locale()) }) : '' },
+        _('{n} %', { n: pct }) + (resets ? ' · ' + resetIn(resets) : ''))));
     rows.push(el('div', { class: 'bar' }, el('i', { class: cls, style: `width:${Math.min(100, pct)}%` })));
   };
   const w = lim?.unifiedWindows;
-  if (w?.five_hour) bar('5-Stunden-Limit', w.five_hour.utilization, w.five_hour.resetsAt);
-  if (w?.seven_day) bar('Wochenlimit', w.seven_day.utilization, w.seven_day.resetsAt);
-  if (!w) rows.push(el('div', { class: 'u-row' }, el('span', { class: 'u-label' }, 'Limits'), el('span', { class: 'u-val muted' }, 'nach der ersten Nachricht')));
+  if (w?.five_hour) bar(_('5-Stunden-Limit'), w.five_hour.utilization, w.five_hour.resetsAt);
+  if (w?.seven_day) bar(_('Wochenlimit'), w.seven_day.utilization, w.seven_day.resetsAt);
+  if (!w) rows.push(el('div', { class: 'u-row' }, el('span', { class: 'u-label' }, _('Limits')), el('span', { class: 'u-val muted' }, _('nach der ersten Nachricht'))));
   const today = u.days?.[new Date().toISOString().slice(0, 10)] || 0;
-  rows.push(el('div', { class: 'u-row', title: 'Geschätzter API-Gegenwert laut Claude Code. Bei Abos zahlst du das nicht zusätzlich.' },
-    el('span', { class: 'u-label' }, 'Gegenwert heute / gesamt'),
+  rows.push(el('div', { class: 'u-row', title: _('Geschätzter API-Gegenwert laut Claude Code. Bei Abos zahlst du das nicht zusätzlich.') },
+    el('span', { class: 'u-label' }, _('Gegenwert heute / gesamt')),
     el('span', { class: 'u-val' }, `$${today.toFixed(2)} / $${(u.costUsd || 0).toFixed(2)}`)));
   rows.push(el('div', { class: 'brand' }, el('span', {}, `Swapline ${VERSION} · by`), el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' })));
   box.replaceChildren(...rows);
 }
 function resetIn(sec) {
   const m = Math.max(0, Math.round((sec * 1000 - Date.now()) / 60000));
-  if (m < 60) return `in ${m} Min`;
+  if (m < 60) return _('in {m} Min', { m });
   const h = Math.floor(m / 60);
-  return h < 48 ? `in ${h} Std ${m % 60} Min` : `in ${Math.round(h / 24)} T`;
+  return h < 48 ? _('in {h} Std {m} Min', { h, m: m % 60 }) : _('in {d} T', { d: Math.round(h / 24) });
 }
 
 // ---------- Chats ----------
@@ -648,7 +657,7 @@ async function resumeFromHistory(h) {
   const existing = tabs.find(t => t.sessionId === h.sessionId);
   if (existing) { view = 'chats'; setSeg(); return openTab(existing.id); }
   const t = makeTab({ title: h.title, cwd: h.cwd, sessionId: h.sessionId, updated: h.mtime, loaded: false });
-  if (isLive(h)) t.items.push({ kind: 'sys', error: true, text: 'Achtung: Diese Sitzung wird gerade woanders benutzt (z. B. im Terminal).\nBitte dort zuerst beenden, bevor du hier weiterschreibst – sonst arbeiten zwei Claude-Prozesse gleichzeitig an derselben Sitzung.' });
+  if (isLive(h)) t.items.push({ kind: 'sys', error: true, text: _('Achtung: Diese Sitzung wird gerade woanders benutzt (z. B. im Terminal).\nBitte dort zuerst beenden, bevor du hier weiterschreibst – sonst arbeiten zwei Claude-Prozesse gleichzeitig an derselben Sitzung.') });
   tabs.push(t);
   view = 'chats'; setSeg();
   openTab(t.id);
@@ -657,7 +666,7 @@ async function resumeFromHistory(h) {
 
 function closeTab(id) {
   const t = tabs.find(x => x.id === id);
-  if (t?.running && !confirm('Claude arbeitet noch in diesem Chat. Trotzdem schließen?')) return;
+  if (t?.running && !confirm(_('Claude arbeitet noch in diesem Chat. Trotzdem schließen?'))) return;
   api.session.close(id);
   tabs = tabs.filter(x => x.id !== id);
   if (activeTabId === id) activeTabId = null;
@@ -675,7 +684,7 @@ async function openTab(id) {
       const msgs = await api.history.loadSession({ profileId: t.profileId, sessionId: t.sessionId, cwd: t.cwd });
       const live = t.items; t.items = [];
       for (const m of msgs) ingest(t, m, true);
-      if (msgs.length) t.items.push({ kind: 'sys', text: 'Bisheriger Verlauf – ab hier geht es weiter' });
+      if (msgs.length) t.items.push({ kind: 'sys', text: _('Bisheriger Verlauf – ab hier geht es weiter') });
       t.items.push(...live);
     }
   }
@@ -701,9 +710,9 @@ function renderChat() {
   renderBgBar(t);
   const p = profile(t.profileId);
   $('#ch-avatar').replaceWith(Object.assign(avatar(p), { id: 'ch-avatar' }));
-  $('#ch-title').textContent = t.title || 'Neuer Chat';
-  $('#ch-cwd').textContent = t.cwd || '~ (Benutzerordner)';
-  $('#ch-cwd').title = t.cwd ? 'Ordner im Explorer öffnen' : '';
+  $('#ch-title').textContent = t.title || _('Neuer Chat');
+  $('#ch-cwd').textContent = t.cwd || _('~ (Benutzerordner)');
+  $('#ch-cwd').title = t.cwd ? _('Ordner im Explorer öffnen') : '';
   renderChatChip(t);
   if (!modelInfo[t.profileId]) loadModels(t.profileId).then(() => { if (currentTab() === t) renderChatChip(t); });
   renderMessages();
@@ -730,7 +739,7 @@ function updateToolGroup(g) {
   const running = tools.some(x => x.querySelector('.t-state.run')), failed = tools.some(x => x.querySelector('.t-state.err'));
   g.querySelector('.tg-state').className = 'tg-state ' + (running ? 'run' : failed ? 'err' : 'ok');
   g.querySelector('.tg-state').textContent = running ? '' : failed ? '✕' : '⚙';
-  g.querySelector('.tg-count').textContent = `${tools.length} ${tools.length === 1 ? 'Schritt' : 'Schritte'}`;
+  g.querySelector('.tg-count').textContent = tools.length === 1 ? _('1 Schritt') : _('{n} Schritte', { n: tools.length });
   g.querySelector('.tg-names').textContent = names.slice(0, 4).join(', ') + (names.length > 4 ? ' …' : '');
 }
 // Element eines Werkzeug-Aufrufs vor `anchor` einsetzen – im Kompaktmodus in die laufende Gruppe
@@ -798,7 +807,7 @@ function setTyping(t) {
 function renderItem(t, it) {
   switch (it.kind) {
     case 'me': return el('div', {}, el('div', { class: 'msg me' }, el('div', { class: 'bubble' },
-      it.images?.length ? el('div', { class: 'bubble-imgs' }, it.images.map(src => el('img', { src, alt: 'Bild' }))) : null,
+      it.images?.length ? el('div', { class: 'bubble-imgs' }, it.images.map(src => el('img', { src, alt: _('Bild') }))) : null,
       it.files?.length ? el('div', { class: 'bubble-files' }, it.files.map(n => el('span', {}, '📄 ' + n))) : null,
       it.text)),
       it.time ? el('div', { class: 'msg-time' }, msgTime(it.time)) : null);
@@ -809,7 +818,7 @@ function renderItem(t, it) {
       return el('div', { class: 'ai-block' }, el('div', { class: 'msg ai' }, b),
         el('div', { class: 'ai-foot' },
           it.time ? el('span', { class: 'msg-time left' }, msgTime(it.time)) : null,
-          el('button', { class: 'copy-answer', title: 'Antwort kopieren (Markdown)', onclick: e => copyText(it.text, e.currentTarget) }, 'Kopieren')));
+          el('button', { class: 'copy-answer', title: _('Antwort kopieren (Markdown)'), onclick: e => copyText(it.text, e.currentTarget) }, _('Kopieren'))));
     }
     case 'tool': return renderTool(it);
     case 'perm': return renderPerm(t, it);
@@ -824,12 +833,12 @@ function renderItem(t, it) {
 
 // Text in die Zwischenablage, mit kurzer Bestätigung am Knopf
 async function copyText(text, btn) {
-  if (!(await api.copyText(text || ''))) return toast('Kopieren nicht möglich');
-  if (btn) { const old = btn.textContent; btn.textContent = '✓ Kopiert'; btn.classList.add('done'); setTimeout(() => { btn.textContent = old; btn.classList.remove('done'); }, 1400); }
+  if (!(await api.copyText(text || ''))) return toast(_('Kopieren nicht möglich'));
+  if (btn) { const old = btn.textContent; btn.textContent = _('✓ Kopiert'); btn.classList.add('done'); setTimeout(() => { btn.textContent = old; btn.classList.remove('done'); }, 1400); }
 }
 function enhanceCode(root) {
   root.querySelectorAll('pre').forEach(pre => {
-    const btn = el('button', { class: 'copy', onclick: () => copyText(pre.querySelector('code')?.innerText || pre.innerText, btn) }, 'Kopieren');
+    const btn = el('button', { class: 'copy', onclick: () => copyText(pre.querySelector('code')?.innerText || pre.innerText, btn) }, _('Kopieren'));
     pre.append(btn);
   });
 }
@@ -844,18 +853,19 @@ function toolSummary(name, input = {}) {
     case 'WebFetch': return input.url;
     case 'WebSearch': return input.query;
     case 'Task': case 'Agent': return input.description;
-    case 'TodoWrite': return `${(input.todos || []).filter(x => x.status === 'completed').length}/${(input.todos || []).length} erledigt`;
+    case 'TodoWrite': return _('{done}/{total} erledigt', { done: (input.todos || []).filter(x => x.status === 'completed').length, total: (input.todos || []).length });
     default: { const v = Object.values(input).find(x => typeof x === 'string'); return v || ''; }
   }
 }
-const TOOL_LABEL = { Bash: 'Befehl', PowerShell: 'PowerShell', Read: 'Liest', Write: 'Schreibt', Edit: 'Bearbeitet', Glob: 'Sucht Dateien', Grep: 'Durchsucht', WebFetch: 'Webseite', WebSearch: 'Websuche', Task: 'Agent', Agent: 'Agent', TodoWrite: 'Aufgaben' };
+const TOOL_LABEL = { Bash: N_('Befehl'), PowerShell: 'PowerShell', Read: N_('Liest'), Write: N_('Schreibt'), Edit: N_('Bearbeitet'), Glob: N_('Sucht Dateien'), Grep: N_('Durchsucht'), WebFetch: N_('Webseite'), WebSearch: N_('Websuche'), Task: N_('Agent'), Agent: N_('Agent'), TodoWrite: N_('Aufgaben') };
+const toolLabel = name => (TOOL_LABEL[name] ? _(TOOL_LABEL[name]) : name);
 
 function renderTool(it) {
   const state = it.result == null ? 'run' : it.isError ? 'err' : 'ok';
-  const d = el('details', { class: 'tool', 'data-label': TOOL_LABEL[it.name] || it.name },
+  const d = el('details', { class: 'tool', 'data-label': toolLabel(it.name) },
     el('summary', {},
       el('span', { class: 't-state ' + state }, state === 'ok' ? '✓' : state === 'err' ? '✕' : ''),
-      el('span', { class: 't-name' }, TOOL_LABEL[it.name] || it.name),
+      el('span', { class: 't-name' }, toolLabel(it.name)),
       el('span', { class: 't-sum' }, toolSummary(it.name, it.input))));
   if (it.name === 'TodoWrite' && Array.isArray(it.input?.todos)) {
     d.open = true;
@@ -868,38 +878,38 @@ function renderTool(it) {
     if (!d.open || d.querySelector('.t-body')) return;
     const body = el('div', { class: 't-body' });
     if (it.name === 'Edit' && it.input) {
-      body.append(el('div', { class: 't-label' }, 'Vorher'), el('pre', {}, it.input.old_string || ''), el('div', { class: 't-label' }, 'Nachher'), el('pre', {}, it.input.new_string || ''));
+      body.append(el('div', { class: 't-label' }, _('Vorher')), el('pre', {}, it.input.old_string || ''), el('div', { class: 't-label' }, _('Nachher')), el('pre', {}, it.input.new_string || ''));
     } else {
-      body.append(el('div', { class: 't-label' }, 'Eingabe'), el('pre', {}, (it.name === 'Bash' || it.name === 'PowerShell') ? it.input?.command : JSON.stringify(it.input, null, 2)));
+      body.append(el('div', { class: 't-label' }, _('Eingabe')), el('pre', {}, (it.name === 'Bash' || it.name === 'PowerShell') ? it.input?.command : JSON.stringify(it.input, null, 2)));
     }
-    if (it.result != null) body.append(el('div', { class: 't-label' }, it.isError ? 'Fehler' : 'Ergebnis'), el('pre', {}, truncate(it.result, 20000)));
+    if (it.result != null) body.append(el('div', { class: 't-label' }, it.isError ? _('Fehler') : _('Ergebnis')), el('pre', {}, truncate(it.result, 20000)));
     d.append(body);
   });
   return d;
 }
-const truncate = (s, n) => (s && s.length > n ? s.slice(0, n) + `\n… (${s.length - n} Zeichen gekürzt)` : s);
+const truncate = (s, n) => (s && s.length > n ? s.slice(0, n) + '\n' + _('… ({n} Zeichen gekürzt)', { n: s.length - n }) : s);
 
 function renderPerm(t, it) {
   const card = el('div', { class: 'card' + (it.answered ? ' done' : '') },
-    el('h4', {}, `Darf Claude ${TOOL_LABEL[it.toolName] ? '„' + TOOL_LABEL[it.toolName] + '“' : it.toolName} ausführen?`),
+    el('h4', {}, TOOL_LABEL[it.toolName] ? _('Darf Claude „{tool}“ ausführen?', { tool: toolLabel(it.toolName) }) : _('Darf Claude {tool} ausführen?', { tool: it.toolName })),
     it.description ? el('div', { class: 'muted' }, it.description) : null,
     el('pre', {}, (it.toolName === 'Bash' || it.toolName === 'PowerShell') ? it.input?.command : it.input?.file_path ? it.input.file_path + (it.input.new_string != null ? '\n\n− ' + (it.input.old_string || '') + '\n+ ' + it.input.new_string : '') : JSON.stringify(it.input, null, 2)));
   if (it.answered) card.append(el('div', { class: 'muted' }, it.answered));
   else card.append(el('div', { class: 'actions' },
-    el('button', { class: 'primary', onclick: () => answerPerm(t, it, 'allow') }, 'Erlauben'),
-    it.suggestions?.length && !it.suggestions.some(x => x?.type === 'setMode') ? el('button', { class: 'ghost', onclick: () => answerPerm(t, it, 'always'), title: 'Regel in den Projekteinstellungen speichern' }, 'Immer erlauben') : null,
-    el('button', { class: 'ghost danger', onclick: () => answerPerm(t, it, 'deny') }, 'Ablehnen')));
+    el('button', { class: 'primary', onclick: () => answerPerm(t, it, 'allow') }, _('Erlauben')),
+    it.suggestions?.length && !it.suggestions.some(x => x?.type === 'setMode') ? el('button', { class: 'ghost', onclick: () => answerPerm(t, it, 'always'), title: _('Regel in den Projekteinstellungen speichern') }, _('Immer erlauben')) : null,
+    el('button', { class: 'ghost danger', onclick: () => answerPerm(t, it, 'deny') }, _('Ablehnen'))));
   return card;
 }
 function answerPerm(t, it, how) {
   if (how === 'deny') {
     api.session.respond(t.id, it.requestId, { behavior: 'deny', message: 'Der Nutzer hat diese Aktion abgelehnt.' });
-    it.answered = '✕ Abgelehnt';
+    it.answered = _('✕ Abgelehnt');
   } else {
     const resp = { behavior: 'allow', updatedInput: it.input };
     if (how === 'always' && it.suggestions) resp.updatedPermissions = it.suggestions;
     api.session.respond(t.id, it.requestId, resp);
-    it.answered = how === 'always' ? '✓ Immer erlaubt' : '✓ Erlaubt';
+    it.answered = how === 'always' ? _('✓ Immer erlaubt') : _('✓ Erlaubt');
   }
   refreshItem(t, it);
 }
@@ -907,11 +917,11 @@ function answerPerm(t, it, how) {
 // Plan-Karte (Modus „Nur planen“): Plan als Markdown, annehmen / überarbeiten lassen / ablehnen.
 // Annehmen beendet in Claude Code den Plan-Modus; Swapline stellt den Chat dann auf „Nachfragen“.
 function renderPlan(t, it) {
-  const card = el('div', { class: 'card plan' + (it.answered ? ' done' : '') }, el('h4', {}, '📋 Plan von Claude'));
+  const card = el('div', { class: 'card plan' + (it.answered ? ' done' : '') }, el('h4', {}, _('📋 Plan von Claude')));
   const body = el('div', { class: 'md plan-body', html: md(it.input?.plan || '') });
   card.append(body);
   if (it.answered) { card.append(el('div', { class: 'muted', style: 'margin-top:8px' }, it.answered)); return card; }
-  const feedback = el('textarea', { class: 'plan-feedback', rows: '2', placeholder: 'Optional: Was soll Claude am Plan ändern?' });
+  const feedback = el('textarea', { class: 'plan-feedback', rows: '2', placeholder: _('Optional: Was soll Claude am Plan ändern?') });
   const answer = (resp, label, mode) => {
     api.session.respond(t.id, it.requestId, resp);
     it.answered = label;
@@ -919,13 +929,13 @@ function renderPlan(t, it) {
     refreshItem(t, it);
   };
   card.append(feedback, el('div', { class: 'actions', style: 'margin-top:10px' },
-    el('button', { class: 'primary', onclick: () => answer({ behavior: 'allow', updatedInput: it.input }, '✓ Plan angenommen – Claude setzt ihn um (Berechtigungen: Nachfragen)', 'default') }, 'Plan annehmen'),
-    el('button', { class: 'ghost', onclick: () => { if (!feedback.value.trim()) return feedback.focus(); answer({ behavior: 'deny', message: 'Bitte überarbeite den Plan: ' + feedback.value.trim() }, '✎ Überarbeitung gewünscht: ' + feedback.value.trim()); } }, 'Überarbeiten lassen'),
-    el('button', { class: 'ghost danger', onclick: () => answer({ behavior: 'deny', message: 'Der Nutzer hat den Plan abgelehnt.' }, '✕ Plan abgelehnt') }, 'Ablehnen')));
+    el('button', { class: 'primary', onclick: () => answer({ behavior: 'allow', updatedInput: it.input }, _('✓ Plan angenommen – Claude setzt ihn um (Berechtigungen: Nachfragen)'), 'default') }, _('Plan annehmen')),
+    el('button', { class: 'ghost', onclick: () => { if (!feedback.value.trim()) return feedback.focus(); answer({ behavior: 'deny', message: 'Bitte überarbeite den Plan: ' + feedback.value.trim() }, _('✎ Überarbeitung gewünscht: {text}', { text: feedback.value.trim() })); } }, _('Überarbeiten lassen')),
+    el('button', { class: 'ghost danger', onclick: () => answer({ behavior: 'deny', message: 'Der Nutzer hat den Plan abgelehnt.' }, _('✕ Plan abgelehnt')) }, _('Ablehnen'))));
   return card;
 }
 function renderQuestion(t, it) {
-  const card = el('div', { class: 'card' + (it.answered ? ' done' : '') }, el('h4', {}, 'Claude hat eine Frage'));
+  const card = el('div', { class: 'card' + (it.answered ? ' done' : '') }, el('h4', {}, _('Claude hat eine Frage')));
   if (it.answered) { card.append(el('div', { class: 'muted' }, it.answered)); return card; }
   const answers = it.answers ||= {};
   for (const q of it.input.questions || []) {
@@ -938,7 +948,7 @@ function renderQuestion(t, it) {
         refreshItem(t, it);
       } }, o.label, o.description ? el('small', {}, o.description) : null));
     }
-    const other = el('input', { class: 'other', type: 'text', placeholder: 'Andere Antwort …', value: typeof answers[q.question] === 'string' && !(q.options || []).some(o => o.label === answers[q.question]) ? answers[q.question] : '' });
+    const other = el('input', { class: 'other', type: 'text', placeholder: _('Andere Antwort …'), value: typeof answers[q.question] === 'string' && !(q.options || []).some(o => o.label === answers[q.question]) ? answers[q.question] : '' });
     other.addEventListener('input', () => { answers[q.question] = other.value; });
     card.append(other);
   }
@@ -949,18 +959,18 @@ function renderQuestion(t, it) {
       api.session.respond(t.id, it.requestId, { behavior: 'allow', updatedInput: { ...it.input, answers: out } });
       it.answered = Object.entries(out).map(([k, v]) => `${k} → ${v}`).join('\n');
       refreshItem(t, it);
-    } }, 'Antworten'),
+    } }, _('Antworten')),
     el('button', { class: 'ghost danger', onclick: () => {
       api.session.respond(t.id, it.requestId, { behavior: 'deny', message: 'Der Nutzer möchte die Frage nicht beantworten.' });
-      it.answered = '✕ Übersprungen'; refreshItem(t, it);
-    } }, 'Überspringen')));
+      it.answered = _('✕ Übersprungen'); refreshItem(t, it);
+    } }, _('Überspringen'))));
   return card;
 }
 
 // ---------- Nachrichten von Claude verarbeiten ----------
 function textOf(content) {
   if (typeof content === 'string') return content;
-  if (Array.isArray(content)) return content.map(c => c.type === 'text' ? c.text : c.type === 'image' ? '[Bild]' : '').join('\n');
+  if (Array.isArray(content)) return content.map(c => c.type === 'text' ? c.text : c.type === 'image' ? _('[Bild]') : '').join('\n');
   return '';
 }
 const hiddenUserText = s => !s || /^\s*<(command-|local-command|system-reminder|bash-|user-memory|task-notification)/.test(s) || s.startsWith('[Request interrupted');
@@ -974,7 +984,7 @@ function ingest(t, m, fromHistory = false) {
         t.sessionId = m.session_id;
         t.modelName = m.model;
         if (changed) saveTabs();
-      } else if (m.subtype === 'compact_boundary') add({ kind: 'sys', text: 'Unterhaltung wurde zusammengefasst' });
+      } else if (m.subtype === 'compact_boundary') add({ kind: 'sys', text: _('Unterhaltung wurde zusammengefasst') });
       else if (['task_started', 'task_updated', 'task_notification', 'background_tasks_changed'].includes(m.subtype)) trackTask(t, m);
       else if (m.subtype === 'away_summary' && m.content) add({ kind: 'recap', text: m.content, time: Date.parse(m.timestamp) || Date.now() });
       break;
@@ -1018,7 +1028,7 @@ function ingest(t, m, fromHistory = false) {
           if (task) { task.output = outFile; renderBgBar(t); }
           const tool = [...t.items].reverse().find(x => x.kind === 'tool' && x.id === block.tool_use_id);
           if (tool) {
-            tool.result = textOf(block.content) || '(keine Ausgabe)';
+            tool.result = textOf(block.content) || _('(keine Ausgabe)');
             tool.isError = !!block.is_error;
             if (!fromHistory) refreshItem(t, tool);
           }
@@ -1037,7 +1047,7 @@ function ingest(t, m, fromHistory = false) {
       if (r.tool_name === 'AskUserQuestion') add({ kind: 'question', requestId: m.request_id, input: r.input });
       else if (r.tool_name === 'ExitPlanMode') add({ kind: 'plan', requestId: m.request_id, input: r.input });
       else add({ kind: 'perm', requestId: m.request_id, toolName: r.tool_name, input: r.input, description: r.description, suggestions: r.permission_suggestions });
-      notifyIfHidden(t, r.tool_name === 'AskUserQuestion' ? 'Claude hat eine Frage' : r.tool_name === 'ExitPlanMode' ? 'Claude hat einen Plan vorgelegt' : 'Claude braucht deine Erlaubnis');
+      notifyIfHidden(t, r.tool_name === 'AskUserQuestion' ? _('Claude hat eine Frage') : r.tool_name === 'ExitPlanMode' ? _('Claude hat einen Plan vorgelegt') : _('Claude braucht deine Erlaubnis'));
       break;
     }
 
@@ -1056,7 +1066,7 @@ function ingest(t, m, fromHistory = false) {
       // Alle offenen Werkzeuge als erledigt markieren
       t.items.forEach(x => { if (x.kind === 'tool' && x.result == null) { x.result = ''; refreshItem(t, x); } });
       setTyping(t); updateComposer(); saveTabs(); renderList();
-      notifyIfHidden(t, m.is_error ? 'Fehler: ' + String(m.result || errorLabel(m.subtype)).slice(0, 120) : (t.preview || 'Antwort ist fertig'));
+      notifyIfHidden(t, m.is_error ? _('Fehler: {e}', { e: String(m.result || errorLabel(m.subtype)).slice(0, 120) }) : (t.preview || _('Antwort ist fertig')));
       if (t.pendingProfile) moveTabToProfile(t, t.pendingProfile);
       break;
     }
@@ -1071,7 +1081,7 @@ function ingest(t, m, fromHistory = false) {
       if (t.running) {
         t.running = false;
         const tail = (m.stderr || '').trim().split('\n').slice(-6).join('\n');
-        add({ kind: 'sys', error: true, text: `Claude wurde beendet (Code ${m.code}).${tail ? '\n' + tail : ''}${/login|auth|401/i.test(tail) ? '\nBitte das Konto unter „Konten verwalten“ anmelden.' : ''}` });
+        add({ kind: 'sys', error: true, text: _('Claude wurde beendet (Code {code}).', { code: m.code }) + (tail ? '\n' + tail : '') + (/login|auth|401/i.test(tail) ? '\n' + _('Bitte das Konto unter „Konten verwalten“ anmelden.') : '') });
         setTyping(t); updateComposer(); renderList();
       }
       break;
@@ -1079,7 +1089,7 @@ function ingest(t, m, fromHistory = false) {
 }
 // ---------- Hintergrund-Aufgaben (z. B. Befehle mit run_in_background, Agenten im Hintergrund) ----------
 // Claude Code meldet task_started / task_updated / task_notification / background_tasks_changed.
-const TASK_TYPES = { local_bash: 'Befehl', local_agent: 'Agent', remote_agent: 'Agent (Cloud)' };
+const TASK_TYPES = { local_bash: N_('Befehl'), local_agent: N_('Agent'), remote_agent: N_('Agent (Cloud)') };
 // Chat gilt auch nach dem Ende der Antwort als aktiv, solange eine Hintergrund-Aufgabe läuft
 const bgRunning = t => Object.values(t.tasks || {}).some(x => x.status === 'running');
 function trackTask(t, m) {
@@ -1115,46 +1125,47 @@ function renderBgBar(t) {
   const failed = list.filter(x => x.status !== 'running' && x.status !== 'completed').length;
   fill(bar, el('button', { class: 'bg-chip' + (running ? ' running' : ''), onclick: () => ($('#bg-menu') ? closeMenus() : openBgMenu(t)) },
     running ? el('span', { class: 'spinner sm' }) : el('span', { class: 'bg-ic ' + (failed ? 'err' : 'ok') }, failed ? '✕' : '✓'),
-    running ? (running === 1 ? '1 Hintergrund-Aufgabe läuft' : `${running} Hintergrund-Aufgaben laufen`) : '',
+    running ? (running === 1 ? _('1 Hintergrund-Aufgabe läuft') : _('{n} Hintergrund-Aufgaben laufen', { n: running })) : '',
     running && done ? ' · ' : '',
-    done ? `${done} beendet` : '',
-    el('span', { class: 'bg-hint' }, ' – anzeigen')));
+    done ? _('{n} beendet', { n: done }) : '',
+    el('span', { class: 'bg-hint' }, ' – ' + _('anzeigen'))));
 }
 function openBgMenu(t) {
   closeMenus();
   const r = $('#bgbar').getBoundingClientRect();
   const list = Object.values(t.tasks || {}).sort((a, b) => b.start - a.start);
-  const items = [el('div', { class: 'pm-title' }, 'Hintergrund-Aufgaben')];
+  const items = [el('div', { class: 'pm-title' }, _('Hintergrund-Aufgaben'))];
   for (const task of list) {
     items.push(el('div', { class: 'bg-item' },
       taskIcon(task.status),
       el('div', { class: 'pm-text' },
         el('b', {}, task.desc || task.id),
-        el('small', {}, [TASK_TYPES[task.type] || task.type || 'Aufgabe', task.status === 'running' ? 'läuft seit ' + taskDuration(task) : (task.summary || task.status) + ' · ' + taskDuration(task)].join(' · '))),
-      task.output ? el('button', { class: 'ghost', onclick: () => { closeMenus(); showTaskOutput(task); } }, 'Ausgabe') : null));
+        el('small', {}, [TASK_TYPES[task.type] ? _(TASK_TYPES[task.type]) : task.type || _('Aufgabe'), task.status === 'running' ? _('läuft seit {d}', { d: taskDuration(task) }) : (task.summary || task.status) + ' · ' + taskDuration(task)].join(' · '))),
+      task.output ? el('button', { class: 'ghost', onclick: () => { closeMenus(); showTaskOutput(task); } }, _('Ausgabe')) : null));
   }
   if (list.some(x => x.status !== 'running')) items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: () => {
     for (const [id, x] of Object.entries(t.tasks)) if (x.status !== 'running') delete t.tasks[id];
     closeMenus(); renderBgBar(t);
-  } }, el('span', { class: 'pm-ic' }, '🧹'), 'Beendete entfernen'));
+  } }, el('span', { class: 'pm-ic' }, '🧹'), _('Beendete entfernen')));
   const menu = el('div', { class: 'popmenu bg-menu', id: 'bg-menu', style: `left:${r.left}px; bottom:${window.innerHeight - r.top + 6}px` }, ...items);
   document.body.append(menu);
 }
 async function showTaskOutput(task) {
-  const pre = el('pre', { class: 'task-output' }, 'Wird geladen …');
+  const pre = el('pre', { class: 'task-output' }, _('Wird geladen …'));
   const info = el('div', { class: 'hint' });
   const load = async () => {
     const r = await api.readTaskOutput(task.output);
-    pre.textContent = r.error ? r.error : (r.text || '(noch keine Ausgabe)');
-    info.textContent = r.error ? '' : `${r.truncated ? 'Letzte 64 KB von ' : ''}${Math.round((r.size || 0) / 1024 * 10) / 10} KB · ${task.status === 'running' ? 'läuft noch' : 'beendet'}`;
+    pre.textContent = r.error ? r.error : (r.text || _('(noch keine Ausgabe)'));
+    const kb = Math.round((r.size || 0) / 1024 * 10) / 10;
+    info.textContent = r.error ? '' : (r.truncated ? _('Letzte 64 KB von {kb} KB', { kb }) : kb + ' KB') + ' · ' + (task.status === 'running' ? _('läuft noch') : _('beendet'));
     pre.scrollTop = pre.scrollHeight;
   };
-  modal('task-out', task.desc || 'Ausgabe', info, pre,
-    el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'ghost', onclick: load }, 'Aktualisieren'), el('button', { class: 'ghost', onclick: e => copyText(pre.textContent, e.currentTarget) }, 'Kopieren')));
+  modal('task-out', task.desc || _('Ausgabe'), info, pre,
+    el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'ghost', onclick: load }, _('Aktualisieren')), el('button', { class: 'ghost', onclick: e => copyText(pre.textContent, e.currentTarget) }, _('Kopieren'))));
   load();
 }
 function errorLabel(sub) {
-  return { error_max_turns: 'Maximale Anzahl an Schritten erreicht.', error_during_execution: 'Fehler während der Ausführung (oder abgebrochen).' }[sub] || 'Fehler: ' + sub;
+  return { error_max_turns: _('Maximale Anzahl an Schritten erreicht.'), error_during_execution: _('Fehler während der Ausführung (oder abgebrochen).') }[sub] || _('Fehler: {e}', { e: sub });
 }
 
 function scheduleStreamRender(t) {
@@ -1178,11 +1189,11 @@ function notifyIfHidden(t, text) {
 // Hinweistöne, erzeugt per Web Audio (keine Tondateien). Je Ton: Liste von Noten
 // { f: Frequenz, to: Ziel-Frequenz (Gleiten), at: Start (s), d: Dauer (s), v: Lautstärke, w: Wellenform }
 const SOUNDS = {
-  chime: { label: 'Glocke', notes: [{ f: 880, at: 0, d: 0.45 }, { f: 1318.5, at: 0.14, d: 0.45 }] },
+  chime: { label: N_('Glocke'), notes: [{ f: 880, at: 0, d: 0.45 }, { f: 1318.5, at: 0.14, d: 0.45 }] },
   ping: { label: 'Ping', notes: [{ f: 1568, at: 0, d: 0.28, w: 'triangle', v: 0.22 }] },
-  drop: { label: 'Tropfen', notes: [{ f: 1250, to: 420, at: 0, d: 0.22, v: 0.22 }] },
-  rise: { label: 'Aufsteigend', notes: [{ f: 1046.5, at: 0, d: 0.3 }, { f: 1318.5, at: 0.1, d: 0.3 }, { f: 1568, at: 0.2, d: 0.45 }] },
-  soft: { label: 'Dezent', notes: [{ f: 523.25, at: 0, d: 0.9, v: 0.1 }, { f: 784, at: 0.05, d: 0.9, v: 0.05 }] },
+  drop: { label: N_('Tropfen'), notes: [{ f: 1250, to: 420, at: 0, d: 0.22, v: 0.22 }] },
+  rise: { label: N_('Aufsteigend'), notes: [{ f: 1046.5, at: 0, d: 0.3 }, { f: 1318.5, at: 0.1, d: 0.3 }, { f: 1568, at: 0.2, d: 0.45 }] },
+  soft: { label: N_('Dezent'), notes: [{ f: 523.25, at: 0, d: 0.9, v: 0.1 }, { f: 784, at: 0.05, d: 0.9, v: 0.05 }] },
 };
 const soundSetting = () => ({ on: 'chime' })[store.settings.sound] || store.settings.sound || 'off'; // „on“ aus 0.2–0.4 = Glocke
 let audioCtx;
@@ -1214,13 +1225,13 @@ api.onEvent(({ tabId, msg }) => {
 // Hinweis unten links, sobald eine neue Version geladen ist; Details und Schalter in den Einstellungen
 let updateInfo = { status: 'idle' }, updateDismissed = '';
 function updateText(st = updateInfo) {
-  if (!st.supported) return 'Automatische Updates gibt es nur in der installierten App (SWAP-Installer.exe).';
+  if (!st.supported) return _('Automatische Updates gibt es nur in der installierten App (SWAP-Installer.exe).');
   return {
-    idle: 'Noch nicht geprüft.', checking: 'Suche nach Updates …',
-    downloading: `Lade Version ${st.version || ''} … ${st.percent || 0} %`,
-    ready: `Version ${st.version} ist bereit – wird beim Neustart installiert.`,
-    latest: `Swapline ist aktuell (${VERSION}).`,
-    error: 'Update-Prüfung fehlgeschlagen: ' + (st.error || 'unbekannter Fehler'),
+    idle: _('Noch nicht geprüft.'), checking: _('Suche nach Updates …'),
+    downloading: _('Lade Version {v} … {p} %', { v: st.version || '', p: st.percent || 0 }),
+    ready: _('Version {v} ist bereit – wird beim Neustart installiert.', { v: st.version }),
+    latest: _('Swapline ist aktuell ({v}).', { v: VERSION }),
+    error: _('Update-Prüfung fehlgeschlagen: {e}', { e: st.error || _('unbekannter Fehler') }),
   }[st.status] || '';
 }
 function showUpdate(st) {
@@ -1230,13 +1241,13 @@ function showUpdate(st) {
   $('#update-banner')?.remove();
   if (st.status !== 'ready' || updateDismissed === st.version) return;
   document.body.append(el('div', { id: 'update-banner' },
-    el('span', {}, el('b', {}, `Swapline ${st.version}`), ' ist bereit'),
-    el('button', { class: 'primary', onclick: installUpdate }, 'Neu starten'),
-    el('button', { class: 'ghost', title: 'Später – wird beim nächsten Beenden installiert', onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); } }, icon(ICONS.x))));
+    el('span', {}, el('b', {}, `Swapline ${st.version}`), ' ' + _('ist bereit')),
+    el('button', { class: 'primary', onclick: installUpdate }, _('Neu starten')),
+    el('button', { class: 'ghost', title: _('Später – wird beim nächsten Beenden installiert'), onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); } }, icon(ICONS.x))));
 }
 async function installUpdate() {
-  if (tabs.some(t => t.running || bgRunning(t)) && !confirm('Claude arbeitet noch. Trotzdem neu starten und das Update installieren?')) return;
-  if (!(await api.update.install())) toast('Update ist nicht mehr verfügbar');
+  if (tabs.some(t => t.running || bgRunning(t)) && !confirm(_('Claude arbeitet noch. Trotzdem neu starten und das Update installieren?'))) return;
+  if (!(await api.update.install())) toast(_('Update ist nicht mehr verfügbar'));
 }
 api.update.onStatus(showUpdate);
 api.update.state().then(showUpdate);
@@ -1248,20 +1259,20 @@ api.onUsage(u => { store.usage = u; renderUsage(); });
 // ---------- Eingabefeld: /-Befehle, Eingabe-Verlauf, Anhänge ----------
 // Befehle, die im Chat-Modus von Claude Code nicht laufen (sie brauchen das Terminal), führt Swapline selbst aus.
 const LOCAL_COMMANDS = [
-  { name: 'clear', description: 'Neuen Chat beginnen', run: () => newChat() },
-  { name: 'new', description: 'Neuen Chat beginnen', run: () => newChat() },
-  { name: 'model', description: 'Modell, Aufwand und Berechtigungen wählen', run: () => openChatSettingsMenu() },
-  { name: 'rename', description: 'Chat umbenennen', run: () => renameChat() },
-  { name: 'login', description: 'Konten verwalten und anmelden', run: () => openAccounts() },
-  { name: 'config', description: 'Einstellungen von Swapline', run: () => openSettings() },
-  { name: 'settings', description: 'Einstellungen von Swapline', run: () => openSettings() },
-  { name: 'plugins', description: 'Erweiterungen: Plugins installieren und verwalten', run: () => openExtensions('installed') },
-  { name: 'skills', description: 'Skills und Befehle dieses Kontos anzeigen', run: () => openExtensions('skills') },
+  { name: 'clear', description: N_('Neuen Chat beginnen'), run: () => newChat() },
+  { name: 'new', description: N_('Neuen Chat beginnen'), run: () => newChat() },
+  { name: 'model', description: N_('Modell, Aufwand und Berechtigungen wählen'), run: () => openChatSettingsMenu() },
+  { name: 'rename', description: N_('Chat umbenennen'), run: () => renameChat() },
+  { name: 'login', description: N_('Konten verwalten und anmelden'), run: () => openAccounts() },
+  { name: 'config', description: N_('Einstellungen von Swapline'), run: () => openSettings() },
+  { name: 'settings', description: N_('Einstellungen von Swapline'), run: () => openSettings() },
+  { name: 'plugins', description: N_('Erweiterungen: Plugins installieren und verwalten'), run: () => openExtensions('installed') },
+  { name: 'skills', description: N_('Skills und Befehle dieses Kontos anzeigen'), run: () => openExtensions('skills') },
 ];
 function commandList() {
   const t = currentTab();
   const cli = (modelInfo[t?.profileId]?.commands || []).filter(c => !LOCAL_COMMANDS.some(l => l.name === c.name));
-  return [...LOCAL_COMMANDS.map(c => ({ ...c, local: true })), ...cli];
+  return [...LOCAL_COMMANDS.map(c => ({ ...c, description: _(c.description), local: true })), ...cli];
 }
 let cmdState = { open: false, items: [], index: 0 };
 function updateCommandPopup() {
@@ -1279,7 +1290,7 @@ function updateCommandPopup() {
   if (!pop) { pop = el('div', { class: 'popmenu cmd-popup', id: 'cmd-popup' }); document.body.append(pop); }
   const r = input.getBoundingClientRect();
   pop.style.left = r.left + 'px'; pop.style.bottom = (window.innerHeight - r.top + 8) + 'px'; pop.style.width = Math.min(560, r.width) + 'px';
-  fill(pop, el('div', { class: 'pm-title' }, 'Befehle · ↑↓ wählen · Enter/Tab übernehmen · Esc schließen'),
+  fill(pop, el('div', { class: 'pm-title' }, _('Befehle · ↑↓ wählen · Enter/Tab übernehmen · Esc schließen')),
     items.map((c, i) => el('button', { class: 'pm-item' + (i === cmdState.index ? ' sel' : ''), onmousedown: e => { e.preventDefault(); applyCommand(c); } },
       el('span', { class: 'cmd-name' }, '/' + c.name, c.argumentHint ? el('span', { class: 'muted' }, ' ' + c.argumentHint) : null),
       el('span', { class: 'cmd-desc' }, c.description || ''),
@@ -1321,12 +1332,12 @@ function renderAttachments() {
   fill(bar, attachments.map((a, i) => el('div', { class: 'att-chip', title: a.path || a.name },
     a.kind === 'image' ? el('img', { src: `data:${a.media};base64,${a.data}`, alt: '' }) : el('span', { class: 'att-file' }, '📄'),
     el('span', { class: 'att-name' }, a.name),
-    el('button', { class: 'att-x', title: 'Entfernen', onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, '×'))));
+    el('button', { class: 'att-x', title: _('Entfernen'), onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, '×'))));
 }
 function readImageFile(file) {
   return new Promise(res => {
     const fr = new FileReader();
-    fr.onload = () => res({ kind: 'image', name: file.name || 'Bild.png', media: file.type, data: String(fr.result).split(',')[1] });
+    fr.onload = () => res({ kind: 'image', name: file.name || _('Bild') + '.png', media: file.type, data: String(fr.result).split(',')[1] });
     fr.onerror = () => res(null);
     fr.readAsDataURL(file);
   });
@@ -1336,7 +1347,7 @@ async function addFiles(fileList) {
     if (IMG_TYPES.includes(f.type) && f.size <= 5 * 1024 * 1024) { const a = await readImageFile(f); if (a) attachments.push(a); continue; }
     const p = api.pathForFile(f);
     if (p) attachments.push({ kind: 'file', name: f.name, path: p, size: f.size });
-    else if (IMG_TYPES.includes(f.type)) toast('Bild ist größer als 5 MB');
+    else if (IMG_TYPES.includes(f.type)) toast(_('Bild ist größer als 5 MB'));
   }
   renderAttachments();
 }
@@ -1351,8 +1362,8 @@ async function sendMessage() {
   if (!text && !attachments.length) return;
   const st = status[t.profileId];
   if (st && !st.loggedIn) {
-    if (st.claudeMissing) { toast(CLAUDE_MISSING_TEXT + ' – bitte installieren oder Pfad in den Einstellungen angeben'); return openSettings(); }
-    toast('Dieses Konto ist nicht angemeldet');
+    if (st.claudeMissing) { toast(_('Claude Code nicht gefunden – bitte installieren oder Pfad in den Einstellungen angeben')); return openSettings(); }
+    toast(_('Dieses Konto ist nicht angemeldet'));
     return openAccounts();
   }
   closeCommandPopup();
@@ -1360,8 +1371,8 @@ async function sendMessage() {
   // Anhänge: Bilder als Bild-Blöcke, Dateien als Pfadliste im Text (Claude liest sie selbst)
   const imgs = attachments.filter(a => a.kind === 'image'), files = attachments.filter(a => a.kind === 'file');
   attachments = []; renderAttachments();
-  if (!text) text = imgs.length ? 'Siehe angehängtes Bild.' : 'Siehe angehängte Datei.';
-  const fullText = files.length ? `${text}\n\nAngehängte Dateien:\n${files.map(f => '- ' + f.path).join('\n')}` : text;
+  if (!text) text = imgs.length ? _('Siehe angehängtes Bild.') : _('Siehe angehängte Datei.');
+  const fullText = files.length ? text + '\n\n' + _('Angehängte Dateien:') + '\n' + files.map(f => '- ' + f.path).join('\n') : text;
   const content = imgs.length ? [...imgs.map(a => ({ type: 'image', source: { type: 'base64', media_type: a.media, data: a.data } })), { type: 'text', text: fullText }] : fullText;
   input.value = ''; autosize();
   if (!t.title) t.title = text.replace(/\s+/g, ' ').slice(0, 60);
@@ -1380,7 +1391,7 @@ function autosize() { const i = $('#input'); i.style.height = 'auto'; i.style.he
 // Einstellungen eines Chats ändern -> Prozess neu starten (setzt mit --resume fort)
 async function changeTab(patch, note, t = currentTab()) {
   if (!t) return;
-  if (t.running) { toast('Bitte warten, bis Claude fertig ist'); renderChat(); return; }
+  if (t.running) { toast(_('Bitte warten, bis Claude fertig ist')); renderChat(); return; }
   Object.assign(t, patch);
   await api.session.restart(t.id);
   if (note) appendItem(t, { kind: 'sys', text: note });
@@ -1393,7 +1404,7 @@ function modal(cls, title, ...body) {
   const close = () => root.replaceChildren();
   const root = $('#modal-root');
   const bg = el('div', { class: 'modal-bg', onmousedown: e => { if (e.target === bg) close(); } },
-    el('div', { class: 'modal ' + cls }, el('h2', {}, title, el('button', { class: 'x', onclick: close, title: 'Schließen' }, '×')), ...body));
+    el('div', { class: 'modal ' + cls }, el('h2', {}, title, el('button', { class: 'x', onclick: close, title: _('Schließen') }, '×')), ...body));
   root.replaceChildren(bg);
   return { close, root: bg.firstChild };
 }
@@ -1407,35 +1418,35 @@ function pickFolderModal() {
     const drawChips = () => chips.replaceChildren(...store.profiles.map(x => el('button', {
       class: 'acc-chip' + (x.id === profileId ? ' sel' : ''), title: status[x.id]?.email || '',
       onclick: () => { profileId = x.id; drawChips(); },
-    }, avatar(x, 'sm'), x.name, status[x.id] && !status[x.id].loggedIn ? el('span', { class: 'muted' }, ' (abgemeldet)') : '')));
+    }, avatar(x, 'sm'), x.name, status[x.id] && !status[x.id].loggedIn ? el('span', { class: 'muted' }, ' (' + _('abgemeldet') + ')') : '')));
     drawChips();
-    const m = modal('pickfolder', 'Neuer Chat',
-      el('div', { class: 'hint' }, 'Mit welchem Konto?'), chips,
-      el('div', { class: 'hint' }, project(activeProjectId()) ? `Projekt: ${project(activeProjectId()).name} – in welchem Ordner soll Claude arbeiten?` : 'In welchem Ordner soll Claude arbeiten?'),
+    const m = modal('pickfolder', _('Neuer Chat'),
+      el('div', { class: 'hint' }, _('Mit welchem Konto?')), chips,
+      el('div', { class: 'hint' }, project(activeProjectId()) ? _('Projekt: {name} – in welchem Ordner soll Claude arbeiten?', { name: project(activeProjectId()).name }) : _('In welchem Ordner soll Claude arbeiten?')),
       el('div', { class: 'pick' },
-        project(activeProjectId())?.cwd ? el('button', { class: 'proj-folder', onclick: () => finish(project(activeProjectId()).cwd) }, avatar(project(activeProjectId()), 'sm'), el('div', {}, 'Projektordner', el('small', {}, project(activeProjectId()).cwd))) : null,
+        project(activeProjectId())?.cwd ? el('button', { class: 'proj-folder', onclick: () => finish(project(activeProjectId()).cwd) }, avatar(project(activeProjectId()), 'sm'), el('div', {}, _('Projektordner'), el('small', {}, project(activeProjectId()).cwd))) : null,
         ...store.favorites.map(f => el('button', { onclick: () => finish(f.path) }, el('div', { class: 'folder-ic' }, icon(ICONS.star)), el('div', {}, f.name, el('small', {}, f.path)))),
-        el('button', { onclick: async () => { const d = await api.pickFolder(); if (d) finish(d); } }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, 'Ordner auswählen …', el('small', {}, 'beliebiges Projekt'))),
-        el('button', { onclick: () => finish('') }, el('div', { class: 'folder-ic' }, '~'), el('div', {}, 'Ohne Projekt', el('small', {}, 'im Benutzerordner')))));
+        el('button', { onclick: async () => { const d = await api.pickFolder(); if (d) finish(d); } }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, _('Ordner auswählen …'), el('small', {}, _('beliebiges Projekt')))),
+        el('button', { onclick: () => finish('') }, el('div', { class: 'folder-ic' }, '~'), el('div', {}, _('Ohne Projekt'), el('small', {}, _('im Benutzerordner'))))));
     // Schließen über × oder Hintergrund = abbrechen
     new MutationObserver((_, obs) => { if (!$('.modal.pickfolder')) { obs.disconnect(); if (!done) { done = true; resolve(null); } } }).observe($('#modal-root'), { childList: true });
   });
 }
 
 function openAccounts() {
-  modal('accounts', 'Konten',
-    el('div', { class: 'hint' }, 'Jedes Konto hat einen eigenen Konfigurationsordner. Du meldest dich einmal an und kannst danach mit einem Klick links in der Leiste wechseln.'),
+  modal('accounts', _('Konten'),
+    el('div', { class: 'hint' }, _('Jedes Konto hat einen eigenen Konfigurationsordner. Du meldest dich einmal an und kannst danach mit einem Klick links in der Leiste wechseln.')),
     el('div', { id: 'acc-list' }),
     el('div', { class: 'row', style: 'margin-top:14px' },
-      el('button', { class: 'primary', onclick: openAddProfile }, '+ Konto hinzufügen'),
-      el('button', { class: 'ghost', onclick: () => refreshStatus() }, 'Status aktualisieren')));
+      el('button', { class: 'primary', onclick: openAddProfile }, _('+ Konto hinzufügen')),
+      el('button', { class: 'ghost', onclick: () => refreshStatus() }, _('Status aktualisieren'))));
   renderAccountsList();
 }
 function renderAccountsList() {
   const box = $('#acc-list'); if (!box) return;
   box.replaceChildren(...store.profiles.map(p => {
     const st = status[p.id];
-    const name = el('div', { class: 'name' }, p.name, p.id === store.activeProfileId ? el('span', { class: 'muted', style: 'font-weight:400' }, '  · aktiv') : '');
+    const name = el('div', { class: 'name' }, p.name, p.id === store.activeProfileId ? el('span', { class: 'muted', style: 'font-weight:400' }, '  · ' + _('aktiv')) : '');
     return el('div', { class: 'acc' },
       avatar(p),
       el('div', { class: 'meta' },
@@ -1444,13 +1455,13 @@ function renderAccountsList() {
         el('div', { class: 'info mono', title: p.configDir }, p.configDir)),
       el('div', { class: 'btns' },
         st?.loggedIn
-          ? el('button', { class: 'ghost', onclick: async () => { if (!confirm(`Konto „${p.name}“ abmelden?`)) return; await api.profiles.logout(p.id); refreshStatus(p.id); } }, 'Abmelden')
-          : el('button', { class: 'primary', onclick: () => startLogin(p) }, 'Anmelden'),
-        el('button', { class: 'ghost', title: 'Name und Farbe ändern', onclick: () => openEditProfile(p) }, 'Bearbeiten'),
+          ? el('button', { class: 'ghost', onclick: async () => { if (!confirm(_('Konto „{name}“ abmelden?', { name: p.name }))) return; await api.profiles.logout(p.id); refreshStatus(p.id); } }, _('Abmelden'))
+          : el('button', { class: 'primary', onclick: () => startLogin(p) }, _('Anmelden')),
+        el('button', { class: 'ghost', title: _('Name und Farbe ändern'), onclick: () => openEditProfile(p) }, _('Bearbeiten')),
         p.isDefault ? null : el('button', { class: 'ghost danger', onclick: async () => {
-          if (!confirm(`Konto „${p.name}“ aus der App entfernen?\n\nDer Ordner ${p.configDir} bleibt erhalten.`)) return;
+          if (!confirm(_('Konto „{name}“ aus der App entfernen?\n\nDer Ordner {dir} bleibt erhalten.', { name: p.name, dir: p.configDir }))) return;
           store = await api.profiles.remove(p.id); renderRail(); renderAccountsList(); renderList(); renderUsage();
-        } }, 'Entfernen')));
+        } }, _('Entfernen'))));
   }));
 }
 // Anmeldung: `claude auth login` öffnet den System-Browser (Anthropics eigener Ablauf).
@@ -1462,7 +1473,7 @@ function startLogin(p) {
   openLoginModal(p);
 }
 function openLoginModal(p) {
-  modal('login', 'Anmeldung', el('div', { id: 'login-body', 'data-id': p.id }));
+  modal('login', _('Anmeldung'), el('div', { id: 'login-body', 'data-id': p.id }));
   renderLoginModal();
 }
 function renderLoginModal() {
@@ -1472,41 +1483,41 @@ function renderLoginModal() {
   const parts = [el('div', { class: 'row' }, avatar(p), el('div', {}, el('b', {}, p.name), el('div', { class: 'hint' }, p.configDir)))];
   if (ls.state === 'waiting') {
     parts.push(
-      el('div', { class: 'login-state' }, el('span', { class: 'spinner' }), 'Bitte im Browser anmelden …'),
-      el('p', { class: 'hint' }, 'Claude Code hat deinen Standard-Browser mit der Anmeldeseite von Anthropic geöffnet. Melde dich dort mit dem gewünschten Konto an – danach geht es hier automatisch weiter. Die App sieht und speichert dabei keine Zugangsdaten.'),
-      el('p', { class: 'hint' }, 'Tipp: Ist im Browser schon ein anderes Claude-Konto angemeldet, nutze ein privates Fenster oder melde dich dort vorher ab.'),
+      el('div', { class: 'login-state' }, el('span', { class: 'spinner' }), _('Bitte im Browser anmelden …')),
+      el('p', { class: 'hint' }, _('Claude Code hat deinen Standard-Browser mit der Anmeldeseite von Anthropic geöffnet. Melde dich dort mit dem gewünschten Konto an – danach geht es hier automatisch weiter. Die App sieht und speichert dabei keine Zugangsdaten.')),
+      el('p', { class: 'hint' }, _('Tipp: Ist im Browser schon ein anderes Claude-Konto angemeldet, nutze ein privates Fenster oder melde dich dort vorher ab.')),
       el('div', { class: 'row', style: 'margin-top:14px' },
-        el('button', { class: 'ghost', title: 'Öffnet ein Konsolenfenster mit „claude auth login“ – dort den Code selbst eingeben', onclick: () => { api.profiles.loginConsole(p.id); loginState[p.id] = { state: 'console' }; renderLoginModal(); } }, 'Code verlangt? Im Konsolenfenster anmelden'),
-        el('button', { class: 'ghost danger', onclick: () => cancelLoginUI(p.id) }, 'Abbrechen')));
+        el('button', { class: 'ghost', title: _('Öffnet ein Konsolenfenster mit „claude auth login“ – dort den Code selbst eingeben'), onclick: () => { api.profiles.loginConsole(p.id); loginState[p.id] = { state: 'console' }; renderLoginModal(); } }, _('Code verlangt? Im Konsolenfenster anmelden')),
+        el('button', { class: 'ghost danger', onclick: () => cancelLoginUI(p.id) }, _('Abbrechen'))));
   }
   if (ls.state === 'console') {
     parts.push(
-      el('div', { class: 'login-state' }, 'Anmeldung läuft im Konsolenfenster'),
-      el('p', { class: 'hint' }, 'Folge den Anweisungen im Konsolenfenster von Claude Code und gib den Code dort ein. Danach hier auf „Status prüfen“ klicken.'),
+      el('div', { class: 'login-state' }, _('Anmeldung läuft im Konsolenfenster')),
+      el('p', { class: 'hint' }, _('Folge den Anweisungen im Konsolenfenster von Claude Code und gib den Code dort ein. Danach hier auf „Status prüfen“ klicken.')),
       el('div', { class: 'row', style: 'margin-top:14px' },
         el('button', { class: 'primary', onclick: async () => {
           const st = await api.profiles.status(p.id);
           status[p.id] = st;
           loginState[p.id] = st.loggedIn ? { state: 'done', status: st } : { state: 'console', notYet: true };
           renderRail(); renderAccountsList(); renderLoginModal();
-        } }, 'Status prüfen'),
-        el('button', { class: 'ghost', onclick: openAccounts }, 'Zurück')),
-      ls.notYet ? el('p', { class: 'hint', style: 'color:var(--danger)' }, 'Noch nicht angemeldet.') : null);
+        } }, _('Status prüfen')),
+        el('button', { class: 'ghost', onclick: openAccounts }, _('Zurück'))),
+      ls.notYet ? el('p', { class: 'hint', style: 'color:var(--danger)' }, _('Noch nicht angemeldet.')) : null);
   }
   if (ls.state === 'done') {
-    parts.push(el('div', { class: 'login-state ok' }, '✓ Angemeldet', ls.status?.email ? el('span', { class: 'muted' }, ' als ' + ls.status.email) : ''),
+    parts.push(el('div', { class: 'login-state ok' }, _('✓ Angemeldet'), ls.status?.email ? el('span', { class: 'muted' }, ' ' + _('als {email}', { email: ls.status.email })) : ''),
       el('div', { class: 'hint' }, [planLabel(ls.status || {}), ls.status?.orgName].filter(Boolean).join(' · ')),
       el('div', { class: 'row', style: 'margin-top:14px' },
-        el('button', { class: 'primary', onclick: async () => { $('#modal-root').replaceChildren(); await switchProfile(p.id); } }, 'Zu diesem Konto wechseln'),
-        el('button', { class: 'ghost', onclick: openAccounts }, 'Zur Kontenübersicht')));
+        el('button', { class: 'primary', onclick: async () => { $('#modal-root').replaceChildren(); await switchProfile(p.id); } }, _('Zu diesem Konto wechseln')),
+        el('button', { class: 'ghost', onclick: openAccounts }, _('Zur Kontenübersicht'))));
   }
   if (ls.state === 'error' || ls.state === 'cancelled') {
-    parts.push(el('div', { class: 'login-state err' }, ls.state === 'cancelled' ? 'Anmeldung abgebrochen.' : 'Anmeldung fehlgeschlagen.'),
+    parts.push(el('div', { class: 'login-state err' }, ls.state === 'cancelled' ? _('Anmeldung abgebrochen.') : _('Anmeldung fehlgeschlagen.')),
       ls.error ? el('p', { class: 'hint' }, ls.error) : null,
       el('div', { class: 'row', style: 'margin-top:14px' },
-        el('button', { class: 'primary', onclick: () => startLogin(p) }, 'Erneut versuchen'),
-        el('button', { class: 'ghost', onclick: () => { api.profiles.loginConsole(p.id); loginState[p.id] = { state: 'console' }; renderLoginModal(); } }, 'Im Konsolenfenster anmelden'),
-        el('button', { class: 'ghost', onclick: openAccounts }, 'Zurück')));
+        el('button', { class: 'primary', onclick: () => startLogin(p) }, _('Erneut versuchen')),
+        el('button', { class: 'ghost', onclick: () => { api.profiles.loginConsole(p.id); loginState[p.id] = { state: 'console' }; renderLoginModal(); } }, _('Im Konsolenfenster anmelden')),
+        el('button', { class: 'ghost', onclick: openAccounts }, _('Zurück'))));
   }
   fill(box, parts);
 }
@@ -1523,20 +1534,20 @@ api.onLogin(d => {
   const prev = loginState[d.id] || {};
   if (prev.state === 'cancelled' && d.state === 'error') return;
   loginState[d.id] = { ...prev, ...d };
-  if (d.state === 'done') { status[d.id] = d.status; renderRail(); renderAccountsList(); toast(`✓ ${profile(d.id)?.name} angemeldet`); }
+  if (d.state === 'done') { status[d.id] = d.status; renderRail(); renderAccountsList(); toast(_('✓ {name} angemeldet', { name: profile(d.id)?.name || '' })); }
   renderLoginModal();
 });
 
 function profileForm(initial, onSave, saveLabel) {
   let color = initial.color || COLORS[store.profiles.length % COLORS.length];
-  const name = el('input', { type: 'text', value: initial.name || '', placeholder: 'z. B. Privat, Arbeit, Kunde X' });
+  const name = el('input', { type: 'text', value: initial.name || '', placeholder: _('z. B. Privat, Arbeit, Kunde X') });
   const colors = el('div', { class: 'colors' });
   const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
   drawColors();
-  const m = modal('profile', initial.id ? 'Konto bearbeiten' : 'Neues Konto',
-    el('label', { class: 'field' }, el('span', {}, 'Name'), name),
-    el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Farbe'), colors),
-    initial.id ? null : el('div', { class: 'hint' }, 'Danach öffnet Claude Code deinen Browser mit der Anmeldeseite von Anthropic. Ist dort schon ein anderes Claude-Konto angemeldet, nutze ein privates Fenster.'),
+  const m = modal('profile', initial.id ? _('Konto bearbeiten') : _('Neues Konto'),
+    el('label', { class: 'field' }, el('span', {}, _('Name')), name),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
+    initial.id ? null : el('div', { class: 'hint' }, _('Danach öffnet Claude Code deinen Browser mit der Anmeldeseite von Anthropic. Ist dort schon ein anderes Claude-Konto angemeldet, nutze ein privates Fenster.')),
     el('div', { class: 'row', style: 'margin-top:16px' },
       el('button', { class: 'primary', onclick: async () => { if (!name.value.trim()) return name.focus(); await onSave({ name: name.value.trim(), color }); m.close(); } }, saveLabel)));
   name.focus();
@@ -1549,10 +1560,10 @@ function openAddProfile() {
     status[p.id] = { loggedIn: false };
     renderRail();
     startLogin(p);
-  }, 'Anlegen und anmelden');
+  }, _('Anlegen und anmelden'));
 }
 function openEditProfile(p) {
-  profileForm(p, async data => { store = await api.profiles.update(p.id, data); renderRail(); renderList(); renderChat(); openAccounts(); }, 'Speichern');
+  profileForm(p, async data => { store = await api.profiles.update(p.id, data); renderRail(); renderList(); renderChat(); openAccounts(); }, _('Speichern'));
 }
 
 // Ton-Auswahl: Vorschau beim Wechseln; „on“ aus älteren Versionen wird als Glocke angezeigt
@@ -1564,11 +1575,11 @@ async function openExtensions(tab) {
   const p = profile(pid);
   const body = el('div', { class: 'ext-body' });
   const head = el('div', { class: 'ext-head' });
-  modal('extensions', 'Erweiterungen', el('div', { class: 'hint' }, `Konto: ${p.name} – Plugins und Skills gelten pro Konto. Änderungen wirken in neuen bzw. neu gestarteten Chats.`), head, body);
-  const search = el('input', { type: 'search', class: 'ext-search', placeholder: 'Suchen …', value: extState.q });
+  modal('extensions', _('Erweiterungen'), el('div', { class: 'hint' }, _('Konto: {name} – Plugins und Skills gelten pro Konto. Änderungen wirken in neuen bzw. neu gestarteten Chats.', { name: p.name })), head, body);
+  const search = el('input', { type: 'search', class: 'ext-search', placeholder: _('Suchen …'), value: extState.q });
   search.addEventListener('input', () => { extState.q = search.value; draw(); });
   const tabsEl = el('div', { class: 'seg ext-seg' });
-  const drawTabs = () => fill(tabsEl, [['installed', 'Installiert'], ['available', 'Verfügbar'], ['skills', 'Skills & Befehle']].map(([k, l]) =>
+  const drawTabs = () => fill(tabsEl, [['installed', _('Installiert')], ['available', _('Verfügbar')], ['skills', _('Skills & Befehle')]].map(([k, l]) =>
     el('button', { class: extState.tab === k ? 'active' : '', onclick: () => {
       extState.tab = k; drawTabs(); draw();
       // Befehlsliste nachladen und danach neu zeichnen, falls sie noch fehlt
@@ -1582,7 +1593,7 @@ async function openExtensions(tab) {
     const r = await api.extensions.action(pid, action, id);
     extState.busy = '';
     if (r.cancelled) return draw();
-    toast(r.ok ? `✓ ${id}: ${{ install: 'installiert', uninstall: 'entfernt', enable: 'aktiviert', disable: 'deaktiviert' }[action]}` : `Fehler: ${r.error}`);
+    toast(r.ok ? '✓ ' + id + ': ' + { install: _('installiert'), uninstall: _('entfernt'), enable: _('aktiviert'), disable: _('deaktiviert') }[action] : _('Fehler: {e}', { e: r.error }));
     extState.data = null; delete modelInfo[pid]; loadModels(pid);
     load();
   };
@@ -1592,28 +1603,28 @@ async function openExtensions(tab) {
       const cmds = (modelInfo[pid]?.commands || []).filter(c => match(c.name, c.description));
       const plugin = cmds.filter(c => c.name.includes(':')), own = cmds.filter(c => !c.name.includes(':'));
       const row = c => el('div', { class: 'ext-row' }, el('div', { class: 'ext-text' }, el('b', { class: 'mono' }, '/' + c.name), el('small', {}, c.description || '–')),
-        el('button', { class: 'ghost', title: 'Im Eingabefeld einfügen', onclick: () => { $('#modal-root').replaceChildren(); const i = $('#input'); if (i) { i.value = '/' + c.name + ' '; i.focus(); autosize(); } } }, 'Verwenden'));
-      return fill(body, !modelInfo[pid] ? el('div', { class: 'list-empty' }, 'Wird geladen …') : [
-        el('div', { class: 'list-section' }, `Aus Plugins (${plugin.length})`), plugin.map(row),
-        el('div', { class: 'list-section' }, `Eingebaut und eigene Skills (${own.length})`), own.map(row)]);
+        el('button', { class: 'ghost', title: _('Im Eingabefeld einfügen'), onclick: () => { $('#modal-root').replaceChildren(); const i = $('#input'); if (i) { i.value = '/' + c.name + ' '; i.focus(); autosize(); } } }, _('Verwenden')));
+      return fill(body, !modelInfo[pid] ? el('div', { class: 'list-empty' }, _('Wird geladen …')) : [
+        el('div', { class: 'list-section' }, _('Aus Plugins ({n})', { n: plugin.length })), plugin.map(row),
+        el('div', { class: 'list-section' }, _('Eingebaut und eigene Skills ({n})', { n: own.length })), own.map(row)]);
     }
-    if (!d) return fill(body, el('div', { class: 'list-empty' }, 'Lade Plugins über Claude Code …'));
-    if (d.error) return fill(body, el('div', { class: 'list-empty' }, 'Fehler: ' + d.error));
+    if (!d) return fill(body, el('div', { class: 'list-empty' }, _('Lade Plugins über Claude Code …')));
+    if (d.error) return fill(body, el('div', { class: 'list-empty' }, _('Fehler: {e}', { e: d.error })));
     if (extState.tab === 'installed') {
       const list = d.installed.filter(x => match(x.id));
       return fill(body, list.length ? list.map(x => el('div', { class: 'ext-row' + (x.enabled ? '' : ' off') },
         el('div', { class: 'ext-text' }, el('b', {}, x.id.split('@')[0]),
-          el('small', {}, [x.id.split('@')[1], x.version && x.version !== 'unknown' ? 'v' + x.version : null, x.scope === 'project' ? 'Projekt' : null, x.mcp.length ? 'MCP: ' + x.mcp.join(', ') : null, x.enabled ? 'aktiv' : 'deaktiviert'].filter(Boolean).join(' · '))),
+          el('small', {}, [x.id.split('@')[1], x.version && x.version !== 'unknown' ? 'v' + x.version : null, x.scope === 'project' ? _('Projekt') : null, x.mcp.length ? 'MCP: ' + x.mcp.join(', ') : null, x.enabled ? _('aktiv') : _('deaktiviert')].filter(Boolean).join(' · '))),
         extState.busy === x.id ? el('span', { class: 'spinner' }) : [
-          el('button', { class: 'ghost', onclick: () => act(x.enabled ? 'disable' : 'enable', x.id) }, x.enabled ? 'Deaktivieren' : 'Aktivieren'),
-          el('button', { class: 'ghost danger', onclick: () => act('uninstall', x.id) }, 'Entfernen')])) : el('div', { class: 'list-empty' }, 'Keine Plugins installiert.'));
+          el('button', { class: 'ghost', onclick: () => act(x.enabled ? 'disable' : 'enable', x.id) }, x.enabled ? _('Deaktivieren') : _('Aktivieren')),
+          el('button', { class: 'ghost danger', onclick: () => act('uninstall', x.id) }, _('Entfernen'))])) : el('div', { class: 'list-empty' }, _('Keine Plugins installiert.')));
     }
     const inst = new Set(d.installed.map(x => x.id));
     const list = d.available.filter(x => match(x.id, x.name, x.description)).slice(0, 150);
-    fill(body, el('div', { class: 'hint' }, `${d.available.length} Plugins aus den Marktplätzen von Claude Code${list.length === 150 ? ' – zeige die ersten 150, Suche grenzt ein' : ''}`),
+    fill(body, el('div', { class: 'hint' }, _('{n} Plugins aus den Marktplätzen von Claude Code', { n: d.available.length }) + (list.length === 150 ? ' – ' + _('zeige die ersten 150, Suche grenzt ein') : '')),
       list.map(x => el('div', { class: 'ext-row' }, el('div', { class: 'ext-text' }, el('b', {}, x.name || x.id), el('small', {}, x.description || x.id)),
-        inst.has(x.id) ? el('span', { class: 'ext-badge' }, '✓ installiert')
-          : extState.busy === x.id ? el('span', { class: 'spinner' }) : el('button', { class: 'ghost', onclick: () => act('install', x.id) }, 'Installieren'))));
+        inst.has(x.id) ? el('span', { class: 'ext-badge' }, _('✓ installiert'))
+          : extState.busy === x.id ? el('span', { class: 'spinner' }) : el('button', { class: 'ghost', onclick: () => act('install', x.id) }, _('Installieren')))));
   }
   async function load() {
     draw();
@@ -1624,11 +1635,11 @@ async function openExtensions(tab) {
   load();
 }
 function soundSelect() {
-  const opts = [['off', 'Kein Ton'], ...Object.entries(SOUNDS).map(([k, s]) => [k, s.label]), ['system', 'Windows-Standard']];
+  const opts = [['off', _('Kein Ton')], ...Object.entries(SOUNDS).map(([k, s]) => [k, _(s.label)]), ['system', _('Windows-Standard')]];
   const e = el('select', {}, opts.map(([v, l]) => el('option', { value: v, selected: soundSetting() === v }, l)));
   e.addEventListener('change', async () => {
     const r = await api.setSettings({ sound: e.value });
-    if (r.rejected) { e.value = soundSetting(); return toast('Nicht übernommen'); }
+    if (r.rejected) { e.value = soundSetting(); return toast(_('Nicht übernommen')); }
     store = r; playSound(e.value);
   });
   return e;
@@ -1645,57 +1656,67 @@ function openSettings() {
     e.addEventListener('change', async () => {
       const r = await api.setSettings({ [key]: e.value }); // „Alles erlauben“ bestätigt der Hauptprozess per Dialog
       store = r;
-      if (r.rejected) { e.value = s[key] || ''; toast('Nicht übernommen'); return; }
+      if (r.rejected) { e.value = s[key] || ''; toast(_('Nicht übernommen')); return; }
       if (key === 'theme') applyTheme();
       if (key === 'toolView') renderMessages();
     });
     return e;
   };
+  // Sprache der Oberfläche: wird beim Neuladen übernommen (sofort, wenn gerade kein Chat arbeitet)
+  const langSel = el('select', {}, [['auto', _('Wie System')], ['de', 'Deutsch'], ['en', 'English']].map(([v, l]) => el('option', { value: v, selected: (s.language || 'auto') === v }, l)));
+  langSel.addEventListener('change', async () => {
+    const r = await api.setSettings({ language: langSel.value });
+    if (r.rejected) { langSel.value = s.language || 'auto'; return toast(_('Nicht übernommen')); }
+    store = r;
+    if (!tabs.some(t => t.running || bgRunning(t))) location.reload();
+    else toast(_('Sprache wird beim nächsten Start übernommen'));
+  });
   // Pfad zu claude.exe nur per Datei-Dialog (der Hauptprozess prüft den Dateinamen)
   const path = el('div', { class: 'folder-row' });
   const drawPath = () => fill(path,
-    el('span', { class: 'mono ' + (store.settings.claudePath ? '' : 'muted') }, store.settings.claudePath || 'automatisch (~/.local/bin/claude.exe oder PATH)'),
-    el('button', { class: 'ghost', onclick: async () => { const r = await api.pickClaude(); store = r; if (r.rejected) toast(r.rejected); drawPath(); } }, 'Wählen …'),
-    store.settings.claudePath ? el('button', { class: 'ghost', onclick: async () => { store = await api.setSettings({ claudePath: '' }); drawPath(); } }, 'Automatisch') : null);
+    el('span', { class: 'mono ' + (store.settings.claudePath ? '' : 'muted') }, store.settings.claudePath || _('automatisch (~/.local/bin/claude.exe oder PATH)')),
+    el('button', { class: 'ghost', onclick: async () => { const r = await api.pickClaude(); store = r; if (r.rejected) toast(r.rejected); drawPath(); } }, _('Wählen …')),
+    store.settings.claudePath ? el('button', { class: 'ghost', onclick: async () => { store = await api.setSettings({ claudePath: '' }); drawPath(); } }, _('Automatisch')) : null);
   drawPath();
-  modal('settings', 'Einstellungen',
-    el('label', { class: 'field' }, el('span', {}, 'Darstellung'), sel('theme', [['system', 'Wie System'], ['light', 'Hell'], ['dark', 'Dunkel']])),
-    el('label', { class: 'field' }, el('span', {}, 'Modell für neue Chats'), sel('model', [['', `Standard${defName ? ' · ' + defName : ' (laut Konto)'}`], ...modelOpts])),
-    el('label', { class: 'field' }, el('span', {}, 'Aufwand für neue Chats'), sel('effort', [['', `Standard${defEff ? ' · ' + (EFFORT_LABEL[defEff] || defEff) : ' (laut Konto)'}`], ...Object.entries(EFFORT_LABEL)])),
-    el('p', { class: 'hint' }, '„Standard“ richtet sich nach dem Konto: Modell laut Claude-Empfehlung, Aufwand laut effortLevel in den Claude-Einstellungen des Kontos.'),
-    el('label', { class: 'field' }, el('span', {}, 'Berechtigungen für neue Chats'), sel('permissionMode', [['default', 'Nachfragen'], ['acceptEdits', 'Änderungen erlauben'], ['plan', 'Nur planen'], ['bypassPermissions', 'Alles erlauben (--dangerously-skip-permissions)']])),
+  modal('settings', _('Einstellungen'),
+    el('label', { class: 'field' }, el('span', {}, _('Sprache')), langSel),
+    el('label', { class: 'field' }, el('span', {}, _('Darstellung')), sel('theme', [['system', _('Wie System')], ['light', _('Hell')], ['dark', _('Dunkel')]])),
+    el('label', { class: 'field' }, el('span', {}, _('Modell für neue Chats')), sel('model', [['', _('Standard') + (defName ? ' · ' + defName : ' ' + _('(laut Konto)'))], ...modelOpts])),
+    el('label', { class: 'field' }, el('span', {}, _('Aufwand für neue Chats')), sel('effort', [['', _('Standard') + (defEff ? ' · ' + effortName(defEff) : ' ' + _('(laut Konto)'))], ...Object.keys(EFFORT_LABEL).map(k => [k, effortName(k)])])),
+    el('p', { class: 'hint' }, _('„Standard“ richtet sich nach dem Konto: Modell laut Claude-Empfehlung, Aufwand laut effortLevel in den Claude-Einstellungen des Kontos.')),
+    el('label', { class: 'field' }, el('span', {}, _('Berechtigungen für neue Chats')), sel('permissionMode', [['default', _('Nachfragen')], ['acceptEdits', _('Änderungen erlauben')], ['plan', _('Nur planen')], ['bypassPermissions', _('Alles erlauben (--dangerously-skip-permissions)')]])),
     store.bypassAcknowledged ? el('div', { class: 'row' },
-      el('span', { class: 'hint', style: 'flex:1' }, 'Die Warnung zu „Alles erlauben“ wurde bestätigt und erscheint nicht mehr.'),
-      el('button', { class: 'ghost', onclick: async e => { store = await api.resetBypassWarning(); e.target.closest('.row').remove(); toast('Warnung erscheint beim nächsten Mal wieder'); } }, 'Wieder anzeigen')) : null,
-    el('label', { class: 'field' }, el('span', {}, 'Werkzeug-Aufrufe im Chat (Befehle, Lesen, Bearbeiten …)'), sel('toolView', [['all', 'Alle anzeigen'], ['compact', 'Kompakt – zu einer Zeile zusammengefasst'], ['hidden', 'Ausblenden – nur Nachrichten und Antworten']])),
-    el('label', { class: 'field' }, el('span', {}, 'Benachrichtigung bei fertiger Antwort'), sel('notify', [['background', 'Wenn der Chat nicht im Blick ist (Standard)'], ['always', 'Immer'], ['off', 'Aus']])),
+      el('span', { class: 'hint', style: 'flex:1' }, _('Die Warnung zu „Alles erlauben“ wurde bestätigt und erscheint nicht mehr.')),
+      el('button', { class: 'ghost', onclick: async e => { store = await api.resetBypassWarning(); e.target.closest('.row').remove(); toast(_('Warnung erscheint beim nächsten Mal wieder')); } }, _('Wieder anzeigen'))) : null,
+    el('label', { class: 'field' }, el('span', {}, _('Werkzeug-Aufrufe im Chat (Befehle, Lesen, Bearbeiten …)')), sel('toolView', [['all', _('Alle anzeigen')], ['compact', _('Kompakt – zu einer Zeile zusammengefasst')], ['hidden', _('Ausblenden – nur Nachrichten und Antworten')]])),
+    el('label', { class: 'field' }, el('span', {}, _('Benachrichtigung bei fertiger Antwort')), sel('notify', [['background', _('Wenn der Chat nicht im Blick ist (Standard)')], ['always', _('Immer')], ['off', _('Aus')]])),
     el('div', { class: 'row' },
-      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Ton'), soundSelect()),
-      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Anzeige'), sel('notifyStay', [['sticky', 'Bleibt, bis ich klicke'], ['auto', 'Verschwindet von selbst']])),
-      el('button', { class: 'ghost', style: 'align-self:flex-end', title: 'Benachrichtigung und Ton jetzt ausprobieren', onclick: () => {
-        api.notify({ title: 'Swapline', body: 'So sieht eine Benachrichtigung aus.', silent: soundSetting() !== 'system' });
+      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, _('Ton')), soundSelect()),
+      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, _('Anzeige')), sel('notifyStay', [['sticky', _('Bleibt, bis ich klicke')], ['auto', _('Verschwindet von selbst')]])),
+      el('button', { class: 'ghost', style: 'align-self:flex-end', title: _('Benachrichtigung und Ton jetzt ausprobieren'), onclick: () => {
+        api.notify({ title: 'Swapline', body: _('So sieht eine Benachrichtigung aus.'), silent: soundSetting() !== 'system' });
         playSound();
-      } }, 'Testen')),
-    el('div', { class: 'field' }, el('span', { class: 'hint' }, 'Pfad zu Claude Code (claude.exe)'), path),
+      } }, _('Testen'))),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Pfad zu Claude Code (claude.exe)')), path),
     el('div', { class: 'row' },
-      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, 'Updates'), (() => {
-        const e = el('select', { disabled: !updateInfo.supported }, el('option', { value: 'on', selected: s.autoUpdate !== false }, 'Automatisch laden und beim Neustart installieren'), el('option', { value: 'off', selected: s.autoUpdate === false }, 'Aus'));
+      el('label', { class: 'field', style: 'flex:1;margin:0' }, el('span', {}, _('Updates')), (() => {
+        const e = el('select', { disabled: !updateInfo.supported }, el('option', { value: 'on', selected: s.autoUpdate !== false }, _('Automatisch laden und beim Neustart installieren')), el('option', { value: 'off', selected: s.autoUpdate === false }, _('Aus')));
         e.addEventListener('change', async () => { store = await api.setSettings({ autoUpdate: e.value === 'on' }); });
         return e;
       })()),
-      el('button', { class: 'ghost', style: 'align-self:flex-end', disabled: !updateInfo.supported, onclick: () => api.update.check() }, 'Jetzt prüfen'),
-      el('button', { id: 'update-restart', class: 'primary', style: 'align-self:flex-end', hidden: updateInfo.status !== 'ready', onclick: installUpdate }, 'Neu starten')),
+      el('button', { class: 'ghost', style: 'align-self:flex-end', disabled: !updateInfo.supported, onclick: () => api.update.check() }, _('Jetzt prüfen')),
+      el('button', { id: 'update-restart', class: 'primary', style: 'align-self:flex-end', hidden: updateInfo.status !== 'ready', onclick: installUpdate }, _('Neu starten'))),
     el('p', { class: 'hint', id: 'update-info' }, updateText()),
-    el('p', { class: 'hint' }, 'Swapline fragt dazu nur bei GitHub (github.com/ARFEP-IT-Service/Swapline) nach neuen Versionen – ohne Konto- oder Nutzungsdaten.'),
+    el('p', { class: 'hint' }, _('Swapline fragt dazu nur bei GitHub (github.com/ARFEP-IT-Service/Swapline) nach neuen Versionen – ohne Konto- oder Nutzungsdaten.')),
     el('div', { class: 'about' },
       el('img', { src: BRAND.logo(isDark()), alt: 'ARFEP' }),
       el('div', {},
         el('p', {}, el('b', {}, `Swapline ${VERSION}`), ' – Open Source (MIT)'),
         el('p', { class: 'muted' }, `by ${BRAND.company}, ${BRAND.city}`),
         el('p', {}, el('a', { href: BRAND.website, style: 'color:var(--accent)' }, 'arfep.de'), ' · ',
-          el('a', { href: BRAND.contact, style: 'color:var(--accent)' }, 'IT-Hilfe anfragen'), ' · ',
+          el('a', { href: BRAND.contact, style: 'color:var(--accent)' }, _('IT-Hilfe anfragen')), ' · ',
           el('a', { href: BRAND.repo, style: 'color:var(--accent)' }, 'GitHub')))),
-    el('p', { class: 'hint' }, 'Inoffizielles Projekt, nicht mit Anthropic verbunden. „Claude“ ist eine Marke von Anthropic.'));
+    el('p', { class: 'hint' }, _('Inoffizielles Projekt, nicht mit Anthropic verbunden. „Claude“ ist eine Marke von Anthropic.')));
 }
 
 // ---------- Ereignisse ----------
@@ -1747,21 +1768,20 @@ function renameChat() {
   const t = currentTab(); if (!t) return;
   const title = $('#ch-title');
   if (title.querySelector('input')) return;
-  const input = el('input', { type: 'text', class: 'title-edit', value: t.title || '', maxlength: '80', placeholder: 'Name des Chats' });
+  const input = el('input', { type: 'text', class: 'title-edit', value: t.title || '', maxlength: '80', placeholder: _('Name des Chats') });
   let done = false;
   const finish = save => {
     if (done) return; done = true;
     const v = input.value.replace(/\s+/g, ' ').trim();
-    if (save && v && v !== t.title) { t.title = v; saveTabs(); renderList(); toast('Chat umbenannt'); }
-    title.textContent = t.title || 'Neuer Chat';
+    if (save && v && v !== t.title) { t.title = v; saveTabs(); renderList(); toast(_('Chat umbenannt')); }
+    title.textContent = t.title || _('Neuer Chat');
   };
   input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') { e.stopPropagation(); finish(false); } });
   input.addEventListener('blur', () => finish(true));
   title.replaceChildren(input);
   input.focus(); input.select();
 }
-$('#ch-title').ondblclick = renameChat;
-$('#ch-title').title = 'Doppelklick zum Umbenennen';
+$('#ch-title').ondblclick = renameChat; // Hinweis „Doppelklick zum Umbenennen“ steht als title in index.html
 $('#ch-cwd').onclick = () => { const t = currentTab(); if (t?.cwd) api.openPath(t.cwd); };
 $('#ch-settings').onclick = () => ($('#chat-menu') ? closeMenus() : openChatSettingsMenu());
 document.addEventListener('keydown', e => {
@@ -1778,6 +1798,9 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
 (async function init() {
   store = await api.getStore();
   VERSION = store.appVersion || '';
+  // Sprache vor dem ersten Zeichnen festlegen und die festen Texte aus index.html übersetzen
+  setLang(store.settings.language || 'auto');
+  translateStatic();
   applyTheme();
   const saved = loadTabs();
   tabs = (saved.tabs || []).map(t => makeTab({ ...t, loaded: !t.sessionId }));

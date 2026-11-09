@@ -55,6 +55,16 @@ const NOTIFY = ['always', 'background', 'off']; // Benachrichtigung bei fertiger
 const SOUND = ['off', 'on', 'chime', 'ping', 'drop', 'rise', 'soft', 'system']; // 'on' = Glocke (ältere Versionen)
 const TOOLVIEW = ['all', 'compact', 'hidden']; // Werkzeug-Aufrufe im Chat
 const NOTIFYSTAY = ['sticky', 'auto']; // Benachrichtigung bleibt bis zum Klick / verschwindet von selbst
+const LANGS = ['auto', 'de', 'en']; // Sprache der Oberfläche ('auto' = Systemsprache)
+// Sprache für native Dialoge, Benachrichtigungen und Fehlertexte an die Oberfläche (wie in der Oberfläche:
+// Deutsch nur, wenn eingestellt bzw. die Systemsprache Deutsch ist). Logeinträge bleiben deutsch.
+function uiLang() {
+  let l = '';
+  try { l = getStore().settings.language; } catch {}
+  if (l === 'de' || l === 'en') return l;
+  return String(app.getLocale() || '').toLowerCase().startsWith('de') ? 'de' : 'en';
+}
+const tr = (de, en) => (uiLang() === 'en' ? en : de);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
 // Netzwerkpfade (UNC, \\server\… oder //server/…) werden nie geprüft oder benutzt – schon die Existenzprüfung
@@ -69,10 +79,11 @@ const cleanColor = (v, fallback) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.
 function confirmBypass() {
   if (getStore().bypassAcknowledged) return true;
   const ok = dialog.showMessageBoxSync(win, {
-    type: 'warning', buttons: ['Abbrechen', 'Alles erlauben'], defaultId: 0, cancelId: 0, noLink: true,
-    title: 'Alles erlauben',
-    message: 'Claude ohne Rückfragen arbeiten lassen?',
-    detail: 'Claude Code wird mit --dangerously-skip-permissions gestartet. Claude führt dann Befehle aus, ändert und löscht Dateien und greift auf das Netz zu, ohne vorher zu fragen.\n\nNur in Ordnern verwenden, denen du vertraust – am besten in einer Testumgebung.\n\nDiese Warnung erscheint nur einmal. In den Einstellungen kannst du sie wieder einschalten.',
+    type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Alles erlauben', 'Allow everything')], defaultId: 0, cancelId: 0, noLink: true,
+    title: tr('Alles erlauben', 'Allow everything'),
+    message: tr('Claude ohne Rückfragen arbeiten lassen?', 'Let Claude work without asking?'),
+    detail: tr('Claude Code wird mit --dangerously-skip-permissions gestartet. Claude führt dann Befehle aus, ändert und löscht Dateien und greift auf das Netz zu, ohne vorher zu fragen.\n\nNur in Ordnern verwenden, denen du vertraust – am besten in einer Testumgebung.\n\nDiese Warnung erscheint nur einmal. In den Einstellungen kannst du sie wieder einschalten.',
+      'Claude Code will be started with --dangerously-skip-permissions. Claude will then run commands, change and delete files and access the network without asking first.\n\nOnly use this in folders you trust – ideally in a test environment.\n\nThis warning appears only once. You can turn it back on in Settings.'),
   });
   if (ok !== 1) return false;
   updateStore(s => { s.bypassAcknowledged = true; });
@@ -98,7 +109,8 @@ function isAllowedCwd(p) {
 }
 
 // ---------- Claude starten ----------
-const CLAUDE_MISSING = 'Claude Code nicht gefunden. Bitte Claude Code installieren (https://code.claude.com/docs) oder in den Einstellungen den Pfad zu claude.exe angeben.';
+const claudeMissing = () => tr('Claude Code nicht gefunden. Bitte Claude Code installieren (https://code.claude.com/docs) oder in den Einstellungen den Pfad zu claude.exe angeben.',
+  'Claude Code not found. Please install Claude Code (https://code.claude.com/docs) or set the path to claude.exe in Settings.');
 let resolvedClaude; // Ergebnis von where.exe (einmal pro App-Start)
 const isClaudeExePath = p => typeof p === 'string' && !isUnc(p) && path.isAbsolute(p) && path.basename(p).toLowerCase() === 'claude.exe' && fs.existsSync(p) && fs.statSync(p).isFile();
 // Reihenfolge: Pfad aus den Einstellungen (nur eine Datei namens claude.exe) → ~/.local/bin/claude.exe → where.exe.
@@ -129,13 +141,13 @@ function envFor(profile, { chat = false } = {}) {
 }
 function spawnClaude(args, profile, { chat, ...opts } = {}) {
   const exe = claudeExe();
-  if (!exe) throw new Error(CLAUDE_MISSING);
+  if (!exe) throw new Error(claudeMissing());
   return spawn(exe, args, { env: envFor(profile, { chat }), windowsHide: true, ...opts });
 }
 
 function authStatus(profile) {
   return new Promise(resolve => {
-    if (!claudeExe()) return resolve({ loggedIn: false, claudeMissing: true, error: CLAUDE_MISSING });
+    if (!claudeExe()) return resolve({ loggedIn: false, claudeMissing: true, error: claudeMissing() });
     const p = spawnClaude(['auth', 'status', '--json'], profile);
     let out = '';
     p.stdout.on('data', d => (out += d));
@@ -191,7 +203,7 @@ ipcMain.handle('profiles:models', (_e, { id, refresh }) => {
 // ---------- Erweiterungen (Plugins) – nur über die offiziellen Befehle `claude plugin …` ----------
 function runClaude(profile, args, timeoutMs = 120000) {
   return new Promise(resolve => {
-    if (!claudeExe()) return resolve({ code: -1, out: '', err: CLAUDE_MISSING });
+    if (!claudeExe()) return resolve({ code: -1, out: '', err: claudeMissing() });
     const p = spawnClaude(args, profile, { cwd: HOME });
     let out = '', err = '';
     p.stdout.on('data', d => (out += d));
@@ -203,33 +215,41 @@ function runClaude(profile, args, timeoutMs = 120000) {
 }
 ipcMain.handle('ext:list', async (_e, profileId) => {
   const p = profileById(profileId);
-  if (!p) return { error: 'Konto unbekannt' };
+  if (!p) return { error: tr('Konto unbekannt', 'Unknown account') };
   const r = await runClaude(p, ['plugin', 'list', '--json', '--available'], 60000);
   try {
     const j = JSON.parse(r.out);
     const installed = (Array.isArray(j) ? j : j.installed || []).map(x => ({ id: x.id, version: x.version, enabled: !!x.enabled, scope: x.scope, installedAt: x.installedAt, mcp: Object.keys(x.mcpServers || {}) }));
     const available = (j.available || []).map(x => ({ id: x.pluginId || x.id, name: x.name, description: String(x.description || '').slice(0, 400), installs: x.installCount || x.installs || null }));
     return { installed, available };
-  } catch { return { error: (r.err || r.out || 'Keine Antwort von Claude Code').trim().split('\n').pop().slice(0, 300) }; }
+  } catch { return { error: (r.err || r.out || tr('Keine Antwort von Claude Code', 'No response from Claude Code')).trim().split('\n').pop().slice(0, 300) }; }
 });
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9._-]{0,100}@[a-z0-9][a-z0-9._-]{0,100}$/i;
 ipcMain.handle('ext:action', async (_e, { profileId, action, id } = {}) => {
   const p = profileById(profileId);
-  if (!p || !['install', 'uninstall', 'enable', 'disable'].includes(action) || typeof id !== 'string' || !PLUGIN_ID_RE.test(id)) return { ok: false, error: 'Ungültige Anfrage' };
+  if (!p || !['install', 'uninstall', 'enable', 'disable'].includes(action) || typeof id !== 'string' || !PLUGIN_ID_RE.test(id)) return { ok: false, error: tr('Ungültige Anfrage', 'Invalid request') };
   // Jede Änderung bestätigt der Nutzer im nativen Dialog – Aktivieren startet Hooks/MCP-Server, Deaktivieren kann Schutz-Hooks abschalten
-  const LABEL = { install: ['Plugin installieren', 'Installieren'], uninstall: ['Plugin entfernen', 'Entfernen'], enable: ['Plugin aktivieren', 'Aktivieren'], disable: ['Plugin deaktivieren', 'Deaktivieren'] }[action];
+  const LABEL = {
+    install: [tr('Plugin installieren', 'Install plugin'), tr('Installieren', 'Install')],
+    uninstall: [tr('Plugin entfernen', 'Remove plugin'), tr('Entfernen', 'Remove')],
+    enable: [tr('Plugin aktivieren', 'Enable plugin'), tr('Aktivieren', 'Enable')],
+    disable: [tr('Plugin deaktivieren', 'Disable plugin'), tr('Deaktivieren', 'Disable')],
+  }[action];
   const ok = dialog.showMessageBoxSync(win, {
-    type: action === 'install' || action === 'enable' ? 'warning' : 'question', buttons: ['Abbrechen', LABEL[1]], defaultId: 0, cancelId: 0, noLink: true,
+    type: action === 'install' || action === 'enable' ? 'warning' : 'question', buttons: [tr('Abbrechen', 'Cancel'), LABEL[1]], defaultId: 0, cancelId: 0, noLink: true,
     title: LABEL[0], message: `${LABEL[1]}: ${id}`,
     detail: action === 'install' || action === 'enable'
-      ? `Plugins erweitern Claude Code um Befehle, Skills, Hooks oder MCP-Server und können dabei Code auf deinem PC ausführen. Nur Plugins verwenden, denen du vertraust.\n\nKonto: ${p.name}`
-      : `Das Plugin wird für das Konto „${p.name}“ ${action === 'uninstall' ? 'entfernt' : 'deaktiviert'}.`,
+      ? tr(`Plugins erweitern Claude Code um Befehle, Skills, Hooks oder MCP-Server und können dabei Code auf deinem PC ausführen. Nur Plugins verwenden, denen du vertraust.\n\nKonto: ${p.name}`,
+        `Plugins extend Claude Code with commands, skills, hooks or MCP servers and can run code on your PC. Only use plugins you trust.\n\nAccount: ${p.name}`)
+      : action === 'uninstall'
+        ? tr(`Das Plugin wird für das Konto „${p.name}“ entfernt.`, `The plugin will be removed for the account “${p.name}”.`)
+        : tr(`Das Plugin wird für das Konto „${p.name}“ deaktiviert.`, `The plugin will be disabled for the account “${p.name}”.`),
   });
   if (ok !== 1) return { ok: false, cancelled: true };
   const r = await runClaude(p, ['plugin', action, id]);
   modelCache.delete(profileId); // Befehlsliste neu laden
   const msg = (r.out + '\n' + r.err).trim().split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 400);
-  return r.code === 0 ? { ok: true, message: msg } : { ok: false, error: msg || `Fehler (Code ${r.code})` };
+  return r.code === 0 ? { ok: true, message: msg } : { ok: false, error: msg || tr(`Fehler (Code ${r.code})`, `Error (code ${r.code})`) };
 });
 
 // ---------- Sitzungen (ein Claude-Prozess pro Chat-Tab) ----------
@@ -288,7 +308,7 @@ function startSession(tab) {
     send(tab.id, m);
   });
   proc.stderr.on('data', d => { s.stderr = (s.stderr + d).slice(-4000); });
-  proc.on('error', e => send(tab.id, { type: 'app_error', message: `Claude konnte nicht gestartet werden: ${e.message}` }));
+  proc.on('error', e => send(tab.id, { type: 'app_error', message: tr(`Claude konnte nicht gestartet werden: ${e.message}`, `Could not start Claude: ${e.message}`) }));
   proc.on('close', code => {
     if (code) logError(`Claude beendet mit Code ${code} (Chat ${tab.id}, Sitzung ${s.tab.sessionId || '-'}): ${s.stderr.trim().split('\n').slice(-5).join(' | ')}`);
     if (sessions.get(tab.id) === s) sessions.delete(tab.id);
@@ -363,6 +383,7 @@ function listHistory(profile, limit = 200) {
     }
   }
   items.sort((a, b) => b.mtime - a.mtime);
+  const untitled = tr('(ohne Titel)', '(untitled)');
   return items.slice(0, limit).map(it => {
     let title = '', cwd = '', firstPrompt = '';
     try {
@@ -383,8 +404,8 @@ function listHistory(profile, limit = 200) {
         }
       }
     } catch {}
-    return { sessionId: it.sessionId, file: it.file, mtime: it.mtime, cwd, title: title || firstPrompt.slice(0, 80) || '(ohne Titel)' };
-  }).filter(h => h.cwd || h.title !== '(ohne Titel)');
+    return { sessionId: it.sessionId, file: it.file, mtime: it.mtime, cwd, title: title || firstPrompt.slice(0, 80) || untitled };
+  }).filter(h => h.cwd || h.title !== untitled);
 }
 
 // Nachrichten einer alten Sitzung für die Anzeige laden
@@ -472,7 +493,7 @@ ipcMain.handle('profiles:login', (_e, id) => {
   if (!p) return false;
   cancelLogin(id);
   const exe = claudeExe();
-  if (!exe) { loginEvent(id, { state: 'error', error: CLAUDE_MISSING }); return false; }
+  if (!exe) { loginEvent(id, { state: 'error', error: claudeMissing() }); return false; }
   // stdin bleibt offen (die CLI wartet sonst nicht auf die Browser-Rückmeldung), wird aber nie beschrieben;
   // stdout/stderr werden verworfen, nicht gelesen.
   const proc = spawn(exe, ['auth', 'login'], { env: envFor(p), windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] });
@@ -486,7 +507,7 @@ ipcMain.handle('profiles:login', (_e, id) => {
     modelCache.delete(id);
     const st = await authStatus(p);
     if (st.loggedIn) loginEvent(id, { state: 'done', status: st });
-    else loginEvent(id, { state: 'error', error: `Anmeldung nicht abgeschlossen (Code ${code}).` });
+    else loginEvent(id, { state: 'error', error: tr(`Anmeldung nicht abgeschlossen (Code ${code}).`, `Sign-in not completed (code ${code}).`) });
   });
   return true;
 });
@@ -516,7 +537,7 @@ ipcMain.handle('profiles:openTerminal', (_e, { id, cwd }) => {
 });
 
 ipcMain.handle('favorites:add', async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Projektordner als Favorit hinzufügen' });
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: tr('Projektordner als Favorit hinzufügen', 'Add project folder as favorite') });
   if (r.canceled || !r.filePaths[0]) return getStore();
   const dir = r.filePaths[0];
   return updateStore(s => { if (!s.favorites.some(f => f.path === dir)) s.favorites.push({ path: dir, name: path.basename(dir) }); });
@@ -543,6 +564,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
     else if (k === 'toolView' && TOOLVIEW.includes(v)) ok.toolView = v;
     else if (k === 'notifyStay' && NOTIFYSTAY.includes(v)) ok.notifyStay = v;
     else if (k === 'autoUpdate' && typeof v === 'boolean') ok.autoUpdate = v;
+    else if (k === 'language' && LANGS.includes(v)) ok.language = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
       ok.permissionMode = v;
@@ -555,9 +577,9 @@ ipcMain.handle('settings:set', (_e, patch) => {
 });
 // claudePath nur über einen Datei-Dialog im Hauptprozess
 ipcMain.handle('settings:pickClaude', async () => {
-  const r = await dialog.showOpenDialog(win, { title: 'claude.exe auswählen', properties: ['openFile'], filters: [{ name: 'claude.exe', extensions: ['exe'] }] });
+  const r = await dialog.showOpenDialog(win, { title: tr('claude.exe auswählen', 'Choose claude.exe'), properties: ['openFile'], filters: [{ name: 'claude.exe', extensions: ['exe'] }] });
   if (r.canceled || !r.filePaths[0]) return getStore();
-  if (!isClaudeExePath(r.filePaths[0])) return { ...getStore(), rejected: 'Datei heißt nicht claude.exe' };
+  if (!isClaudeExePath(r.filePaths[0])) return { ...getStore(), rejected: tr('Datei heißt nicht claude.exe', 'The file is not named claude.exe') };
   resolvedClaude = undefined;
   return updateStore(s => { s.settings.claudePath = r.filePaths[0]; });
 });
@@ -582,14 +604,14 @@ function looksLikeImage(buf, ext) {
   return false;
 }
 ipcMain.handle('projects:pickIcon', async () => {
-  const r = await dialog.showOpenDialog(win, { title: 'Bild für das Projekt wählen', properties: ['openFile'], filters: [{ name: 'Bilder', extensions: Object.keys(ICON_TYPES) }] });
+  const r = await dialog.showOpenDialog(win, { title: tr('Bild für das Projekt wählen', 'Choose an image for the project'), properties: ['openFile'], filters: [{ name: tr('Bilder', 'Images'), extensions: Object.keys(ICON_TYPES) }] });
   const file = r.filePaths?.[0];
   if (r.canceled || !file) return null;
   const ext = path.extname(file).slice(1).toLowerCase();
-  if (isUnc(file) || !ICON_TYPES[ext]) return { error: 'Dateityp nicht unterstützt' };
+  if (isUnc(file) || !ICON_TYPES[ext]) return { error: tr('Dateityp nicht unterstützt', 'File type not supported') };
   let buf;
-  try { if (fs.statSync(file).size > ICON_MAX) return { error: 'Bild ist größer als 512 KB' }; buf = fs.readFileSync(file); } catch { return { error: 'Datei kann nicht gelesen werden' }; }
-  if (!looksLikeImage(buf, ext)) return { error: 'Datei ist kein gültiges Bild' };
+  try { if (fs.statSync(file).size > ICON_MAX) return { error: tr('Bild ist größer als 512 KB', 'Image is larger than 512 KB') }; buf = fs.readFileSync(file); } catch { return { error: tr('Datei kann nicht gelesen werden', 'Cannot read the file') }; }
+  if (!looksLikeImage(buf, ext)) return { error: tr('Datei ist kein gültiges Bild', 'The file is not a valid image') };
   return { icon: `data:${ICON_TYPES[ext]};base64,${buf.toString('base64')}` };
 });
 ipcMain.handle('projects:add', (_e, { name, color, cwd, icon } = {}) => updateStore(s => {
@@ -694,7 +716,7 @@ function validContent(c) {
 }
 // Anhänge über den Datei-Dialog: Bilder werden eingelesen (base64), andere Dateien nur als Pfad übergeben
 ipcMain.handle('attach:pick', async () => {
-  const r = await dialog.showOpenDialog(win, { title: 'Dateien anhängen', properties: ['openFile', 'multiSelections'] });
+  const r = await dialog.showOpenDialog(win, { title: tr('Dateien anhängen', 'Attach files'), properties: ['openFile', 'multiSelections'] });
   if (r.canceled) return [];
   const out = [];
   for (const file of r.filePaths.slice(0, 10)) {
@@ -713,14 +735,14 @@ ipcMain.handle('session:send', (_e, { tab: rawTab, content }) => {
   const tab = validTab(rawTab);
   if (!tab || !validContent(content)) {
     logError('session:send abgelehnt: ungültige Tab-Daten');
-    if (rawTab?.cwd && typeof rawTab.id === 'string') send(rawTab.id, { type: 'app_error', message: 'Dieser Arbeitsordner ist nicht freigegeben. Bitte den Ordner über „Neuer Chat“ oder ein Projekt neu wählen.' });
+    if (rawTab?.cwd && typeof rawTab.id === 'string') send(rawTab.id, { type: 'app_error', message: tr('Dieser Arbeitsordner ist nicht freigegeben. Bitte den Ordner über „Neuer Chat“ oder ein Projekt neu wählen.', 'This working folder is not approved. Please choose the folder again via “New chat” or a project.') });
     return false;
   }
   if (tab.permissionMode === 'bypassPermissions' && !confirmBypass()) {
-    send(tab.id, { type: 'app_error', message: '„Alles erlauben“ wurde nicht bestätigt – Nachricht nicht gesendet.' });
+    send(tab.id, { type: 'app_error', message: tr('„Alles erlauben“ wurde nicht bestätigt – Nachricht nicht gesendet.', '“Allow everything” was not confirmed – message not sent.') });
     return false;
   }
-  if (!claudeExe()) { send(tab.id, { type: 'app_error', message: CLAUDE_MISSING }); return false; }
+  if (!claudeExe()) { send(tab.id, { type: 'app_error', message: claudeMissing() }); return false; }
   let s = sessions.get(tab.id);
   if (!s) s = startSession(tab);
   s.busy = true; // Claude arbeitet an einer Antwort (bis zum result)
@@ -769,14 +791,15 @@ ipcMain.handle('session:close', (_e, tabId) => { stopSession(tabId); return true
 // Übertragung eines Chats in ein anderes Konto – nur nach ausdrücklicher Bestätigung im Hauptprozess
 ipcMain.handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId } = {}) => {
   const from = profileById(fromProfileId), to = profileById(toProfileId);
-  if (!from || !to) return { ok: false, error: 'Konto unbekannt' };
-  if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) { logError('session:moveProfile abgelehnt: ungültige Session-ID'); return { ok: false, error: 'ungültige Session-ID' }; }
+  if (!from || !to) return { ok: false, error: tr('Konto unbekannt', 'Unknown account') };
+  if (typeof sessionId !== 'string' || !UUID_RE.test(sessionId)) { logError('session:moveProfile abgelehnt: ungültige Session-ID'); return { ok: false, error: tr('ungültige Session-ID', 'invalid session ID') }; }
   if (from.configDir === to.configDir) return { ok: true };
   const ok = dialog.showMessageBoxSync(win, {
-    type: 'warning', buttons: ['Abbrechen', 'Übertragen'], defaultId: 0, cancelId: 0, noLink: true,
-    title: 'Chat in anderes Konto übertragen',
-    message: `Chat in Konto „${to.name}“ übertragen?`,
-    detail: `Der gesamte Verlauf inkl. Dateiinhalten und Befehlsausgaben wird in Konto „${to.name}“ kopiert. Nicht zwischen Firmen- und Privatkonten übertragen.`,
+    type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Übertragen', 'Transfer')], defaultId: 0, cancelId: 0, noLink: true,
+    title: tr('Chat in anderes Konto übertragen', 'Transfer chat to another account'),
+    message: tr(`Chat in Konto „${to.name}“ übertragen?`, `Transfer chat to account “${to.name}”?`),
+    detail: tr(`Der gesamte Verlauf inkl. Dateiinhalten und Befehlsausgaben wird in Konto „${to.name}“ kopiert. Nicht zwischen Firmen- und Privatkonten übertragen.`,
+      `The entire history, including file contents and command output, will be copied to account “${to.name}”. Do not transfer between work and personal accounts.`),
   });
   if (ok !== 1) return { ok: false, cancelled: true };
   try { return { ok: copySessionToProfile(sessionId, cwd, from, to) }; } catch (e) { logError('Übertragung: ' + e.message); return { ok: false, error: e.message }; }
@@ -821,16 +844,16 @@ function decodeConsole(buf) {
 // Ausgabe einer Hintergrund-Aufgabe lesen – nur *.output-Dateien, die Claude Code in seinem eigenen
 // Temp-Ordner (%TEMP%\claude\…\tasks\) anlegt; höchstens die letzten 64 KB
 ipcMain.handle('task:readOutput', (_e, file) => {
-  if (typeof file !== 'string' || isUnc(file) || !file.toLowerCase().endsWith('.output')) return { error: 'Keine Ausgabedatei' };
-  if (!seenOutputs.has(path.resolve(file).toLowerCase())) return { error: 'Pfad nicht erlaubt' };
+  if (typeof file !== 'string' || isUnc(file) || !file.toLowerCase().endsWith('.output')) return { error: tr('Keine Ausgabedatei', 'Not an output file') };
+  if (!seenOutputs.has(path.resolve(file).toLowerCase())) return { error: tr('Pfad nicht erlaubt', 'Path not allowed') };
   let p, st;
   try {
     // Junctions/Symlinks auflösen (auch 8.3-Kurznamen), danach erneut prüfen; Hardlinks ablehnen
     const base = fs.realpathSync.native(path.join(os.tmpdir(), 'claude')).toLowerCase() + path.sep;
     p = fs.realpathSync.native(file);
     st = fs.lstatSync(p);
-    if (!p.toLowerCase().startsWith(base) || path.basename(path.dirname(p)).toLowerCase() !== 'tasks' || !st.isFile() || st.nlink !== 1) return { error: 'Pfad nicht erlaubt' };
-  } catch { return { error: 'Ausgabe nicht (mehr) vorhanden' }; }
+    if (!p.toLowerCase().startsWith(base) || path.basename(path.dirname(p)).toLowerCase() !== 'tasks' || !st.isFile() || st.nlink !== 1) return { error: tr('Pfad nicht erlaubt', 'Path not allowed') };
+  } catch { return { error: tr('Ausgabe nicht (mehr) vorhanden', 'Output no longer available') }; }
   try {
     const size = st.size, max = 64 * 1024;
     const fd = fs.openSync(p, 'r');
@@ -839,7 +862,7 @@ ipcMain.handle('task:readOutput', (_e, file) => {
       fs.readSync(fd, buf, 0, buf.length, Math.max(0, size - max));
       return { text: decodeConsole(buf), truncated: size > max, size };
     } finally { fs.closeSync(fd); }
-  } catch { return { error: 'Ausgabe nicht (mehr) vorhanden' }; }
+  } catch { return { error: tr('Ausgabe nicht (mehr) vorhanden', 'Output no longer available') }; }
 });
 // Text in die Zwischenablage (Kopieren-Knöpfe) – nur Schreiben, höchstens 5 MB; Lesen gibt es nicht
 ipcMain.handle('clipboard:write', (_e, text) => { if (typeof text !== 'string') return false; clipboard.writeText(text.slice(0, 5 * 1024 * 1024)); return true; });
@@ -935,10 +958,13 @@ function createWindow() {
     if (closeConfirmed || !busy) return;
     e.preventDefault();
     const r = dialog.showMessageBoxSync(win, {
-      type: 'question', buttons: ['Abbrechen', 'Trotzdem schließen'], defaultId: 0, cancelId: 0, noLink: true,
-      title: 'Swapline schließen',
-      message: `Claude arbeitet noch in ${busy} Chat${busy === 1 ? '' : 's'} (Antwort oder Hintergrund-Aufgabe).`,
-      detail: 'Beim Schließen wird die laufende Antwort abgebrochen. Bisherige Änderungen und der Verlauf bleiben erhalten – danach kannst du den Chat mit „mach weiter“ fortsetzen.',
+      type: 'question', buttons: [tr('Abbrechen', 'Cancel'), tr('Trotzdem schließen', 'Close anyway')], defaultId: 0, cancelId: 0, noLink: true,
+      title: tr('Swapline schließen', 'Close Swapline'),
+      message: busy === 1
+        ? tr('Claude arbeitet noch in 1 Chat (Antwort oder Hintergrund-Aufgabe).', 'Claude is still working in 1 chat (reply or background task).')
+        : tr(`Claude arbeitet noch in ${busy} Chats (Antwort oder Hintergrund-Aufgabe).`, `Claude is still working in ${busy} chats (reply or background task).`),
+      detail: tr('Beim Schließen wird die laufende Antwort abgebrochen. Bisherige Änderungen und der Verlauf bleiben erhalten – danach kannst du den Chat mit „mach weiter“ fortsetzen.',
+        'Closing cancels the current reply. Changes so far and the history are kept – afterwards you can continue the chat with “continue”.'),
     });
     if (r === 1) { closeConfirmed = true; win.close(); }
   });

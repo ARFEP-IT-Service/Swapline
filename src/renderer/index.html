@@ -45,9 +45,9 @@
         </button>
       </div>
       <div class="seg" id="seg">
-        <button data-view="chats" class="active">Chats</button>
-        <button data-view="favorites">Favoriten</button>
-        <button data-view="history">Verlauf</button>
+        <button data-view="chats" class="active" data-i18n>Chats</button>
+        <button data-view="favorites" data-i18n>Favoriten</button>
+        <button data-view="history" data-i18n>Verlauf</button>
       </div>
       <div id="list"></div>
       <section id="usage"></section>
@@ -58,15 +58,15 @@
       <div id="empty" class="empty">
         <img class="empty-logo" src="assets/swapline.svg" alt="">
         <h1>Swapline</h1>
-        <p class="muted">Starte einen neuen Chat oder öffne einen aus dem Verlauf.</p>
-        <button class="primary big" id="btn-empty-new">Neuer Chat</button>
+        <p class="muted" data-i18n>Starte einen neuen Chat oder öffne einen aus dem Verlauf.</p>
+        <button class="primary big" id="btn-empty-new" data-i18n>Neuer Chat</button>
       </div>
 
       <div id="chat-view" hidden>
         <header id="chat-head">
           <div class="avatar" id="ch-avatar"></div>
           <div class="ch-text">
-            <div id="ch-title"></div>
+            <div id="ch-title" title="Doppelklick zum Umbenennen"></div>
             <button id="ch-cwd" class="link muted" title="Ordner öffnen"></button>
           </div>
           <div class="ch-controls">
@@ -99,6 +99,7 @@
 
   <script src="../../node_modules/marked/lib/marked.umd.js"></script>
   <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
