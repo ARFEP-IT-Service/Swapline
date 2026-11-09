@@ -66,7 +66,7 @@ function saveTabs() {
   try {
     localStorage.setItem(LS_TABS, JSON.stringify({
       activeTabId, lastOpened,
-      tabs: tabs.filter(t => !t.mirror).map(t => ({ id: t.id, host: t.host || null, title: t.title, profileId: t.profileId, projectId: t.projectId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, updated: t.updated, preview: t.preview })),
+      tabs: tabs.filter(t => !t.mirror).map(t => ({ id: t.id, host: t.host || null, hostProjectId: t.hostProjectId || null, title: t.title, profileId: t.profileId, projectId: t.projectId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, updated: t.updated, preview: t.preview })),
     }));
   } catch {}
 }
@@ -218,7 +218,16 @@ const activeProjectId = () => store.activeProjectId || 'all';
 const project = id => (store.projects || []).find(x => x.id === id);
 // Ansicht: 'all', eine Projekt-ID oder 'host:<id>' (alle Chats eines Haupt-PCs)
 const hostOfView = pid => (typeof pid === 'string' && pid.startsWith('host:') ? pid.slice(5) : null);
-const tabInProject = (t, pid) => pid === 'all' || (hostOfView(pid) ? t.host === hostOfView(pid) : t.projectId === pid);
+const tabInProject = (t, pid) => pid === 'all' || (hostOfView(pid) ? t.host === hostOfView(pid) && inHostProject(t.host, t.cwd, t.hostProjectId) : t.projectId === pid);
+// Projekte eines Haupt-PCs/Servers: Filter in dessen Ansicht (Zugehörigkeit über den Projektordner)
+const hostProjectFilter = {}; // Haupt-PC -> Projekt-ID oder null (alle)
+const within = (cwd, dir) => { const n = x => String(x || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); const a = n(cwd), b = n(dir); return !!b && (a === b || a.startsWith(b + '/')); };
+function inHostProject(host, cwd, projectId) {
+  const f = hostProjectFilter[host];
+  if (!f) return true;
+  const p = hostStores[host]?.projects?.find(x => x.id === f);
+  return !p || projectId === p.id || within(cwd, p.cwd);
+}
 
 // ---------- Chats von Haupt-PCs (Fernzugriff) ----------
 // Ein Chat mit t.host läuft auf diesem Haupt-PC; seine Anfragen gehen über den Hauptprozess genau dorthin.
@@ -268,7 +277,7 @@ function syncMirrors(host, list) {
     if (dismissedMirrors.has(host + '|' + x.id)) continue;
     const t = tabs.find(y => y.mirror && y.host === host && y.hostTab === x.id);
     if (!t) {
-      tabs.push(makeTab({ host, hostTab: x.id, mirror: true, projectId: null, title: x.title, profileId: x.profileId, cwd: x.cwd, sessionId: x.sessionId,
+      tabs.push(makeTab({ host, hostTab: x.id, mirror: true, projectId: mirrorProjects[host + '|' + x.id] || null, title: x.title, profileId: x.profileId, cwd: x.cwd, sessionId: x.sessionId,
         model: x.model, effort: x.effort, permissionMode: x.permissionMode, updated: x.updated, preview: x.preview, running: x.running, loaded: !x.sessionId }));
     } else {
       Object.assign(t, { title: x.title || t.title, preview: x.preview || t.preview, updated: Math.max(t.updated || 0, x.updated || 0), sessionId: t.sessionId || x.sessionId,
@@ -280,6 +289,7 @@ function syncMirrors(host, list) {
   if (currentTab()?.mirror) renderChatChip(currentTab());
 }
 api.remote.onTabs(({ host, list }) => syncMirrors(host, list));
+api.onStoreChanged(async () => { store = await api.getStore(); renderRail(); renderList(); });
 async function attachMirror(t) {
   if (!t.mirror || t.attached || !hostConnected(t.host)) return;
   const r = await api.remote.call(t.host, 'session:attach', [{ tabId: t.id, hostTab: t.hostTab }]);
@@ -357,8 +367,10 @@ function renderProjectHead() {
     $('#ph-sub').textContent = (hostConnected(hv) ? _('Haupt-PC · verbunden') : _('Haupt-PC · nicht verbunden')) + ' · ' + (count === 1 ? _('1 Chat') : _('{n} Chats', { n: count }));
     $('#ph-sub').title = hostInfo(hv) ? hostInfo(hv).address + ':' + hostInfo(hv).port : '';
     $('#btn-project-edit').hidden = true;
+    renderHostProjects(hv);
     return;
   }
+  $('#host-projects').hidden = true;
   const av = pr ? avatar(pr, 'lg') : el('div', { class: 'avatar lg globe' }, icon(GLOBE));
   av.id = 'ph-avatar';
   $('#ph-avatar').replaceWith(av);
@@ -467,6 +479,67 @@ function openHostForm(h) {
     el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: save }, _('Speichern'))));
 }
 
+function renderHostProjects(host) {
+  const box = $('#host-projects'), hs = hostStores[host];
+  const projects = hs?.projects || [], groups = hs?.projectGroups || [];
+  box.hidden = !projects.length && !hs?.canEditProjects;
+  if (box.hidden) return;
+  const cur = hostProjectFilter[host] || null;
+  const pick = id => { hostProjectFilter[host] = id; historyCache = {}; renderList(); renderProjectHead(); };
+  const chip = p => el('button', { class: 'hp-chip' + (cur === p.id ? ' sel' : ''), title: p.cwd || '', onclick: () => pick(cur === p.id ? null : p.id),
+    oncontextmenu: e => { e.preventDefault(); if (hs.canEditProjects) openHostProjectForm(host, p); } }, avatar(p, 'sm'), el('span', {}, p.name));
+  const inGroup = p => groups.some(g => g.id === p.groupId);
+  fill(box,
+    el('button', { class: 'hp-chip plain' + (!cur ? ' sel' : ''), onclick: () => pick(null) }, _('Alle')),
+    ...projects.filter(p => !inGroup(p)).map(chip),
+    ...groups.filter(g => projects.some(p => p.groupId === g.id)).flatMap(g => [el('div', { class: 'hp-group' }, g.name), ...projects.filter(p => p.groupId === g.id).map(chip)]),
+    hs.canEditProjects ? el('button', { class: 'hp-chip plain hp-add', onclick: () => openHostProjectForm(host) }, _('+ Projekt')) : null,
+    hs.canEditProjects ? el('button', { class: 'hp-chip plain hp-add', onclick: () => openHostGroupForm(host) }, _('+ Ordner')) : null);
+}
+// Projekt auf dem Haupt-PC anlegen/ändern (nur mit Gerätefreigabe; Ordner nur aus den freigegebenen)
+function openHostProjectForm(host, pr = {}) {
+  const hs = hostStores[host];
+  let color = pr.color || COLORS[(hs.projects || []).length % COLORS.length];
+  const name = el('input', { type: 'text', value: pr.name || '', placeholder: _('z. B. Glassbed, Website, Verein') });
+  const colors = el('div', { class: 'colors' });
+  const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
+  drawColors();
+  const folder = el('select', {}, hs.scope.limited ? null : el('option', { value: '' }, _('kein Ordner – wird pro Chat gewählt')),
+    ...(hs.allowedFolders || []).map(f => el('option', { value: f, selected: f === pr.cwd }, f)));
+  const group = el('select', {}, el('option', { value: '' }, _('Kein Ordner')), ...(hs.projectGroups || []).map(g => el('option', { value: g.id, selected: g.id === pr.groupId }, g.name)));
+  const save = async () => {
+    if (!name.value.trim()) return name.focus();
+    const data = { name: name.value.trim(), color, cwd: folder.value, groupId: group.value || null };
+    const r = await api.remote.call(host, pr.id ? 'projects:update' : 'projects:add', [pr.id ? { id: pr.id, patch: data } : data]);
+    if (!r) return toast(_('Am Haupt-PC nicht erlaubt – Freigabe „Projekte anlegen“ fehlt oder Ordner nicht freigegeben'));
+    hostStores[host] = r; m.close(); renderProjectHead(); renderList();
+  };
+  const m = modal('project', pr.id ? _('Projekt auf „{name}“ bearbeiten', { name: hostName(host) }) : _('Neues Projekt auf „{name}“', { name: hostName(host) }),
+    el('label', { class: 'field' }, el('span', {}, _('Name')), name),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
+    el('label', { class: 'field' }, el('span', {}, _('Projektordner auf dem Haupt-PC')), folder),
+    (hs.projectGroups || []).length ? el('label', { class: 'field' }, el('span', {}, _('Ordner in der Leiste')), group) : null,
+    el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: save }, pr.id ? _('Speichern') : _('Projekt anlegen'))));
+  name.focus();
+}
+function openHostGroupForm(host) {
+  let color = '#64748B';
+  const name = el('input', { type: 'text', placeholder: _('z. B. Kunden, Privat, Archiv') });
+  const colors = el('div', { class: 'colors' });
+  const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
+  drawColors();
+  const m = modal('project', _('Neuer Ordner auf „{name}“', { name: hostName(host) }),
+    el('label', { class: 'field' }, el('span', {}, _('Name')), name),
+    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
+    el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: async () => {
+      if (!name.value.trim()) return name.focus();
+      const r = await api.remote.call(host, 'projects:groupAdd', [{ name: name.value.trim(), color }]);
+      if (!r) return toast(_('Am Haupt-PC nicht erlaubt – Freigabe „Projekte anlegen“ fehlt'));
+      hostStores[host] = r; m.close(); renderProjectHead();
+    } }, _('Ordner anlegen'))));
+  name.focus();
+}
+
 async function onRailDrop(e, targetId) {
   const chatId = e.dataTransfer.getData('text/chat');
   if (chatId) return moveChatToProject(chatId, targetId);
@@ -481,10 +554,16 @@ async function onRailDrop(e, targetId) {
     renderRail();
   }
 }
+const LS_MIRROR_PROJECTS = 'swapline.mirrorProjects.v1';
+const mirrorProjects = (() => { try { return JSON.parse(localStorage.getItem(LS_MIRROR_PROJECTS)) || {}; } catch { return {}; } })();
 function moveChatToProject(chatId, projectId) {
   const t = tabs.find(x => x.id === chatId);
   if (!t) return;
   t.projectId = projectId === 'all' ? null : projectId;
+  if (t.mirror) { // gespiegelte Chats werden nicht gespeichert – ihre Projekt-Zuordnung schon
+    if (t.projectId) mirrorProjects[t.host + '|' + t.hostTab] = t.projectId; else delete mirrorProjects[t.host + '|' + t.hostTab];
+    try { localStorage.setItem(LS_MIRROR_PROJECTS, JSON.stringify(mirrorProjects)); } catch {}
+  }
   saveTabs(); renderRail(); renderList();
   toast(projectId === 'all' ? _('Chat ist jetzt ohne Projekt') : _('Chat verschoben nach „{name}“', { name: project(projectId).name }));
 }
@@ -859,7 +938,7 @@ function renderList() {
     const hv = hostOfView(activeProjectId());
     const pid = hv ? 'host:' + hv : store.activeProfileId; // Cache-Schlüssel; beim Haupt-PC: Verlauf aller freigegebenen Konten
     const pr = project(activeProjectId());
-    const inProject = h => !pr?.cwd || (h.cwd || '').toLowerCase().startsWith(pr.cwd.toLowerCase());
+    const inProject = h => (hv ? inHostProject(hv, h.cwd) : !pr?.cwd || (h.cwd || '').toLowerCase().startsWith(pr.cwd.toLowerCase()));
     // Volltextsuche (ab 2 Zeichen): durchsucht die Nachrichten aller Sitzungen des Kontos im Hauptprozess
     if (q.length >= 2) {
       const key = pid + '|' + q;
@@ -972,7 +1051,7 @@ async function newChat(cwd) {
   }
   let profileId = host ? hostStores[host].activeProfileId || hostStores[host].profiles[0]?.id : store.activeProfileId;
   if (cwd === undefined) { const picked = await pickFolderModal(host); if (picked === null) return; ({ cwd, profileId } = picked); }
-  const t = makeTab(host ? { cwd, profileId, host, projectId: null, model: hostStores[host].settings.model, effort: hostStores[host].settings.effort, permissionMode: hostStores[host].settings.permissionMode } : { cwd, profileId });
+  const t = makeTab(host ? { cwd, profileId, host, projectId: null, hostProjectId: hostProjectFilter[host] || null, model: hostStores[host].settings.model, effort: hostStores[host].settings.effort, permissionMode: hostStores[host].settings.permissionMode } : { cwd, profileId });
   tabs.push(t);
   view = 'chats'; setSeg();
   openTab(t.id);
@@ -1811,6 +1890,7 @@ function pickFolderModal(host = null) {
       el('div', { class: 'hint' }, _('Mit welchem Konto?')), chips,
       el('div', { class: 'hint' }, !host && project(activeProjectId()) ? _('Projekt: {name} – in welchem Ordner soll Claude arbeiten?', { name: project(activeProjectId()).name }) : _('In welchem Ordner soll Claude arbeiten?')),
       el('div', { class: 'pick' },
+        host && hostProjectFilter[host] && hs.projects?.find(x => x.id === hostProjectFilter[host])?.cwd ? (() => { const hp = hs.projects.find(x => x.id === hostProjectFilter[host]); return el('button', { class: 'proj-folder', onclick: () => finish(hp.cwd) }, avatar(hp, 'sm'), el('div', {}, _('Projektordner'), el('small', {}, hp.cwd))); })() : null,
         !host && project(activeProjectId())?.cwd ? el('button', { class: 'proj-folder', onclick: () => finish(project(activeProjectId()).cwd) }, avatar(project(activeProjectId()), 'sm'), el('div', {}, _('Projektordner'), el('small', {}, project(activeProjectId()).cwd))) : null,
         ...favorites.map(f => el('button', { onclick: () => finish(f.path) }, el('div', { class: 'folder-ic' }, icon(ICONS.star)), el('div', {}, f.name, el('small', {}, f.path)))),
         // Fernzugriff: Ordner des Haupt-PCs zur Auswahl (ein Datei-Dialog dort ginge ins Leere)
@@ -2223,11 +2303,14 @@ function drawRemote() {
     ...h.devices.map(d => {
       const bypass = el('input', { type: 'checkbox', checked: d.allowBypass });
       bypass.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBypass: bypass.checked }); drawRemote(); };
+      const projAllow = el('input', { type: 'checkbox', checked: d.allowProjects });
+      projAllow.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowProjects: projAllow.checked }); drawRemote(); };
       return el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (d.connected ? ' on' : '') }),
         el('div', { class: 'grow' }, el('b', {}, d.name), el('small', {}, d.connected ? _('verbunden') : d.lastSeen ? _('zuletzt {t}', { t: new Date(d.lastSeen).toLocaleString(locale()) }) : _('noch nie verbunden'), d.lastAddress ? ' · ' + d.lastAddress : ''),
           el('small', {}, _('Freigabe: {s}', { s: scopeText(d.scope) }))),
         el('button', { class: 'ghost', onclick: () => openScopeEditor(d) }, _('Freigabe …')),
         el('label', { class: 'row', title: _('Darf Chats mit „Alles erlauben“ (--dangerously-skip-permissions) starten') }, bypass, _('„Alles erlauben“')),
+        el('label', { class: 'row', title: _('Darf auf diesem PC Projekte und Ordner anlegen und umbenennen (nicht löschen)') }, projAllow, _('Projekte anlegen')),
         el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Gerät „{name}“ entfernen? Es kann sich danach nicht mehr verbinden.', { name: d.name }))) return; remoteState = await api.remote.deviceRemove(d.id); drawRemote(); } }, _('Entfernen')));
     }),
   ];

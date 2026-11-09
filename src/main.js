@@ -1069,7 +1069,7 @@ function remoteStoreFor(dev) {
     scope: { limited, accountsLimited: scopeOf(dev).profiles !== null, newChats: !limited || projectFolders(dev).length > 0 },
     usage: s.usage,
     settings: { model: v.model ?? s.settings.model ?? '', effort: v.effort ?? s.settings.effort ?? '', permissionMode: v.permissionMode ?? s.settings.permissionMode ?? 'default' },
-    allowedFolders: limited ? projectFolders(dev) : allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass,
+    allowedFolders: limited ? projectFolders(dev) : allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass, canEditProjects: !!dev.allowProjects,
   };
 }
 const setView = (dev, patch) => saveDevices(getDevices().map(d => (d.id === dev.id ? { ...d, view: { ...d.view, ...patch } } : d)));
@@ -1125,12 +1125,56 @@ function cleanScope(sc) {
   if (profiles === undefined || projects === undefined || !chats) return null;
   return { profiles, projects, chats };
 }
+// Projekte und Ordner des Haupt-PCs vom Gerät aus anlegen oder ändern – nur mit Gerätefreigabe „Projekte anlegen“.
+// Projektordner nur aus den für das Gerät freigegebenen Ordnern; Löschen bleibt dem Haupt-PC vorbehalten; die
+// Auswahl am Haupt-PC (aktives Projekt) bleibt unverändert.
+function hostProjectEdit(dev, ch, a) {
+  if (!dev.allowProjects) notAllowed();
+  a = a && typeof a === 'object' ? a : {};
+  const folders = contentLimited(dev) ? projectFolders(dev) : allowedFolders();
+  const okFolder = cwd => typeof cwd === 'string' && (cwd === '' || folders.some(f => folderKey(f) === folderKey(cwd)));
+  const visible = id => remoteStoreFor(dev).projects.some(p => p.id === id);
+  if (ch === 'projects:add') {
+    if (!okFolder(a.cwd || '') || (contentLimited(dev) && !a.cwd)) notShared();
+    let newId = null;
+    updateStore(st => {
+      if (st.projects.length >= PROJECTS_MAX) return;
+      newId = 'p-' + crypto.randomBytes(4).toString('hex');
+      const pr = { id: newId, name: cleanName(a.name, 'Projekt') || 'Projekt', color: cleanColor(a.color, '#1581FF'), cwd: a.cwd || '' };
+      if (validGroup(st, a.groupId)) pr.groupId = a.groupId;
+      st.projects.push(pr);
+    });
+    // eingeschränktes Gerät: neues Projekt gleich in seine Freigabe aufnehmen, sonst sähe es das Projekt nicht
+    if (newId && contentLimited(dev)) saveDevices(getDevices().map(d => (d.id === dev.id ? { ...d, scope: { ...scopeOf(d), projects: [...scopeOf(d).projects, newId] } } : d)));
+  } else if (ch === 'projects:update') {
+    const patch = a.patch && typeof a.patch === 'object' ? a.patch : {};
+    if (!visible(a.id)) notShared();
+    if ('cwd' in patch && (!okFolder(patch.cwd) || (contentLimited(dev) && !patch.cwd))) notShared();
+    updateStore(st => {
+      const p = st.projects.find(x => x.id === a.id); if (!p) return;
+      if ('name' in patch) p.name = cleanName(patch.name, p.name) || p.name;
+      if ('color' in patch) p.color = cleanColor(patch.color, p.color);
+      if ('cwd' in patch) p.cwd = patch.cwd;
+      if ('groupId' in patch) { if (validGroup(st, patch.groupId)) p.groupId = patch.groupId; else delete p.groupId; }
+    });
+  } else if (ch === 'projects:groupAdd') {
+    updateStore(st => { if (st.projectGroups.length < 50) st.projectGroups.push({ id: 'g-' + crypto.randomBytes(4).toString('hex'), name: cleanName(a.name, 'Ordner') || 'Ordner', color: cleanColor(a.color, '#64748B') }); });
+  } else if (ch === 'projects:groupUpdate') {
+    const patch = a.patch && typeof a.patch === 'object' ? a.patch : {};
+    updateStore(st => { const g = st.projectGroups.find(x => x.id === a.id); if (!g) return; if ('name' in patch) g.name = cleanName(patch.name, g.name) || g.name; if ('color' in patch) g.color = cleanColor(patch.color, g.color); });
+  }
+  if (win && !win.isDestroyed()) win.webContents.send('store:changed'); // eigene Oberfläche zeigt die Änderung
+  const out = remoteStoreFor(getDevices().find(d => d.id === dev.id) || dev);
+  // leere Ordner sind beim Gerät sonst unsichtbar (es sieht nur Ordner mit sichtbaren Projekten) – beim Bearbeiten alle zeigen
+  return { ...out, projectGroups: getStore().projectGroups };
+}
 async function hostDispatch(dev, ch, args) {
   const e = { remote: dev };
   const call = (c, ...a) => H.get(c)(e, ...a);
   const a0 = args[0];
   switch (ch) {
     case 'store:get': return remoteStoreFor(dev);
+    case 'projects:add': case 'projects:update': case 'projects:groupAdd': case 'projects:groupUpdate': return hostProjectEdit(dev, ch, a0);
     case 'profiles:setActive': if (profileAllowed(dev, a0)) setView(dev, { activeProfileId: a0 }); return remoteStoreFor(dev);
     case 'projects:setActive': if (a0 === 'all' || remoteStoreFor(dev).projects.some(p => p.id === a0)) setView(dev, { activeProjectId: a0 }); return remoteStoreFor(dev);
     case 'settings:set': {
@@ -1218,7 +1262,8 @@ const remoteHosts = () => getStore().remoteHosts || [];
 const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
 const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach',
-  'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput']);
+  'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
+  'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate']);
 const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
 function connectHost(h) {
   clients.get(h.id)?.use(null);
@@ -1248,7 +1293,7 @@ function cleanHostStore(r) {
     allowedFolders: (r.allowedFolders || []).filter(x => typeof x === 'string').map(x => x.slice(0, 500)).slice(0, 300),
     settings: { model: isModel(r.settings?.model || '') ? r.settings?.model || '' : '', effort: EFFORTS.includes(r.settings?.effort || '') ? r.settings?.effort || '' : '', permissionMode: MODES.includes(r.settings?.permissionMode) ? r.settings.permissionMode : 'default' },
     scope: { limited: !!r.scope?.limited, accountsLimited: !!r.scope?.accountsLimited, newChats: r.scope?.newChats !== false },
-    hostName: cleanName(r.hostName, ''), hostVersion: str(r.hostVersion, 40), allowBypass: !!r.allowBypass,
+    hostName: cleanName(r.hostName, ''), hostVersion: str(r.hostVersion, 40), allowBypass: !!r.allowBypass, canEditProjects: !!r.canEditProjects,
   };
 }
 handle('remote:call', async (_e, hostId, ch, args) => {
@@ -1264,7 +1309,7 @@ handle('remote:call', async (_e, hostId, ch, args) => {
   if (ch === 'session:send' && args[0]?.tab?.permissionMode === 'bypassPermissions' && !confirmBypass()) return false;
   try {
     const v = await c.call(ch, args);
-    return ch === 'store:get' ? cleanHostStore(v) : v;
+    return ch === 'store:get' || ch.startsWith('projects:') ? cleanHostStore(v) : v;
   } catch (err) {
     if (ch === 'session:send' && typeof args[0]?.tab?.id === 'string') {
       win?.webContents.send('claude:event', { tabId: args[0].tab.id, msg: { type: 'app_error', message: tr('Haupt-PC: ', 'Host PC: ') + err.message } });
@@ -1282,7 +1327,7 @@ function remoteInfo() {
     host: {
       enabled: !!cfg.enabled, port: cfg.port || remote.DEFAULT_PORT, running: !!remoteHost?.running, listenPort: remoteHost?.port || null,
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
-      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
+      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowProjects: !!d.allowProjects, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
     hosts: [
       ...remoteHosts().map(h => ({ id: h.id, kind: 'swapline', name: h.name, address: h.address, port: h.port, color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
@@ -1308,10 +1353,11 @@ handle('remote:hostSet', async (_e, { enabled, port } = {}) => {
 });
 handle('remote:pairStart', () => (remoteHost?.running ? remoteHost.startPairing() : { error: tr('Fernzugriff ist aus', 'Remote access is off') }));
 handle('remote:pairCancel', () => { remoteHost?.cancelPairing(); return true; });
-handle('remote:deviceSet', (_e, { id, allowBypass, scope } = {}) => {
+handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, scope } = {}) => {
   if (!getDevices().some(d => d.id === id)) return remoteInfo();
   const patch = {};
   if (allowBypass !== undefined) { if (typeof allowBypass !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowBypass = allowBypass; }
+  if (allowProjects !== undefined) { if (typeof allowProjects !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowProjects = allowProjects; }
   if (scope !== undefined) { const sc = cleanScope(scope); if (!sc) return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.scope = sc; }
   saveDevices(getDevices().map(d => (d.id === id ? { ...d, ...patch } : d)));
   // Freigabe verkleinert: laufende Chats des Geräts beenden, die nicht mehr freigegeben sind
@@ -1391,6 +1437,7 @@ function initRemote() {
 const SSH_EXE = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'OpenSSH', 'ssh.exe');
 const shq = v => "'" + String(v).replace(/'/g, "'\\''") + "'";
 const sshServers = () => getStore().sshServers || [];
+const COLORS_SERVER = ['#0EA5E9', '#22C55E', '#F97316', '#7C5CFF', '#E5007E', '#EAB308'];
 const sshState = new Map(); // Server-ID -> { state: 'connected' | 'error' | 'checking', error }
 const validSshUser = u => typeof u === 'string' && /^[a-z_][a-z0-9_.-]{0,31}$/i.test(u);
 const validServerPath = p => typeof p === 'string' && p.length <= 400 && /^\/[^\0\n\r]*$/.test(p);
@@ -1448,7 +1495,8 @@ async function sshDispatch(srv, ch, args) {
   const a0 = args[0];
   switch (ch) {
     case 'store:get': return {
-      profiles: [{ id: 'server', name: srv.name, color: srv.color || '#0EA5E9' }], activeProfileId: 'server', projects: [], projectGroups: [], favorites: [],
+      profiles: [{ id: 'server', name: srv.name, color: srv.color || '#0EA5E9' }], activeProfileId: 'server', favorites: [], projectGroups: [],
+      projects: (srv.folders || []).map((f, i) => ({ id: 'f' + i, name: f.split('/').filter(Boolean).pop() || f, color: COLORS_SERVER[i % COLORS_SERVER.length], cwd: f })),
       allowedFolders: srv.folders || [], settings: { model: '', effort: '', permissionMode: 'default' }, scope: { limited: false, accountsLimited: false, newChats: true },
       hostName: srv.name, hostVersion: sshState.get(srv.id)?.version || '', allowBypass: true,
     };

@@ -320,6 +320,15 @@ button.link:hover { color: var(--accent); }
 .avatar.host { position: relative; background: #475569; }
 .avatar.host .host-mark { position: absolute; left: -3px; top: -3px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); color: var(--text); display: grid; place-items: center; }
 .avatar.host .host-mark svg { width: 11px; height: 11px; }
+/* Projekte eines Haupt-PCs/Servers als Filter in der Seitenleiste */
+#host-projects { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; }
+#host-projects .hp-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 4px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); font-size: 12.5px; max-width: 100%; }
+#host-projects .hp-chip.plain { padding: 0 10px; }
+#host-projects .hp-chip.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--raised)); }
+#host-projects .hp-chip .avatar { width: 20px; height: 20px; font-size: 9px; }
+#host-projects .hp-chip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#host-projects .hp-group { flex-basis: 100%; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+#host-projects .hp-add { border-style: dashed; color: var(--muted); }
 .rail-sep { width: 32px; height: 2px; border-radius: 2px; background: var(--line); margin: 2px 0; }
 #rail-projects { display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .avatar.globe { background: var(--raised); color: var(--accent); border: 1px solid var(--line); }

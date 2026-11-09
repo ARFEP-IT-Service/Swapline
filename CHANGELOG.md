@@ -7,6 +7,13 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Fernzugriff: Projekte und Ordner eines Haupt-PCs (bzw. die Ordner eines Servers) erscheinen in dessen Ansicht als
+  Filter; ein neuer Chat startet im Projektordner. Mit der neuen Gerätefreigabe „Projekte anlegen“ kann ein Gerät dort
+  Projekte und Ordner anlegen und umbenennen (nicht löschen, Projektordner nur aus den freigegebenen).
+- Gespiegelte Haupt-PC-Chats behalten ihre Zuordnung zu eigenen Projekten.
+
 ## [0.5.0] – 2026-11-09
 
 - Neu: **Server per SSH** (z. B. VPS mit Ubuntu) – Claude Code läuft auf dem Server, Chats und Verlauf erscheinen wie

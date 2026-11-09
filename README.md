@@ -66,6 +66,8 @@ Ein PC mit Swapline kann **Haupt-PC** sein: Andere eigene Geräte mit Swapline v
 
 **Übers Internet:** am einfachsten mit [Tailscale](https://tailscale.com) (beide PCs im selben Tailnet, Adresse 100.x.x.x) – der Haupt-PC bleibt fürs Internet unsichtbar. Alternativ am Router den Port per Weiterleitung auf den Haupt-PC lenken und die öffentliche Adresse bzw. einen DynDNS-Namen verwenden; der Port ist dann aus dem ganzen Internet erreichbar und nur durch Verschlüsselung und Kopplung geschützt.
 
+**Projekte:** In der Ansicht eines Haupt-PCs stehen dessen Projekte und Ordner als Filter über der Chat-Liste; **+** startet einen Chat im gewählten Projekt. Darf ein Gerät laut Geräteliste **Projekte anlegen**, legt es dort Projekte und Ordner an oder benennt sie um (Rechtsklick auf ein Projekt); löschen kann nur der Haupt-PC.
+
 **Sicherheit:** Verbindung per TLS 1.2 mit eigenem 256-Bit-Schlüssel je Gerät (TLS-PSK mit ECDHE, beide Seiten prüfen sich gegenseitig). Der Schlüssel entsteht beim Koppeln und wird auf beiden PCs nur verschlüsselt (Windows-Datenschutz-API) gespeichert. Wiederholte Fehlversuche einer Adresse werden für 10 Minuten gesperrt. Ein Gerät kann Chats führen, Rückfragen beantworten und – solange in der Geräteliste erlaubt – „Alles erlauben“ nutzen; Konten, Projekte, Plugins und Einstellungen des Haupt-PCs ändern kann es nicht. Geräte lassen sich jederzeit entfernen. **Nur eigene Geräte koppeln** – das Teilen eines Claude-Kontos mit anderen Personen erlauben Anthropics Bedingungen nicht.
 
 ## Server per SSH (z. B. VPS)

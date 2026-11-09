@@ -154,6 +154,22 @@
   check('Chat-Bild entfernen', !chatIcon(ic));
   tabs.splice(tabs.indexOf(ic), 1); renderList();
 
+  // Projekte eines Haupt-PCs/Servers als Filter
+  hostStores.hx = { profiles: [{ id: 'p', name: 'P', color: '#1581FF' }], activeProfileId: 'p', projects: [{ id: 'hp1', name: 'Web', color: '#1581FF', cwd: '/srv/web' }], projectGroups: [], favorites: [], allowedFolders: ['/srv/web'], settings: { model: '', effort: '', permissionMode: 'default' }, scope: { limited: false, newChats: true }, canEditProjects: true };
+  const savedRemote = remoteState;
+  remoteState = { hosts: [{ id: 'hx', kind: 'ssh', name: 'VPS', address: 'ich@10.0.0.9', port: 22, state: 'connected' }], host: { devices: [] } };
+  const w1 = makeTab({ title: 'In Web', host: 'hx', profileId: 'p', cwd: '/srv/web/app' }), w2 = makeTab({ title: 'Woanders', host: 'hx', profileId: 'p', cwd: '/tmp' });
+  tabs.push(w1, w2); await switchProject('host:hx');
+  const listTitles = () => [...document.querySelectorAll('#list .item .title')].map(e => e.textContent);
+  check('Projekte des Haupt-PCs als Filter sichtbar', !$('#host-projects').hidden && [...document.querySelectorAll('#host-projects .hp-chip span')].some(x => x.textContent === 'Web') && !!document.querySelector('#host-projects .hp-add'));
+  check('Ohne Filter alle Chats des Haupt-PCs', listTitles().includes('In Web') && listTitles().includes('Woanders'));
+  hostProjectFilter.hx = 'hp1'; renderList();
+  check('Filter zeigt nur Chats im Projektordner', listTitles().join() === 'In Web', listTitles().join());
+  delete hostProjectFilter.hx; delete hostStores.hx; remoteState = savedRemote;
+  tabs.splice(tabs.indexOf(w1), 1); tabs.splice(tabs.indexOf(w2), 1);
+  await switchProject('all');
+  check('In eigener Ansicht keine Haupt-PC-Projektleiste', $('#host-projects').hidden);
+
   // Geteilte Ansicht: zwei Chats nebeneinander
   const s1 = makeTab({ title: 'Links' }), s2 = makeTab({ title: 'Rechts' }); tabs.push(s1, s2);
   await openTab(s1.id); openSplit(s2.id); await sleep(80);

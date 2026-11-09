@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('api', {
   pathForFile: file => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   onEvent: cb => ipcRenderer.on('claude:event', (_e, d) => cb(d)),
   onUsage: cb => ipcRenderer.on('usage:update', (_e, d) => cb(d)),
+  onStoreChanged: cb => ipcRenderer.on('store:changed', () => cb()),
   onLogin: cb => ipcRenderer.on('login:update', (_e, d) => cb(d)),
   notify: data => invoke('notify:show', data),
   extensions: {

@@ -76,6 +76,24 @@
   await api.remote.deviceSet({ id: devId, allowBypass: true });
   check('Mit Gerätefreigabe „Alles erlauben“ möglich', (await R('session:confirmBypass', 'abcdefgh')) === true);
 
+  // Projekte und Ordner am Haupt-PC vom Gerät aus (nur mit Freigabe, Ordner nur freigegebene, nie löschen)
+  const activeBefore = (await api.getStore()).activeProjectId;
+  check('Projekt anlegen ohne Freigabe abgelehnt', (await R('projects:add', { name: 'Neu', cwd: WORK })) === false);
+  await api.remote.deviceSet({ id: devId, allowProjects: true });
+  const hp = await R('projects:add', { name: 'Vom Laptop', cwd: WORK });
+  const np = hp?.projects.find(p => p.name === 'Vom Laptop');
+  check('Projekt am Haupt-PC anlegen mit Freigabe', !!np && np.cwd === WORK && hp.canEditProjects, JSON.stringify(hp?.projects));
+  check('Aktives Projekt am Haupt-PC bleibt unverändert', (await api.getStore()).activeProjectId === activeBefore);
+  check('Projektordner außerhalb der Freigabe abgelehnt', (await R('projects:add', { name: 'X', cwd: ['C:', 'Windows'].join(BS) })) === false);
+  const hg = await R('projects:groupAdd', { name: 'Laptop-Ordner' });
+  const ng = hg?.projectGroups.find(g => g.name === 'Laptop-Ordner');
+  check('Ordner am Haupt-PC anlegen', !!ng);
+  const hu2 = await R('projects:update', { id: np.id, patch: { name: 'Umbenannt', groupId: ng.id } });
+  check('Projekt umbenennen und in den Ordner legen', hu2?.projects.find(p => p.id === np.id)?.name === 'Umbenannt' && hu2.projects.find(p => p.id === np.id).groupId === ng.id);
+  check('Projekt löschen vom Gerät nicht möglich', (await R('projects:remove', np.id)) === false && (await api.getStore()).projects.some(p => p.id === np.id));
+  await api.remote.deviceSet({ id: devId, allowProjects: false });
+  check('Ohne Freigabe kein Bearbeiten mehr', (await R('projects:update', { id: np.id, patch: { name: 'X' } })) === false);
+
   // Oberfläche: Chats eines Haupt-PCs neben den eigenen
   remoteState = await api.remote.info();
   await refreshHost(hostId);
@@ -101,6 +119,9 @@
   await until(() => tabs.some(x => x.mirror && x.host === hostId && x.hostTab === open.id), 5000);
   const mirror = tabs.find(x => x.mirror && x.hostTab === open.id);
   check('Offener Chat des Haupt-PCs erscheint auf dem Gerät', !!mirror && mirror.title === 'Offen am Haupt-PC' && mirror.sessionId === U1);
+  moveChatToProject(mirror.id, 'p-work');
+  check('Gespiegelter Chat behält die Zuordnung zum eigenen Projekt', mirrorProjects[hostId + '|' + open.id] === 'p-work');
+  moveChatToProject(mirror.id, 'all');
   check('Haupt-PC liefert offene Chats nur nach Freigabe', (await R('tabs:list')).some(x => x.id === open.id));
   await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: [], chats: [U2] } });
   check('Nicht freigegebener offener Chat bleibt verborgen', !(await R('tabs:list')).some(x => x.id === open.id));
