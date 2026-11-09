@@ -66,7 +66,7 @@ function saveTabs() {
   try {
     localStorage.setItem(LS_TABS, JSON.stringify({
       activeTabId, lastOpened,
-      tabs: tabs.map(t => ({ id: t.id, host: t.host || null, title: t.title, profileId: t.profileId, projectId: t.projectId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, updated: t.updated, preview: t.preview })),
+      tabs: tabs.filter(t => !t.mirror).map(t => ({ id: t.id, host: t.host || null, title: t.title, profileId: t.profileId, projectId: t.projectId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, updated: t.updated, preview: t.preview })),
     }));
   } catch {}
 }
@@ -156,14 +156,47 @@ function tapi(x) {
     readTaskOutput: f => call('task:readOutput', f),
   };
 }
+const dismissedMirrors = new Set(); // vom Gerät geschlossene Spiegel-Chats (bis der Haupt-PC sie schließt)
+function syncMirrors(host, list) {
+  if (!Array.isArray(list)) return;
+  const ids = new Set(list.map(x => x.id));
+  for (const t of [...tabs]) {
+    if (!t.mirror || t.host !== host || ids.has(t.hostTab)) continue;
+    tabs.splice(tabs.indexOf(t), 1);
+    dismissedMirrors.delete(host + '|' + t.hostTab);
+    if (activeTabId === t.id) { activeTabId = null; renderChat(); }
+  }
+  for (const x of list) {
+    if (dismissedMirrors.has(host + '|' + x.id)) continue;
+    const t = tabs.find(y => y.mirror && y.host === host && y.hostTab === x.id);
+    if (!t) {
+      tabs.push(makeTab({ host, hostTab: x.id, mirror: true, projectId: null, title: x.title, profileId: x.profileId, cwd: x.cwd, sessionId: x.sessionId,
+        model: x.model, effort: x.effort, permissionMode: x.permissionMode, updated: x.updated, preview: x.preview, running: x.running, loaded: !x.sessionId }));
+    } else {
+      Object.assign(t, { title: x.title || t.title, preview: x.preview || t.preview, updated: Math.max(t.updated || 0, x.updated || 0), sessionId: t.sessionId || x.sessionId,
+        model: x.model, effort: x.effort, permissionMode: x.permissionMode });
+      if (!t.attached) t.running = x.running;
+    }
+  }
+  renderList(); renderRail();
+  if (currentTab()?.mirror) renderChatChip(currentTab());
+}
+api.remote.onTabs(({ host, list }) => syncMirrors(host, list));
+async function attachMirror(t) {
+  if (!t.mirror || t.attached || !hostConnected(t.host)) return;
+  const r = await api.remote.call(t.host, 'session:attach', [{ tabId: t.id, hostTab: t.hostTab }]);
+  if (r) { t.attached = true; t.running = !!r.running; if (t.id === activeTabId) { setTyping(t); updateComposer(); } }
+}
 async function refreshHost(id) {
+  for (const t of tabs) if (t.host === id && t.mirror) t.attached = false; // nach (Wieder-)Verbindung neu beitreten
+  syncMirrors(id, await api.remote.call(id, 'tabs:list', []));
   const r = await api.remote.call(id, 'store:get', []);
   if (!r) return;
   hostStores[id] = r;
   await Promise.all(r.profiles.map(async p => { status[pkey(id, p.id)] = await tapi(id).profiles.status(p.id); }));
   renderRail(); renderList();
   const t = currentTab();
-  if (t?.host === id) { if (!t.loaded) openTab(t.id); else renderChat(); }
+  if (t?.host === id) { if (!t.loaded || t.mirror) openTab(t.id); else renderChat(); }
 }
 const MONITOR = '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>';
 const GLOBE = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"/>';
@@ -462,7 +495,7 @@ async function switchProfile(id) {
 // Chat auf ein anderes Konto umziehen (Verlauf wird mitgenommen und mit --resume fortgesetzt)
 async function moveTabToProfile(t, to) {
   if (t.profileId === to) return;
-  if (t.host && t.sessionId) { toast(_('Bei Chats eines Haupt-PCs lässt sich das Konto nur vor der ersten Nachricht wechseln')); return false; }
+  if (t.mirror || (t.host && t.sessionId)) { toast(_('Bei Chats eines Haupt-PCs lässt sich das Konto nur vor der ersten Nachricht wechseln')); return false; }
   if (t.running) {
     t.pendingProfile = to;
     toast(_('Wechsel zu „{name}“ nach dieser Antwort', { name: profile(to).name }));
@@ -642,8 +675,20 @@ function highlight(text, q) {
   out.append(text.slice(i));
   return out;
 }
+let publishTimer = null, lastPublished = '';
+function publishTabs() {
+  clearTimeout(publishTimer);
+  publishTimer = setTimeout(() => {
+    const list = tabs.filter(t => !t.host).map(t => ({ id: t.id, title: t.title, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, running: !!(t.running || bgRunning(t)), updated: t.updated, preview: t.preview }));
+    const json = JSON.stringify(list);
+    if (json === lastPublished) return;
+    lastPublished = json;
+    api.remote.publishTabs(list);
+  }, 400);
+}
 let searchTimer = null;
 function renderList() {
+  publishTabs();
   const q = $('#search').value.trim().toLowerCase();
   const list = $('#list');
   const match = (...s) => !q || s.some(x => (x || '').toLowerCase().includes(q));
@@ -817,8 +862,9 @@ async function resumeFromHistory(h) {
 
 function closeTab(id) {
   const t = tabs.find(x => x.id === id);
-  if (t?.running && !confirm(_('Claude arbeitet noch in diesem Chat. Trotzdem schließen?'))) return;
+  if (t?.running && !t.mirror && !confirm(_('Claude arbeitet noch in diesem Chat. Trotzdem schließen?'))) return;
   tapi(t).session.close(id);
+  if (t?.mirror) dismissedMirrors.add(t.host + '|' + t.hostTab);
   tabs = tabs.filter(x => x.id !== id);
   if (activeTabId === id) activeTabId = null;
   saveTabs(); renderList(); renderChat();
@@ -830,6 +876,7 @@ async function openTab(id) {
   if (t) { lastOpened.all = t.id; if (t.projectId) lastOpened[t.projectId] = t.id; }
   if (t) {
     t.unread = false;
+    await attachMirror(t);
     if (!t.loaded && (!t.host || hostConnected(t.host))) {
       t.loaded = true;
       const msgs = await tapi(t).history.loadSession({ profileId: t.profileId, sessionId: t.sessionId, cwd: t.cwd });
@@ -961,7 +1008,7 @@ function renderItem(t, it) {
       it.images?.length ? el('div', { class: 'bubble-imgs' }, it.images.map(src => el('img', { src, alt: _('Bild') }))) : null,
       it.files?.length ? el('div', { class: 'bubble-files' }, it.files.map(n => el('span', {}, '📄 ' + n))) : null,
       it.text)),
-      it.time ? el('div', { class: 'msg-time' }, msgTime(it.time)) : null);
+      it.time ? el('div', { class: 'msg-time' }, msgTime(it.time) + (it.from ? ' · ' + _('von {name}', { name: it.from }) : '')) : null);
     case 'ai': {
       const b = el('div', { class: 'bubble md' + (it.streaming ? ' streaming' : ''), html: md(it.streaming ? streamingMarkdown(it.text) : it.text) });
       if (!it.streaming) enhanceCode(b);
@@ -1143,6 +1190,20 @@ const hiddenUserText = s => !s || /^\s*<(command-|local-command|system-reminder|
 function ingest(t, m, fromHistory = false) {
   const add = it => (fromHistory ? t.items.push(it) : appendItem(t, it));
   switch (m.type) {
+    // Fernzugriff: Nachricht wurde auf dem anderen PC geschrieben (gleicher Chat, gleicher Claude-Prozess)
+    case 'swapline_user': {
+      const text = String(m.content?.text || '') || (m.content?.images ? _('[Bild]') : '');
+      add({ kind: 'me', text, time: Date.now(), from: String(m.from || '').slice(0, 40), images: [] });
+      t.running = true; t.updated = Date.now(); t.preview = text.replace(/\s+/g, ' ').slice(0, 90);
+      if (!t.title) t.title = text.replace(/\s+/g, ' ').slice(0, 60);
+      setTyping(t); updateComposer(); renderList();
+      return;
+    }
+    case 'swapline_answered': {
+      const it = t.items.find(x => x.requestId === m.requestId && !x.answered);
+      if (it) { it.answered = m.behavior === 'deny' ? _('✕ Abgelehnt auf {name}', { name: m.from }) : _('✓ Beantwortet auf {name}', { name: m.from }); refreshItem(t, it); }
+      return;
+    }
     case 'system':
       if (m.subtype === 'init') {
         const changed = t.sessionId !== m.session_id;
@@ -1572,13 +1633,14 @@ async function sendMessage() {
   $('#ch-title').textContent = t.title;
   await claudeSend(t, content);
 }
-const plainTab = t => ({ id: t.id, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode });
+const plainTab = t => ({ id: t.id, hostTab: t.hostTab, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode });
 
 function autosize() { const i = $('#input'); i.style.height = 'auto'; i.style.height = Math.min(220, i.scrollHeight) + 'px'; }
 
 // Einstellungen eines Chats ändern -> Prozess neu starten (setzt mit --resume fort)
 async function changeTab(patch, note, t = currentTab()) {
   if (!t) return;
+  if (t.mirror) { toast(_('Einstellungen dieses Chats ändert der Haupt-PC')); renderChat(); return; }
   if (t.running) { toast(_('Bitte warten, bis Claude fertig ist')); renderChat(); return; }
   Object.assign(t, patch);
   await tapi(t).session.restart(t.id);

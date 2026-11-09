@@ -7,6 +7,13 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Fernzugriff: Die **offenen Chats des Haupt-PCs** erscheinen auf dem Gerät (live aktualisiert, nach Freigabe).
+  Öffnen = dem laufenden Chat **beitreten**: gleicher Claude-Prozess, Antworten erscheinen auf beiden PCs, Nachrichten
+  und beantwortete Rückfragen werden auf der jeweils anderen Seite angezeigt (mit Absender). Kein zweiter Prozess
+  mehr auf derselben Sitzung.
+
 ## [0.4.0] – 2026-11-09
 
 - Fernzugriff: Chats eines Haupt-PCs laufen jetzt **neben** den eigenen statt die ganze Oberfläche umzuschalten.

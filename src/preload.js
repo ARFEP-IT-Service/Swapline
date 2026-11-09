@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('api', {
     // Anfrage für einen Chat eines Haupt-PCs (nur freigegebene Kanäle, siehe main.js REMOTE_CALLS)
     call: (host, ch, args) => ipcRenderer.invoke('remote:call', host, ch, args),
     onStatus: cb => ipcRenderer.on('remote:status', (_e, d) => cb(d)),
+    onTabs: cb => ipcRenderer.on('remote:tabs', (_e, d) => cb(d)),
+    publishTabs: list => invoke('tabs:publish', list),
   },
   onNotifyClick: cb => ipcRenderer.on('notify:click', (_e, tabId) => cb(tabId)),
   update: {

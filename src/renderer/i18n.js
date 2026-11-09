@@ -447,6 +447,11 @@ const EN = {
   'Neuer Chat auf „{name}“': 'New chat on “{name}”',
   'verbinde …': 'connecting …',
   'Chats zeigen': 'Show chats',
+  // Gemeinsame Chats (Haupt-PC und Gerät)
+  'von {name}': 'from {name}',
+  '✕ Abgelehnt auf {name}': '✕ Declined on {name}',
+  '✓ Beantwortet auf {name}': '✓ Answered on {name}',
+  'Einstellungen dieses Chats ändert der Haupt-PC': 'The settings of this chat are changed on the host PC',
   'Update ist nicht mehr verfügbar': 'The update is no longer available',
   'Version {v} ist verfügbar.': 'Version {v} is available.',
   'Version {v} verfügbar': 'Version {v} available',

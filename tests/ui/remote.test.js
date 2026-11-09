@@ -91,6 +91,33 @@
   await switchProject('all');
   tabs.splice(tabs.indexOf(lt), 1); tabs.splice(tabs.indexOf(ht), 1); renderList();
 
+  // Offene Chats des Haupt-PCs: Gerät sieht sie live und tritt bei (statt zweiten Claude-Prozess zu starten)
+  const open = makeTab({ title: 'Offen am Haupt-PC', profileId: 'test', cwd: WORK, sessionId: U1 });
+  tabs.push(open); renderList();
+  await until(() => tabs.some(x => x.mirror && x.host === hostId && x.hostTab === open.id), 5000);
+  const mirror = tabs.find(x => x.mirror && x.hostTab === open.id);
+  check('Offener Chat des Haupt-PCs erscheint auf dem Gerät', !!mirror && mirror.title === 'Offen am Haupt-PC' && mirror.sessionId === U1);
+  check('Haupt-PC liefert offene Chats nur nach Freigabe', (await R('tabs:list')).some(x => x.id === open.id));
+  await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: [], chats: [U2] } });
+  check('Nicht freigegebener offener Chat bleibt verborgen', !(await R('tabs:list')).some(x => x.id === open.id));
+  await until(() => !tabs.some(x => x.mirror && x.hostTab === open.id), 5000);
+  check('Spiegel verschwindet, wenn die Freigabe wegfällt', !tabs.some(x => x.mirror && x.hostTab === open.id));
+  check('Beitreten zu nicht freigegebenem Chat abgelehnt', (await R('session:attach', { tabId: 'devtab001', hostTab: open.id })) === false);
+  await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: null, chats: [] } });
+  const att = await R('session:attach', { tabId: 'devtab001', hostTab: open.id });
+  check('Beitreten zu freigegebenem Chat', att && att.running === false, JSON.stringify(att));
+  check('Einstellungen eines beigetretenen Chats ändert nur der Haupt-PC', (await R('session:restart', 'devtab001')) === false);
+  check('Austreten beendet den Chat am Haupt-PC nicht', (await R('session:close', 'devtab001')) === true && tabs.includes(open));
+  check('Oberfläche darf offene Chats nicht über ein Gerät melden', (await R('tabs:publish', [])) === false);
+  // Anzeige auf der anderen Seite
+  ingest(open, { type: 'swapline_user', content: { text: 'Hallo vom Laptop', images: 0 }, from: 'Laptop' });
+  check('Nachricht vom anderen PC erscheint mit Absender', open.items.at(-1)?.kind === 'me' && open.items.at(-1).from === 'Laptop' && open.running === true);
+  open.items.push({ kind: 'perm', requestId: 'rq1', toolName: 'Bash', input: {} });
+  ingest(open, { type: 'swapline_answered', requestId: 'rq1', behavior: 'allow', from: 'Laptop' });
+  check('Beantwortete Rückfrage wird überall als erledigt markiert', /Laptop/.test(open.items.at(-1).answered || ''));
+  open.running = false; tabs.splice(tabs.indexOf(open), 1); renderList();
+  await until(() => !tabs.some(x => x.mirror && x.hostTab === open.id), 5000);
+
   // Gerät entfernen: Verbindung bricht ab, neue Anmeldung scheitert
   await api.remote.deviceRemove(devId);
   await sleep(1500);

@@ -279,6 +279,7 @@ function send(tabId, msg) {
   const r = remoteTabs.get(tabId);
   if (r) return remoteHost?.push(r.deviceId, 'claude', { tabId: r.tabId, msg });
   if (win && !win.isDestroyed()) win.webContents.send('claude:event', { tabId, msg });
+  pushAttached(tabId, msg);
 }
 
 // Ausgabedateien von Hintergrund-Aufgaben, die die CLI im Stream gemeldet hat – nur diese darf task:readOutput lesen
@@ -809,6 +810,7 @@ handle('session:send', (_e, { tab: rawTab, content }) => {
   if (!s) s = startSession(tab);
   s.busy = true; // Claude arbeitet an einer Antwort (bis zum result)
   writeTo(tab.id, { type: 'user', message: { role: 'user', content } });
+  if (!_e?.remote) pushAttached(tab.id, { type: 'swapline_user', content: userEcho(content), from: os.hostname().slice(0, 40) });
   return true;
 });
 // Antwort auf eine Berechtigungsanfrage. Nur offene Anfragen dieser CLI werden beantwortet; die Eingabe des
@@ -843,6 +845,7 @@ handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
   }
   s.pending.delete(requestId);
   writeTo(tabId, { type: 'control_response', response: { subtype: 'success', request_id: requestId, response: out } });
+  send(tabId, { type: 'swapline_answered', requestId, behavior: out.behavior, from: _e?.remote ? _e.remote.name : os.hostname().slice(0, 40) });
   return true;
 });
 handle('session:interrupt', (_e, tabId) => {
@@ -953,6 +956,77 @@ function openExternalSafe(url) {
 const remote = require('./remote');
 let remoteHost = null;
 const remoteTabs = new Map(); // interne Tab-ID auf dem Haupt-PC -> { deviceId, tabId } (Chats von Geräten)
+
+// --- Offene Chats des Haupt-PCs: Geräte sehen sie und können live beitreten ---
+// Die eigene Oberfläche meldet ihre offenen Chats (tabs:publish). Ein Gerät, das einem davon beitritt, bekommt alle
+// Ereignisse dieses Chats und schreibt in denselben Claude-Prozess – kein zweiter Prozess auf derselben Sitzung.
+let openTabs = [];                 // [{ id, title, profileId, cwd, sessionId, model, effort, permissionMode, running, updated, preview }]
+const attachedTo = new Map();      // Tab-ID am Haupt-PC -> Map(Geräte-ID -> Set(Tab-IDs am Gerät))
+const attachOf = new Map();        // Geräte-ID + ':' + Tab am Gerät -> Tab-ID am Haupt-PC
+const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+function cleanOpenTab(t) {
+  if (!t || typeof t.id !== 'string' || !/^[a-z0-9]{6,40}$/i.test(t.id) || !profileById(t.profileId)) return null;
+  return {
+    id: t.id, title: str(t.title, 200), profileId: t.profileId, cwd: isDir(t.cwd) ? t.cwd : '', sessionId: UUID_RE.test(t.sessionId || '') ? t.sessionId : null,
+    model: isModel(t.model || '') ? t.model || '' : '', effort: EFFORTS.includes(t.effort || '') ? t.effort || '' : '', permissionMode: MODES.includes(t.permissionMode) ? t.permissionMode : 'default',
+    running: !!t.running, updated: Number(t.updated) || 0, preview: str(t.preview, 200),
+  };
+}
+function openTabsFor(dev) {
+  return openTabs.filter(t => profileAllowed(dev, t.profileId) && (!contentLimited(dev) || (t.sessionId ? sessionAllowed(dev, t.profileId, t.sessionId) : folderAllowed(dev, t.cwd))));
+}
+function pushOpenTabs() { for (const d of getDevices()) if (remoteHost?.connected(d.id)) remoteHost.push(d.id, 'tabs', openTabsFor(d)); }
+handle('tabs:publish', (e, list) => {
+  if (e?.remote || !Array.isArray(list)) return false; // nur die eigene Oberfläche
+  openTabs = list.slice(0, 200).map(cleanOpenTab).filter(Boolean);
+  pushOpenTabs();
+  return true;
+});
+function attach(dev, devTab, hostTab) {
+  const key = dev.id + ':' + devTab;
+  const prev = attachOf.get(key);
+  if (prev && prev !== hostTab) detach(dev.id, devTab);
+  attachOf.set(key, hostTab);
+  if (!attachedTo.has(hostTab)) attachedTo.set(hostTab, new Map());
+  const m = attachedTo.get(hostTab);
+  if (!m.has(dev.id)) m.set(dev.id, new Set());
+  m.get(dev.id).add(devTab);
+}
+function detach(devId, devTab) {
+  const key = devId + ':' + devTab, hostTab = attachOf.get(key);
+  attachOf.delete(key);
+  const m = hostTab && attachedTo.get(hostTab);
+  if (!m) return;
+  m.get(devId)?.delete(devTab);
+  if (!m.get(devId)?.size) m.delete(devId);
+  if (!m.size) attachedTo.delete(hostTab);
+}
+function detachDevice(devId) { for (const k of [...attachOf.keys()]) if (k.startsWith(devId + ':')) detach(devId, k.slice(devId.length + 1)); }
+// Ereignis eines Haupt-PC-Chats an beigetretene Geräte (außer an den Absender, der es schon anzeigt)
+function pushAttached(hostTab, msg, except) {
+  const m = attachedTo.get(hostTab);
+  if (!m || !remoteHost) return;
+  for (const [devId, set] of m) for (const devTab of set) if (except !== devId + ':' + devTab) remoteHost.push(devId, 'claude', { tabId: devTab, msg });
+}
+// Nachricht für die Anzeige auf den anderen Ansichten: Text und Bilder (Bilder nur als Platzhalter)
+function userEcho(content) {
+  if (typeof content === 'string') return { text: content.slice(0, 20000), images: 0 };
+  const text = content.filter(b => b.type === 'text').map(b => b.text).join('\n').slice(0, 20000);
+  return { text, images: content.filter(b => b.type === 'image').length };
+}
+async function sendAttached(dev, t, content) {
+  const ht = openTabsFor(dev).find(x => x.id === t.hostTab);
+  if (!ht) throw new Error(tr('Dieser Chat ist am Haupt-PC nicht mehr offen oder nicht freigegeben', 'This chat is no longer open on the host PC or not shared'));
+  if (typeof t.id !== 'string' || !/^[a-z0-9]{6,23}$/i.test(t.id) || !validContent(content)) return false;
+  attach(dev, t.id, ht.id);
+  const ok = await H.get('session:send')({ remote: dev }, { tab: { id: ht.id, profileId: ht.profileId, cwd: ht.cwd, sessionId: sessions.get(ht.id)?.tab.sessionId || ht.sessionId, model: ht.model, effort: ht.effort, permissionMode: ht.permissionMode }, content });
+  if (ok) {
+    const echo = { type: 'swapline_user', content: userEcho(content), from: dev.name };
+    if (win && !win.isDestroyed()) win.webContents.send('claude:event', { tabId: ht.id, msg: echo });
+    pushAttached(ht.id, echo, dev.id + ':' + t.id);
+  }
+  return ok;
+}
 
 // --- Haupt-PC ---
 const getDevices = () => getStore().remoteHost?.devices || [];
@@ -1069,8 +1143,16 @@ async function hostDispatch(dev, ch, args) {
       if (deviceLimited(dev) && ![...remoteTabs].some(([k, v]) => v.deviceId === dev.id && sessions.get(k)?.outputs.has(key))) notShared();
       return call(ch, ...args);
     }
+    case 'tabs:list': return openTabsFor(dev);
+    case 'session:attach': {
+      const ht = openTabsFor(dev).find(x => x.id === a0?.hostTab);
+      if (!ht || typeof a0?.tabId !== 'string' || !/^[a-z0-9]{6,23}$/i.test(a0.tabId)) return false;
+      attach(dev, a0.tabId, ht.id);
+      return { running: !!sessions.get(ht.id)?.busy };
+    }
     case 'session:send': {
       const t = a0?.tab || {};
+      if (typeof t.hostTab === 'string') return sendAttached(dev, t, a0.content);
       if (!profileAllowed(dev, t.profileId)) notShared();
       if (contentLimited(dev)) {
         if (t.sessionId) {
@@ -1082,9 +1164,14 @@ async function hostDispatch(dev, ch, args) {
       const id = hostTabId(dev, t.id);
       return id ? call(ch, { ...a0, tab: { ...t, id } }) : false;
     }
-    case 'session:respond': { const id = hostTabId(dev, a0?.tabId); return id ? call(ch, { ...a0, tabId: id }) : false; }
-    case 'session:interrupt': case 'session:restart': case 'session:confirmBypass': { const id = hostTabId(dev, a0); return id ? call(ch, id) : false; }
-    case 'session:close': { const id = hostTabId(dev, a0); if (!id) return false; const r = call(ch, id); remoteTabs.delete(id); return r; }
+    case 'session:respond': { const id = attachOf.get(dev.id + ':' + a0?.tabId) || hostTabId(dev, a0?.tabId); return id ? call(ch, { ...a0, tabId: id }) : false; }
+    case 'session:interrupt': { const id = attachOf.get(dev.id + ':' + a0) || hostTabId(dev, a0); return id ? call(ch, id) : false; }
+    case 'session:restart': { if (attachOf.has(dev.id + ':' + a0)) return false; const id = hostTabId(dev, a0); return id ? call(ch, id) : false; } // Einstellungen eines Haupt-PC-Chats ändert nur der Haupt-PC
+    case 'session:confirmBypass': { if (attachOf.has(dev.id + ':' + a0)) return !!dev.allowBypass; const id = hostTabId(dev, a0); return id ? call(ch, id) : false; }
+    case 'session:close': {
+      if (attachOf.has(dev.id + ':' + a0)) { detach(dev.id, a0); return true; } // nur austreten – der Chat läuft am Haupt-PC weiter
+      const id = hostTabId(dev, a0); if (!id) return false; const r = call(ch, id); remoteTabs.delete(id); return r;
+    }
     default: return notAllowed();
   }
 }
@@ -1118,15 +1205,16 @@ async function startRemoteHost() {
 const remoteHosts = () => getStore().remoteHosts || [];
 const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
-const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search',
+const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach',
   'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput']);
-const REMOTE_FALLBACK = { 'store:get': null, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
+const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
 function connectHost(h) {
   clients.get(h.id)?.use(null);
   const c = remote.createClient({
     onEvent: (kind, data) => {
       if (!win || win.isDestroyed()) return;
       if (kind === 'claude' && typeof data?.tabId === 'string' && data.msg && typeof data.msg === 'object') win.webContents.send('claude:event', { tabId: data.tabId, msg: data.msg, host: h.id });
+      else if (kind === 'tabs' && Array.isArray(data)) win.webContents.send('remote:tabs', { host: h.id, list: data.slice(0, 200) });
     },
     onStatus: () => pushRemoteStatus(),
     log: logError,
@@ -1214,12 +1302,15 @@ handle('remote:deviceSet', (_e, { id, allowBypass, scope } = {}) => {
     const ok = profileAllowed(dev, t.profileId) && (!contentLimited(dev) || (t.sessionId ? sessionAllowed(dev, t.profileId, t.sessionId) : folderAllowed(dev, t.cwd)));
     if (!ok) { stopSession(k); remoteTabs.delete(k); }
   }
+  for (const [k, hostTab] of [...attachOf]) if (k.startsWith(id + ':') && !openTabsFor(dev).some(t => t.id === hostTab)) detach(id, k.slice(id.length + 1));
+  pushOpenTabs();
   return remoteInfo();
 });
 handle('remote:deviceRemove', (_e, id) => {
   if (!getDevices().some(d => d.id === id)) return remoteInfo();
   saveDevices(getDevices().filter(d => d.id !== id));
   remoteHost?.disconnect(id);
+  detachDevice(id);
   for (const [k, v] of remoteTabs) if (v.deviceId === id) { stopSession(k); remoteTabs.delete(k); }
   logError(`Fernzugriff: Gerät ${id} entfernt`);
   return remoteInfo();
