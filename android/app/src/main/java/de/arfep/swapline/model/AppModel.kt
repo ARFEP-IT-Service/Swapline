@@ -49,6 +49,14 @@ class AppModel(context: Context, private val notifier: Notifier) {
     var foreground = false
     var update by mutableStateOf<Update?>(null)
 
+    // Einstellungen (nur auf dem Handy)
+    var micEnabled by mutableStateOf(prefs.getBoolean("micEnabled", true))
+        private set
+    var onDeviceOnly by mutableStateOf(prefs.getBoolean("onDeviceOnly", false))
+        private set
+    fun changeMic(on: Boolean) { micEnabled = on; prefs.edit().putBoolean("micEnabled", on).apply() }
+    fun changeOnDeviceOnly(on: Boolean) { onDeviceOnly = on; prefs.edit().putBoolean("onDeviceOnly", on).apply() }
+
     fun checkUpdate(force: Boolean = false) = scope.launch {
         val current = de.arfep.swapline.BuildConfig.VERSION_NAME
         val cached = prefs.getString("updateVersion", null)?.let { Update(it, prefs.getString("updateApk", "")!!, prefs.getString("updatePage", "")!!) }

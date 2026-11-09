@@ -84,7 +84,6 @@ fun HostsScreen(model: AppModel, onBack: () -> Unit, onPair: () -> Unit, onPicke
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
-            item { AboutRow(model) }
             item {
                 Text(tr("Nur eigene Geräte koppeln. Claude Code und die Anmeldung der Konten bleiben auf dem Haupt-PC – das Handy speichert nur seinen eigenen, verschlüsselten Geräteschlüssel.",
                     "Only pair your own devices. Claude Code and the account sign-in stay on the host PC – the phone only stores its own encrypted device key."),
@@ -196,7 +195,7 @@ fun PairScreen(model: AppModel, initial: PairData?, onBack: () -> Unit, onScan: 
 data class PairData(val addresses: List<String>, val port: Int, val code: String, val name: String = "")
 
 @Composable
-private fun AboutRow(model: AppModel) {
+fun AboutRow(model: AppModel) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var licenses by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }

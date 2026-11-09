@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -85,7 +86,7 @@ private sealed class Row_ {
 }
 
 @Composable
-fun HomeScreen(model: AppModel, hostId: String?, onHost: (String) -> Unit, onOpen: (Chat) -> Unit, onDevices: () -> Unit, onPair: () -> Unit, onNewChat: (HostState) -> Unit) {
+fun HomeScreen(model: AppModel, hostId: String?, onHost: (String) -> Unit, onOpen: (Chat) -> Unit, onDevices: () -> Unit, onPair: () -> Unit, onNewChat: (HostState) -> Unit, onSettings: () -> Unit) {
     val h = model.hosts.firstOrNull { it.id == hostId } ?: model.hosts.firstOrNull()
     var tab by rememberSaveable { mutableStateOf(0) }
     var hostMenu by remember { mutableStateOf(false) }
@@ -115,7 +116,10 @@ fun HomeScreen(model: AppModel, hostId: String?, onHost: (String) -> Unit, onOpe
                         }
                     }
                 },
-                actions = { IconButton(onClick = onDevices) { Icon(Icons.Outlined.Devices, tr("Haupt-PCs", "Host PCs")) } },
+                actions = {
+                    IconButton(onClick = onDevices) { Icon(Icons.Outlined.Devices, tr("Haupt-PCs", "Host PCs")) }
+                    IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, tr("Einstellungen", "Settings")) }
+                },
             )
         },
         floatingActionButton = {

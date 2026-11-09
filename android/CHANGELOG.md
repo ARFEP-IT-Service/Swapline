@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.1.1] – 2026-11-09
+
+- Neu: **Einstellungen** (Zahnrad oben auf der Startseite): Diktieren an/aus, „Nur auf dem Gerät erkennen“, Status der
+  Spracherkennung, Berechtigungen mit Sprung in die Android-Einstellungen, Haupt-PCs, Updates, Version und Lizenzen.
+- Behoben: Das Mikrofon im Chat fehlte, wenn das Handy keinen Sprachdienst meldete – es ist jetzt immer da und erklärt
+  beim Antippen, was fehlt.
+
 ## [0.1.0] – 2026-11-09
 
 Erste Version.

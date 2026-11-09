@@ -27,6 +27,7 @@ import de.arfep.swapline.ui.HostsScreen
 import de.arfep.swapline.ui.PairData
 import de.arfep.swapline.ui.PairScreen
 import de.arfep.swapline.ui.SwaplineTheme
+import de.arfep.swapline.ui.SettingsScreen
 import de.arfep.swapline.ui.QrScanner
 import de.arfep.swapline.ui.tr
 import de.arfep.swapline.net.PairLinks
@@ -35,6 +36,7 @@ import android.widget.Toast
 sealed class Screen {
     data object Home : Screen()
     data object Hosts : Screen()
+    data object Settings : Screen()
     data class Pair(val data: PairData? = null) : Screen()
     data class ChatView(val chatId: String) : Screen()
     data object Scan : Screen()
@@ -100,7 +102,8 @@ class MainActivity : ComponentActivity() {
         BackHandler(stack.size > 1) { pop() }
         when (top) {
             Screen.Home -> HomeScreen(m, hostId, onHost = { hostId = it }, onOpen = { push(Screen.ChatView(it.id)) }, onDevices = { push(Screen.Hosts) },
-                onPair = { push(Screen.Pair()) }, onNewChat = { setup = it to null })
+                onPair = { push(Screen.Pair()) }, onNewChat = { setup = it to null }, onSettings = { push(Screen.Settings) })
+            Screen.Settings -> SettingsScreen(m, onBack = ::pop, onHosts = { push(Screen.Hosts) })
             Screen.Hosts -> HostsScreen(m, onBack = ::pop, onPair = { push(Screen.Pair()) }, onPicked = { hostId = it; stack = listOf(Screen.Home) })
             is Screen.Pair -> PairScreen(m, top.data, onBack = ::pop, onScan = { push(Screen.Scan) }, onPaired = { id ->
                 hostId = id; stack = listOf(Screen.Home)

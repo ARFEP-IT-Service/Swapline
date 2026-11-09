@@ -24,23 +24,41 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import java.util.Locale
 
+enum class SpeechStatus { ON_DEVICE, SERVICE, NONE }
+
+// Welche Spracherkennung das Handy anbietet: auf dem Gerät, über einen Sprachdienst (z. B. Google/Samsung) oder keine
+fun speechStatus(ctx: Context): SpeechStatus = when {
+    Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx) -> SpeechStatus.ON_DEVICE
+    SpeechRecognizer.isRecognitionAvailable(ctx) -> SpeechStatus.SERVICE
+    else -> SpeechStatus.NONE
+}
+
+val NO_SPEECH get() = tr("Auf diesem Handy ist keine Spracherkennung eingerichtet. In den Android-Einstellungen unter Spracheingabe einen Dienst wählen (z. B. Google oder Samsung).",
+    "No speech recognition is set up on this phone. Choose a service under voice input in the Android settings (e.g. Google or Samsung).")
+
 class Dictation internal constructor(private val ctx: Context, private val onText: (String) -> Unit, private val onError: (String) -> Unit) {
     var listening by mutableStateOf(false)
         private set
     var level by mutableStateOf(0f)   // Lautstärke 0…1 für die Anzeige
         private set
-    val available = SpeechRecognizer.isRecognitionAvailable(ctx) || (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx))
+    val available get() = speechStatus(ctx) != SpeechStatus.NONE
     private var recognizer: SpeechRecognizer? = null
     private var base = ""          // Text im Feld vor dem Diktieren
     private var done = ""          // bereits abgeschlossene Sätze dieser Aufnahme
 
     private fun join(vararg parts: String) = parts.filter { it.isNotBlank() }.joinToString(" ") { it.trim() }
 
-    fun start(current: String) {
+    fun start(current: String, onDeviceOnly: Boolean = false) {
         if (listening) return
+        val status = speechStatus(ctx)
+        if (status == SpeechStatus.NONE) { onError(NO_SPEECH); return }
+        if (onDeviceOnly && status != SpeechStatus.ON_DEVICE) {
+            onError(tr("Erkennung auf dem Gerät ist auf diesem Handy nicht verfügbar – in den Einstellungen „Nur auf dem Gerät“ ausschalten.", "On-device recognition is not available on this phone – turn off “On device only” in the settings."))
+            return
+        }
         base = current
         done = ""
-        val onDevice = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx)
+        val onDevice = status == SpeechStatus.ON_DEVICE
         val r = (if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx) else SpeechRecognizer.createSpeechRecognizer(ctx))
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
@@ -92,7 +110,7 @@ class Dictation internal constructor(private val ctx: Context, private val onTex
 }
 
 @Composable
-fun rememberDictation(onText: (String) -> Unit, onError: (String) -> Unit): Pair<Dictation, (String) -> Unit> {
+fun rememberDictation(onDeviceOnly: Boolean, onText: (String) -> Unit, onError: (String) -> Unit): Pair<Dictation, (String) -> Unit> {
     val ctx = LocalContext.current
     val text by rememberUpdatedState(onText)
     val err by rememberUpdatedState(onError)
@@ -100,13 +118,13 @@ fun rememberDictation(onText: (String) -> Unit, onError: (String) -> Unit): Pair
     var pending by remember { mutableStateOf<String?>(null) }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         val p = pending; pending = null
-        if (ok && p != null) d.start(p) else if (!ok) err(tr("Für das Diktieren braucht Swapline das Mikrofon.", "Swapline needs the microphone for dictation."))
+        if (ok && p != null) d.start(p, onDeviceOnly) else if (!ok) err(tr("Für das Diktieren braucht Swapline das Mikrofon.", "Swapline needs the microphone for dictation."))
     }
     DisposableEffect(Unit) { onDispose { d.stop() } }
     // Umschalten: starten (ggf. erst Mikrofon erlauben) oder beenden
     val toggle: (String) -> Unit = { current ->
         if (d.listening) d.stop()
-        else if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) d.start(current)
+        else if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) d.start(current, onDeviceOnly)
         else { pending = current; perm.launch(Manifest.permission.RECORD_AUDIO) }
     }
     return d to toggle

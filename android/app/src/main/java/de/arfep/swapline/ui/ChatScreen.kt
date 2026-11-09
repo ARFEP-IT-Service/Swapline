@@ -171,7 +171,7 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                     Icon(Icons.Default.KeyboardArrowDown, tr("Ganz nach unten", "Scroll to bottom"))
                 }
             }
-            Composer(text, { text = it }, enabled = h?.connected == true, offline = h?.connected != true) {
+            Composer(text, { text = it }, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly) {
                 val t = text.trim()
                 if (t.isEmpty()) return@Composer
                 text = ""
@@ -197,9 +197,9 @@ private fun Typing() {
 }
 
 @Composable
-private fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, offline: Boolean, onSend: () -> Unit) {
+private fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, offline: Boolean, mic: Boolean, onDeviceOnly: Boolean, onSend: () -> Unit) {
     var micError by remember { mutableStateOf<String?>(null) }
-    val (dictation, toggleMic) = rememberDictation(onText = { micError = null; onText(it) }, onError = { micError = it })
+    val (dictation, toggleMic) = rememberDictation(onDeviceOnly, onText = { micError = null; onText(it) }, onError = { micError = it })
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.navigationBarsPadding()) {
             if (offline) Text(tr("Nicht mit dem Haupt-PC verbunden", "Not connected to the host PC"), Modifier.padding(start = 16.dp, top = 6.dp), fontSize = 12.sp, color = Danger)
@@ -208,12 +208,12 @@ private fun Composer(text: String, onText: (String) -> Unit, enabled: Boolean, o
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
                 TextField(text, onText, Modifier.weight(1f), placeholder = { Text(tr("Nachricht an Claude …", "Message Claude …")) }, maxLines = 6,
                     shape = RoundedCornerShape(22.dp), colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent))
-                if (dictation.available) {
+                if (mic) {
                     Spacer(Modifier.width(4.dp))
                     // Mikrofon: beim Zuhören rot, Ring zeigt die Lautstärke
                     val ring = if (dictation.listening) (4 + dictation.level * 10).dp else 0.dp
                     IconButton(onClick = { micError = null; toggleMic(text) }, modifier = Modifier.size(48.dp)
-                        .border(ring, Danger.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape)) {
+                        .then(if (dictation.listening) Modifier.border(ring, Danger.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape) else Modifier)) {
                         Icon(if (dictation.listening) Icons.Default.Mic else Icons.Outlined.Mic, if (dictation.listening) tr("Diktieren beenden", "Stop dictation") else tr("Diktieren", "Dictate"),
                             tint = if (dictation.listening) Danger else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
