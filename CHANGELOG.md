@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.5.0] – 2026-11-09
 
 - Neu: **Server per SSH** (z. B. VPS mit Ubuntu) – Claude Code läuft auf dem Server, Chats und Verlauf erscheinen wie
   bei einem Haupt-PC. Anmeldung am Server nur per SSH-Schlüssel, Claude-Anmeldung auf dem Server über ein Terminal.
