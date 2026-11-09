@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.4.0] – 2026-11-09
 
 - Fernzugriff: Chats eines Haupt-PCs laufen jetzt **neben** den eigenen statt die ganze Oberfläche umzuschalten.
   „Allgemein“ zeigt alle Chats zusammen; der Haupt-PC in der Leiste wirkt wie ein Projekt (nur dessen Chats und
