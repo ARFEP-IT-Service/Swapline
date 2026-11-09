@@ -28,7 +28,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 - **Erweiterungen:** Plugins aus den Marktplätzen installieren, aktivieren, deaktivieren und entfernen, Skills und Befehle des Kontos ansehen.
 - **Anzeige nach Wunsch:** Werkzeug-Aufrufe alle, kompakt oder ausgeblendet; Recap („während du weg warst“); Antworten und Code kopieren; Chats umbenennen; Hell/Dunkel; Deutsch/Englisch.
 - **Benachrichtigungen:** Windows-Benachrichtigung bei fertiger Antwort oder Rückfrage, auf Wunsch bis zum Klick sichtbar, mit wählbarem Ton.
-- **Automatische Updates** aus den GitHub-Releases (abschaltbar).
+- **Updates** aus den GitHub-Releases: Hinweis bei neuer Version, Installation per Klick (wahlweise automatisch oder aus).
 
 <p align="center">
   <img src="docs/screenshots/settings.png" alt="Einstellungen" width="420">
@@ -42,7 +42,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 ## Installation
 
-**Mit Installer (empfohlen):** `SWAP-Installer.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%\Programs\swapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Neue Versionen lädt Swapline selbst von GitHub und installiert sie beim nächsten Neustart (Hinweis „Update bereit – Neu starten“; abschaltbar unter **Einstellungen → Updates**). Alternativ den neueren Installer starten – er ersetzt die vorhandene Version im selben Ordner. Deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
+**Mit Installer (empfohlen):** `Swapline-Setup-<Version>.exe` starten. Swapline wird ohne Admin-Rechte für den aktuellen Benutzer nach `%LOCALAPPDATA%\Programs\swapline` installiert, mit Verknüpfung im Startmenü und auf dem Desktop, und startet danach. Swapline prüft selbst bei GitHub, ob es eine neue Version gibt, und meldet sie mit „Version X verfügbar“; geladen und installiert wird erst nach Klick auf **Herunterladen und installieren** (Standard „Nur benachrichtigen“). Unter **Einstellungen → Updates** lässt sich stattdessen **Automatisch** (im Hintergrund laden, beim Neustart installieren) oder **Aus** wählen. Alternativ den neueren Installer starten – er ersetzt die vorhandene Version im selben Ordner. Deinstalliert wird über **Einstellungen → Apps → Installierte Apps → Swapline**. Einstellungen und Konten bleiben dabei erhalten.
 
 **Ohne Installer:** `Swapline-<Version>-windows.zip` in einen festen Ordner entpacken und `Swapline.exe` starten. Diese Variante aktualisiert sich nicht selbst.
 
@@ -55,7 +55,7 @@ Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: P
 - **Anmeldung:** ausschließlich über `claude auth login`, also Anthropics eigenen Ablauf im System-Browser. Swapline zeigt keine Anmeldeseite an, liest dabei keine Ausgabe und sieht weder Passwort noch Code noch Token.
 - **Zugangsdaten:** Swapline liest, speichert oder überträgt keine Zugangsdaten oder Tokens. Claude Code legt sie selbst in seinem Konfigurationsordner ab; Swapline legt pro Konto nur fest, welcher Ordner das ist (Umgebungsvariable `CLAUDE_CONFIG_DIR`).
 - **Anfragen an Claude:** laufen immer über das unveränderte, installierte Claude-Code-Programm (`claude -p --input-format stream-json …`). Swapline selbst sendet keine Telemetrie und lädt keine Remote-Bilder; https-Links öffnet es im Standard-Browser.
-- **Einzige eigene Netzverbindung – Update-Prüfung:** Die installierte App fragt beim Start und alle 6 Stunden bei GitHub (`github.com/ARFEP-IT-Service/Swapline`, Release-Daten `latest.yml`) nach einer neuen Version und lädt sie von dort. Dabei werden keine Konto- oder Nutzungsdaten übertragen. Abschaltbar unter **Einstellungen → Updates**; die ZIP-Variante und der Start aus dem Quellcode prüfen nie.
+- **Einzige eigene Netzverbindung – Update-Prüfung:** Die installierte App fragt beim Start und alle 6 Stunden bei GitHub (`github.com/ARFEP-IT-Service/Swapline`, Release-Daten `latest.yml`) nach einer neuen Version. Geladen wird die neue Version ebenfalls von dort – im Standard „Nur benachrichtigen“ erst nach deinem Klick. Dabei werden keine Konto- oder Nutzungsdaten übertragen. Abschaltbar unter **Einstellungen → Updates** (Aus); die ZIP-Variante und der Start aus dem Quellcode prüfen nie.
 - **„Alles erlauben“:** Die Warnung erscheint bewusst nur beim ersten Einschalten; die Zustimmung wird gespeichert und lässt sich in den Einstellungen zurücksetzen.
 - **Verlauf:** Swapline liest die Sitzungsdateien von Claude Code (`<Konfigurationsordner>/projects/…/*.jsonl`), um alte Chats anzuzeigen und fortzusetzen.
 - **Chat in ein anderes Konto übertragen:** kopiert die Sitzungsdatei (gesamter Verlauf inkl. Dateiinhalten und Befehlsausgaben) in den Ordner des anderen Kontos – keine Zugangsdaten. Vorher fragt Swapline nach. Nicht zwischen Firmen- und Privatkonten übertragen.
@@ -67,7 +67,7 @@ Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: P
 npm install
 npm start                 # App aus dem Quellcode starten
 npm test                  # Tests: Sicherheit und Oberfläche (ohne Netz, ohne Claude-Aufrufe)
-npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/SWAP-Installer.exe + dist/Swapline-<Version>-windows.zip
+npm run dist              # licenses/ erzeugen, bauen, prüfen → dist/Swapline-Setup-<Version>.exe + dist/Swapline-<Version>-windows.zip
 ```
 
 `npm run dist` sammelt die Lizenztexte (`tools/collect-licenses.js`), baut mit electron-builder den Installer (NSIS, pro Benutzer) und die Ordner-Variante als ZIP und prüft danach, dass jedes gebündelte Paket einen Lizenztext hat (`tools/check-bundle.js`).

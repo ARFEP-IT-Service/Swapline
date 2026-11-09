@@ -37,7 +37,7 @@ jobs:
         with:
           name: swapline-ci-${{ github.sha }}
           path: |
-            dist/SWAP-Installer.exe
+            dist/Swapline-Setup-*.exe
             dist/Swapline-*-windows.zip
           if-no-files-found: error
           retention-days: 7

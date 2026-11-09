@@ -28,7 +28,7 @@ Drittkomponenten; die vollständigen Lizenztexte liegen im Ordner `licenses/` ne
 | semver | 7.7.4 | Version comparison (electron-updater) | ISC | `licenses/semver-7.7.4.txt` |
 | tiny-typed-emitter | 2.1.0 | Used by electron-updater | MIT | `licenses/tiny-typed-emitter-2.1.0.txt` |
 
-Installer only (`SWAP-Installer.exe`, not part of the installed app) / nur im Installer:
+Installer only (`Swapline-Setup-<version>.exe`, not part of the installed app) / nur im Installer:
 
 | Component | Version | Used for | License | Full text |
 |---|---|---|---|---|

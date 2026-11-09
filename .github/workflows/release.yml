@@ -1,7 +1,7 @@
 name: Release
 
 # Builds a release for a version tag (v0.1.0, v0.2.0 …) and creates a DRAFT release on GitHub with
-# SWAP-Installer.exe, the ZIP, latest.yml (for the in-app auto-update) and SHA-256 checksums.
+# Swapline-Setup-<version>.exe, the ZIP, latest.yml (for the in-app auto-update) and SHA-256 checksums.
 # Nothing reaches users until the draft is published by hand: the auto-update only sees published releases.
 # The builds are not code-signed.
 on:
@@ -43,7 +43,7 @@ jobs:
       - name: Checksums
         shell: pwsh
         run: |
-          Get-ChildItem dist/SWAP-Installer.exe, dist/Swapline-*-windows.zip | ForEach-Object {
+          Get-ChildItem dist/Swapline-Setup-*.exe, dist/Swapline-*-windows.zip | ForEach-Object {
             "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
           } | Set-Content dist/SHA256SUMS.txt
           Get-Content dist/SHA256SUMS.txt | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
@@ -53,7 +53,7 @@ jobs:
         with:
           name: swapline-${{ github.ref_name }}
           path: |
-            dist/SWAP-Installer.exe
+            dist/Swapline-Setup-*.exe
             dist/Swapline-*-windows.zip
             dist/latest.yml
             dist/SHA256SUMS.txt
@@ -68,5 +68,6 @@ jobs:
         run: |
           node tools/release-notes.js $env:GITHUB_REF_NAME > dist/notes.md
           $zip = (Get-ChildItem dist/Swapline-*-windows.zip).FullName
+          $setup = (Get-ChildItem dist/Swapline-Setup-*.exe).FullName
           gh release create $env:GITHUB_REF_NAME --draft --verify-tag --title "Swapline $env:GITHUB_REF_NAME" --notes-file dist/notes.md `
-            dist/SWAP-Installer.exe $zip dist/latest.yml dist/SHA256SUMS.txt
+            $setup $zip dist/latest.yml dist/SHA256SUMS.txt

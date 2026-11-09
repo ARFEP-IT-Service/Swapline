@@ -61,7 +61,7 @@
       "oneClick": true,
       "perMachine": false,
       "allowElevation": false,
-      "artifactName": "SWAP-Installer.exe",
+      "artifactName": "${productName}-Setup-${version}.exe",
       "installerIcon": "src/renderer/assets/swapline.ico",
       "uninstallerIcon": "src/renderer/assets/swapline.ico",
       "shortcutName": "Swapline",

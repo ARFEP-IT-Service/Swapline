@@ -21,5 +21,16 @@ for (const p of listed) if (!bundled.has(p)) errors.push(`Lizenzeintrag, aber ni
 for (const f of ['Swapline.exe', 'ffmpeg.dll', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses/FFmpeg-LGPL-2.1.txt', 'licenses/Chromium-LICENSES.chromium.html']) {
   if (!fs.existsSync(path.join(unpacked, f))) errors.push(`fehlt im Build: ${f}`);
 }
+// Installer heißt Swapline-Setup-<Version>.exe, latest.yml (Auto-Update) verweist genau darauf
+const version = require(path.join(root, 'package.json')).version;
+const setup = `Swapline-Setup-${version}.exe`;
+if (!fs.existsSync(path.join(root, 'dist', setup))) errors.push(`fehlt im Build: dist/${setup}`);
+try {
+  const yml = fs.readFileSync(path.join(root, 'dist', 'latest.yml'), 'utf8');
+  if (!new RegExp(`^path: ${setup.replace(/\./g, '\\.')}$`, 'm').test(yml) || !yml.includes(`url: ${setup}`)) errors.push(`latest.yml verweist nicht auf ${setup}`);
+  if (!new RegExp(`^version: ${version.replace(/\./g, '\\.')}$`, 'm').test(yml)) errors.push(`latest.yml hat nicht die Version ${version}`);
+} catch { errors.push('fehlt im Build: dist/latest.yml'); }
+if (fs.existsSync(path.join(root, 'dist', 'SWAP-Installer.exe'))) errors.push('alter Installername dist/SWAP-Installer.exe liegt noch im Build');
 if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
+console.log(`Installer ok: dist/${setup}, latest.yml verweist darauf`);
 console.log(`Bundle ok: ${bundled.size} npm-Pakete gebündelt = ${listed.size} mit Lizenz (${[...bundled].join(', ')})`);

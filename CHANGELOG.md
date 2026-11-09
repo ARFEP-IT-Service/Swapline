@@ -35,7 +35,9 @@ Erste Version.
 - Erweiterungen-Fenster (Puzzle-Symbol, /plugins, /skills): installierte Plugins aktivieren/deaktivieren/entfernen, Plugins aus den Marktplätzen suchen und installieren (über `claude plugin …`), Skills und Befehle des Kontos anzeigen.
 - Sicherheitsabfrage beim Schließen, solange Claude arbeitet oder eine Hintergrund-Aufgabe läuft; solche Chats
   bleiben in Liste und Projektleiste als aktiv markiert.
-- Automatische Updates aus den GitHub-Releases (nur installierte App, abschaltbar); Hinweis „Update bereit – Neu starten“.
+- Updates aus den GitHub-Releases (nur installierte App): Standard „Nur benachrichtigen“ – Hinweis „Version X verfügbar“
+  mit „Herunterladen und installieren“; wahlweise „Automatisch“ (laden, beim Neustart installieren) oder „Aus“.
+- Feste Antworttexte an Claude (z. B. Ablehnung einer Aktion) immer auf Englisch, unabhängig von der Oberflächensprache.
 - Oberfläche auf Deutsch und Englisch (Einstellung „Sprache“, Standard: wie System).
 - Automatische Tests (`npm test`), GitHub-Workflows für Tests/Build und Release-Entwürfe
   (ohne Code-Signierung).
@@ -43,5 +45,5 @@ Erste Version.
   Hintergrund-Aufgaben nur aus von Claude Code gemeldeten Dateien, Bestätigung für jede Plugin-Änderung,
   Volltextsuche ohne Einfrieren.
 - Anmeldung nur über `claude auth login` (System-Browser); keine Zugangsdaten in Swapline.
-- Installer `SWAP-Installer.exe` (pro Benutzer, ohne Admin-Rechte) und ZIP; Übernahme der Einstellungen aus
+- Installer `Swapline-Setup-<Version>.exe` (pro Benutzer, ohne Admin-Rechte) und ZIP; Übernahme der Einstellungen aus
   ConsoleAI/Switchdesk.
