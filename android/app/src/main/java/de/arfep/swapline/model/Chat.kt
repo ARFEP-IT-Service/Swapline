@@ -33,6 +33,13 @@ sealed class Item {
     data class Result(val ok: Boolean, val seconds: Double, val cost: Double?, val model: String) : Item()
 }
 
+// Hintergrund-Aufgabe (z. B. Befehl mit run_in_background, Agent im Hintergrund) – gemeldet von Claude Code
+data class BgTask(
+    val id: String, val desc: String = "", val type: String = "", val status: String = "running",
+    val start: Long = System.currentTimeMillis(), val end: Long? = null, val summary: String = "",
+    val output: String? = null, val toolUseId: String? = null,
+) { val running get() = status == "running" }
+
 // Feste Hinweise, deren Text die Oberfläche übersetzt
 enum class SysCode { TEXT, COMPACTED, HISTORY_ABOVE, EXITED }
 
@@ -92,6 +99,37 @@ class Chat(
     var loaded = false
     // Verbindung war unterbrochen: Ereignisse in der Zwischenzeit sind verloren – beim nächsten Öffnen neu laden
     var stale = false
+    // Hintergrund-Aufgaben dieses Chats (Leiste über dem Eingabefeld)
+    val tasks = androidx.compose.runtime.mutableStateMapOf<String, BgTask>()
+    val tasksRunning get() = tasks.values.any { it.running }
+
+    private fun trackTask(m: JsonObject) {
+        if (m.str("subtype") == "background_tasks_changed") {
+            // Liste der laufenden Aufgaben: alles, was nicht mehr drin ist, gilt als beendet
+            val list = (m["tasks"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+            val ids = list.mapNotNull { it.str("task_id") }.toSet()
+            for (x in list) { val id = x.str("task_id") ?: continue; if (id !in tasks) tasks[id] = BgTask(id, x.str("description").orEmpty(), x.str("task_type").orEmpty()) }
+            for ((id, t) in tasks.toMap()) if (t.running && id !in ids) tasks[id] = t.copy(status = "completed", end = System.currentTimeMillis())
+            return
+        }
+        val id = m.str("task_id") ?: return
+        var t = tasks[id] ?: BgTask(id)
+        m.str("description")?.let { t = t.copy(desc = it) }
+        m.str("task_type")?.let { t = t.copy(type = it) }
+        m.str("tool_use_id")?.let { t = t.copy(toolUseId = it) }
+        when (m.str("subtype")) {
+            "task_updated" -> (m["patch"] as? JsonObject)?.str("status")?.let { t = t.copy(status = it, end = if (it != "running") System.currentTimeMillis() else null) }
+            "task_notification" -> t = t.copy(status = m.str("status") ?: t.status, summary = m.str("summary").orEmpty(),
+                output = m.str("output_file") ?: t.output, end = t.end ?: System.currentTimeMillis())
+        }
+        tasks[id] = t
+    }
+
+    // Erfolgreich beendete Aufgaben nach ein paar Sekunden aus der Leiste nehmen – fehlgeschlagene bleiben
+    fun pruneTasks(now: Long = System.currentTimeMillis()) {
+        for ((id, t) in tasks.toMap()) if (t.status == "completed" && (t.end ?: now) + 4_000 <= now) tasks.remove(id)
+    }
+    fun clearFinishedTasks() { for ((id, t) in tasks.toMap()) if (!t.running) tasks.remove(id) }
     private var stream: Item.Ai? = null
 
     val mirror get() = hostTab != null
@@ -164,6 +202,7 @@ class Chat(
                 "init" -> { m.str("session_id")?.let { sessionId = it }; modelName = m.str("model") ?: modelName }
                 "compact_boundary" -> add(Item.Sys("", code = SysCode.COMPACTED))
                 "away_summary" -> m.str("content")?.let { add(Item.Recap(it)) }
+                "task_started", "task_updated", "task_notification", "background_tasks_changed" -> if (!fromHistory) trackTask(m)
             }
             "stream_event" -> {
                 if (m["parent_tool_use_id"].let { it != null && it !is JsonNull }) return null
@@ -206,6 +245,10 @@ class Chat(
                     when (block.str("type")) {
                         "tool_result" -> {
                             val id = block.str("tool_use_id")
+                            // Hintergrund-Befehl: Pfad der Ausgabedatei steht im Ergebnis des Aufrufs
+                            Regex("Output is being written to: (.+?\\.output)").find(textOf(block["content"]))?.groupValues?.get(1)?.let { out ->
+                                tasks.values.firstOrNull { it.toolUseId == id }?.let { t -> tasks[t.id] = t.copy(output = out) }
+                            }
                             val tool = items.lastOrNull { it is Item.Tool && it.id == id } as? Item.Tool ?: continue
                             replace(tool, tool.copy(result = textOf(block["content"]).ifEmpty { "" }, isError = block.bool("is_error")))
                         }

@@ -137,6 +137,30 @@ class ChatTest {
         assertEquals("Nur Text", (messageContent("Nur Text", emptyList()) as kotlinx.serialization.json.JsonPrimitive).content)
     }
 
+    @Test fun backgroundTasksLikeDesktop() {
+        val c = chat()
+        c.ingest(j("""{"type":"system","subtype":"task_started","task_id":"b1","description":"npm run dev","task_type":"local_bash","tool_use_id":"tu1"}"""))
+        assertTrue(c.tasksRunning)
+        // Ergebnis des Aufrufs nennt die Ausgabedatei
+        c.ingest(j("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"npm run dev","run_in_background":true}}]}}"""))
+        c.ingest(j("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu1","content":"Command running in background. Output is being written to: C:\\Temp\\claude\\x\\tasks\\b1.output"}]}}"""))
+        assertEquals("C:\\Temp\\claude\\x\\tasks\\b1.output", c.tasks["b1"]?.output)
+        // zweite Aufgabe über die Liste, erste beendet
+        c.ingest(j("""{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b2","description":"Agent","task_type":"local_agent"}]}"""))
+        assertEquals("completed", c.tasks["b1"]?.status)
+        assertTrue(c.tasks["b2"]!!.running)
+        c.ingest(j("""{"type":"system","subtype":"task_notification","task_id":"b2","status":"failed","summary":"Abbruch"}"""))
+        assertFalse(c.tasksRunning)
+        // erfolgreich beendete verschwinden nach 4 s, fehlgeschlagene bleiben
+        c.pruneTasks(System.currentTimeMillis() + 5_000)
+        assertEquals(setOf("b2"), c.tasks.keys)
+        c.clearFinishedTasks()
+        assertTrue(c.tasks.isEmpty())
+        // aus dem Verlauf geladen: keine (veralteten) laufenden Aufgaben
+        c.loadHistory(json.parseToJsonElement("""[{"type":"system","subtype":"task_started","task_id":"old"}]""") as JsonArray)
+        assertTrue(c.tasks.isEmpty())
+    }
+
     @Test fun withinFolders() {
         assertTrue(within("C:\\Work\\app", "c:\\work"))
         assertTrue(within("C:\\Work", "C:\\Work\\"))

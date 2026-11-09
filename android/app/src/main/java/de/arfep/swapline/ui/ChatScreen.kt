@@ -181,6 +181,7 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                     Icon(Icons.Default.KeyboardArrowDown, tr("Ganz nach unten", "Scroll to bottom"))
                 }
             }
+            BgTaskBar(model, chat)
             Composer(text, { text = it }, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly) {
                 val t = text.trim()
                 if (t.isEmpty() && attachments.isEmpty()) return@Composer

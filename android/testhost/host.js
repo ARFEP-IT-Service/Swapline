@@ -10,6 +10,7 @@ const remote = require(path.join(__dirname, '..', '..', 'src', 'remote.js'));
 
 let devices = [];
 let denyNext = false;
+let lastTab = null; // zuletzt beigetretener Chat des Geräts (für „tasks“)
 let mute = false; // „stumm“: Anfragen bleiben unbeantwortet (tote Verbindung nachstellen)
 // validContent aus src/main.js (der echte Code, nicht nachgebaut): prüft, was ein Gerät als Nachricht schickt
 const mainSrc = require('node:fs').readFileSync(path.join(__dirname, '..', '..', 'src', 'main.js'), 'utf8');
@@ -41,7 +42,7 @@ const host = remote.createHost({
     if (ch === 'tabs:list') return [{ id: 'tab123456', title: 'Offener Chat am PC', profileId: 'p1', cwd: 'C:\\Projekte\\web', sessionId: null, model: '', effort: '', permissionMode: 'default', running: false, updated: Date.now(), preview: 'Hallo vom Testhost' }];
     if (ch === 'history:list') return [{ sessionId: '11111111-2222-4333-8444-555555555555', title: 'Alter Chat', cwd: 'C:\\Projekte\\web', mtime: Date.now() - 3600e3 }];
     if (ch === 'profiles:models') return { models: [{ value: 'opus', displayName: 'Opus' }] };
-    if (ch === 'session:attach') return { running: false };
+    if (ch === 'session:attach') { lastTab = args[0]?.tabId; return { running: false }; }
     if (ch === 'history:loadSession') return [];
     throw new Error('unbekannt: ' + ch);
   },
@@ -55,6 +56,12 @@ host.start(0, '127.0.0.1').then(port => {
     const [cmd, arg] = line.trim().split(/\s+/);
     if (cmd === 'pair') out({ code: host.startPairing().code, port });
     else if (cmd === 'deny') { denyNext = true; out({ ok: true }); }
+    else if (cmd === 'tasks') { // Rauchtest: Hintergrund-Aufgaben melden wie Claude Code
+      const send = msg => host.broadcast('claude', { tabId: lastTab, msg });
+      send({ type: 'system', subtype: 'task_started', task_id: 'b1', description: 'npm run dev', task_type: 'local_bash' });
+      send({ type: 'system', subtype: 'task_started', task_id: 'b2', description: 'Tests im Hintergrund', task_type: 'local_agent' });
+      out({ ok: true, tab: lastTab });
+    }
     else if (cmd === 'mute') { mute = arg !== 'off'; out({ ok: true }); }
     else if (cmd === 'push') { host.broadcast(arg || 'test', { hello: 'welt', n: 1 }); out({ ok: true }); }
     else if (cmd === 'remove') { for (const d of devices) host.disconnect(d.id); devices = []; out({ ok: true }); }

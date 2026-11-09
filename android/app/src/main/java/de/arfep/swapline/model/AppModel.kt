@@ -340,6 +340,15 @@ class AppModel(context: Context, private val notifier: Notifier) {
         if (!c.mirror) { c.permissionMode = "default"; saveChats() }
     }
 
+    // Ausgabe einer Hintergrund-Aufgabe (letzte 64 KB, vom Haupt-PC geprüft: nur von Claude gemeldete Ausgabedateien)
+    suspend fun taskOutput(c: Chat, file: String): String {
+        val h = host(c.hostId) ?: return ""
+        val r = runCatching { h.link.call("task:readOutput", JsonPrimitive(file)) }
+        val o = r.getOrNull() as? JsonObject ?: return r.exceptionOrNull()?.message ?: ""
+        return o.str("error") ?: (o.str("text").orEmpty().ifEmpty { de.arfep.swapline.ui.tr("(noch keine Ausgabe)", "(no output yet)") } +
+            if ((o["truncated"] as? JsonPrimitive)?.booleanOrNull == true) de.arfep.swapline.ui.tr("\n… (gekürzt, letzte 64 KB)", "\n… (truncated, last 64 KB)") else "")
+    }
+
     fun interrupt(c: Chat) = scope.launch { runCatching { host(c.hostId)?.link?.call("session:interrupt", JsonPrimitive(c.id)) } }
 
     // Eigener Chat: Claude-Prozess am Haupt-PC beenden. Beigetretener Chat: nur austreten, er läuft am Haupt-PC weiter.

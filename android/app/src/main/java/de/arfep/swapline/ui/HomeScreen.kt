@@ -200,7 +200,7 @@ private fun ChatList(model: AppModel, h: HostState, onOpen: (Chat) -> Unit) {
     val mine = model.chats.filter { it.hostId == h.id && inFilter(h, it.cwd) }
     val open = h.openTabs.filter { t -> mine.none { it.hostTab == t.id } && inFilter(h, t.cwd) }
     val rows = (mine.map { Row_.Mine(it) } + open.map { Row_.Open(it) }).sortedByDescending {
-        when (it) { is Row_.Mine -> maxOf(it.chat.updated, if (it.chat.running) Long.MAX_VALUE / 2 else 0); is Row_.Open -> maxOf(it.tab.updated, if (it.tab.running) Long.MAX_VALUE / 2 else 0) }
+        when (it) { is Row_.Mine -> maxOf(it.chat.updated, if (it.chat.running || it.chat.tasksRunning) Long.MAX_VALUE / 2 else 0); is Row_.Open -> maxOf(it.tab.updated, if (it.tab.running) Long.MAX_VALUE / 2 else 0) }
     }
     PullToRefreshBox(isRefreshing = false, onRefresh = { model.refresh(h) }, modifier = Modifier.fillMaxSize()) {
         if (rows.isEmpty()) {
@@ -212,7 +212,7 @@ private fun ChatList(model: AppModel, h: HostState, onOpen: (Chat) -> Unit) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             items(rows, key = { when (it) { is Row_.Mine -> "c" + it.chat.id; is Row_.Open -> "o" + it.tab.id } }) { r ->
                 when (r) {
-                    is Row_.Mine -> ChatRow(r.chat.title.ifBlank { tr("Neuer Chat", "New chat") }, r.chat.preview, r.chat.updated, r.chat.cwd, r.chat.running, r.chat.unread,
+                    is Row_.Mine -> ChatRow(r.chat.title.ifBlank { tr("Neuer Chat", "New chat") }, r.chat.preview, r.chat.updated, r.chat.cwd, r.chat.running || r.chat.tasksRunning, r.chat.unread,
                         if (r.chat.mirror) tr("am PC offen", "open on PC") else null) { onOpen(r.chat) }
                     is Row_.Open -> ChatRow(r.tab.title.ifBlank { tr("Chat", "Chat") }, r.tab.preview, r.tab.updated, r.tab.cwd, r.tab.running, false, tr("am PC offen", "open on PC")) {
                         onOpen(model.openMirror(h, r.tab))

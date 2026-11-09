@@ -3,6 +3,12 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.4.0] – 2026-11-09
+
+- Neu: **Hintergrund-Aufgaben** wie am PC – Leiste über dem Eingabefeld („1 Hintergrund-Aufgabe läuft“), Liste mit
+  Typ, Laufzeit und Status, Ausgabe eines Befehls (letzte 64 KB vom PC); beendete verschwinden nach ein paar Sekunden,
+  fehlgeschlagene bleiben. Chats mit laufender Hintergrund-Aufgabe gelten in der Liste als aktiv.
+
 ## [0.3.0] – 2026-11-09
 
 - Neu: **Dokumente an Claude** – Büroklammer im Chat → „Dokument“: beliebige Dateien vom Handy oder aus Cloud-Speichern
