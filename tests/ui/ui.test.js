@@ -104,7 +104,7 @@
 
   // Geräte in der Leiste (gekoppelte Haupt-PCs)
   remoteState = { hosts: [{ id: 'h1', name: 'Büro PC', address: '100.64.0.5', port: 47820 }], state: 'off', host: { devices: [] } }; renderRail();
-  check('Leiste zeigt „Dieser PC“ und den Haupt-PC', document.querySelectorAll('#rail-hosts .rail-profile').length === 2 && !!document.querySelector('#rail-hosts .rail-profile.active .host-pc') && !$('#rail-hosts-sep').hidden);
+  check('Leiste zeigt den Haupt-PC wie ein Projekt (nicht verbunden)', document.querySelectorAll('#rail-hosts .rail-profile').length === 1 && !!document.querySelector('#rail-hosts .badge.off') && !$('#rail-hosts-sep').hidden);
   remoteState = { hosts: [], state: 'off', host: { devices: [] } }; renderRail();
   check('Ohne gekoppelte Haupt-PCs kein Geräte-Bereich', !$('#rail-hosts').children.length && $('#rail-hosts-sep').hidden);
   await switchProject('all'); // projects.add macht das neue Projekt aktiv

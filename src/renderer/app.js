@@ -61,12 +61,12 @@ let lastOpened = {}; // projectId (oder "all") -> zuletzt geöffneter Chat
 let historyCache = {};         // profileId -> Liste
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-let LS_TABS = 'swapline.tabs.v1'; // im Fernzugriff eigene Chat-Liste je Haupt-PC (Schlüssel + ':' + Haupt-PC)
+const LS_TABS = 'swapline.tabs.v1';
 function saveTabs() {
   try {
     localStorage.setItem(LS_TABS, JSON.stringify({
       activeTabId, lastOpened,
-      tabs: tabs.map(t => ({ id: t.id, title: t.title, profileId: t.profileId, projectId: t.projectId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, updated: t.updated, preview: t.preview })),
+      tabs: tabs.map(t => ({ id: t.id, host: t.host || null, title: t.title, profileId: t.profileId, projectId: t.projectId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, updated: t.updated, preview: t.preview })),
     }));
   } catch {}
 }
@@ -125,7 +125,46 @@ function applyTheme() {
 // ---------- Projektleiste (links) & Konto-Knopf (links unten) ----------
 const activeProjectId = () => store.activeProjectId || 'all';
 const project = id => (store.projects || []).find(x => x.id === id);
-const tabInProject = (t, pid) => pid === 'all' || t.projectId === pid;
+// Ansicht: 'all', eine Projekt-ID oder 'host:<id>' (alle Chats eines Haupt-PCs)
+const hostOfView = pid => (typeof pid === 'string' && pid.startsWith('host:') ? pid.slice(5) : null);
+const tabInProject = (t, pid) => pid === 'all' || (hostOfView(pid) ? t.host === hostOfView(pid) : t.projectId === pid);
+
+// ---------- Chats von Haupt-PCs (Fernzugriff) ----------
+// Ein Chat mit t.host läuft auf diesem Haupt-PC; seine Anfragen gehen über den Hauptprozess genau dorthin.
+// Konten, Modelle und Status eines Haupt-PCs werden unter „Haupt-PC|Konto“ geführt (Konto-IDs können doppelt sein).
+const hostStores = {}; // Haupt-PC-ID -> Stand vom Haupt-PC (Konten, Ordner, Freigabe …)
+const pkey = (host, id) => (host ? host + '|' + id : id);
+const tk = t => pkey(t.host, t.profileId);
+const hostProfiles = host => (host ? hostStores[host]?.profiles || [] : store.profiles);
+const profileOf = t => hostProfiles(t.host).find(p => p.id === t.profileId);
+const hostInfo = id => remoteState?.hosts?.find(h => h.id === id);
+const hostName = id => hostInfo(id)?.name || hostStores[id]?.hostName || _('Haupt-PC');
+const hostConnected = id => hostInfo(id)?.state === 'connected';
+function tapi(x) {
+  const host = typeof x === 'string' ? x : x?.host;
+  if (!host) return api;
+  const call = (ch, ...args) => api.remote.call(host, ch, args);
+  return {
+    session: {
+      send: (tab, content) => call('session:send', { tab, content }),
+      respond: (tabId, requestId, response) => call('session:respond', { tabId, requestId, response }),
+      interrupt: id => call('session:interrupt', id), restart: id => call('session:restart', id), close: id => call('session:close', id),
+      confirmBypass: id => call('session:confirmBypass', id),
+    },
+    history: { list: pid => call('history:list', pid), loadSession: d => call('history:loadSession', d), search: (pid, q) => call('history:search', { profileId: pid, query: q }) },
+    profiles: { status: id => call('profiles:status', id), models: (id, refresh) => call('profiles:models', { id, refresh }) },
+    readTaskOutput: f => call('task:readOutput', f),
+  };
+}
+async function refreshHost(id) {
+  const r = await api.remote.call(id, 'store:get', []);
+  if (!r) return;
+  hostStores[id] = r;
+  await Promise.all(r.profiles.map(async p => { status[pkey(id, p.id)] = await tapi(id).profiles.status(p.id); }));
+  renderRail(); renderList();
+  const t = currentTab();
+  if (t?.host === id) { if (!t.loaded) openTab(t.id); else renderChat(); }
+}
 const MONITOR = '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>';
 const GLOBE = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"/>';
 
@@ -176,7 +215,18 @@ function renderRail() {
 }
 
 function renderProjectHead() {
-  const pid = activeProjectId(), pr = project(pid);
+  const pid = activeProjectId(), pr = project(pid), hv = hostOfView(pid);
+  if (hv) {
+    const av = el('div', { class: 'avatar lg host' }, initials(hostName(hv)), el('span', { class: 'host-mark' }, icon(MONITOR)));
+    av.id = 'ph-avatar';
+    $('#ph-avatar').replaceWith(av);
+    $('#ph-name').textContent = hostName(hv);
+    const count = tabs.filter(t => t.host === hv).length;
+    $('#ph-sub').textContent = (hostConnected(hv) ? _('Haupt-PC · verbunden') : _('Haupt-PC · nicht verbunden')) + ' · ' + (count === 1 ? _('1 Chat') : _('{n} Chats', { n: count }));
+    $('#ph-sub').title = hostInfo(hv) ? hostInfo(hv).address + ':' + hostInfo(hv).port : '';
+    $('#btn-project-edit').hidden = true;
+    return;
+  }
   const av = pr ? avatar(pr, 'lg') : el('div', { class: 'avatar lg globe' }, icon(GLOBE));
   av.id = 'ph-avatar';
   $('#ph-avatar').replaceWith(av);
@@ -246,17 +296,16 @@ function openGroupForm(g = {}) {
   name.focus();
   name.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
 }
-// Geräte in der Leiste: „Dieser PC“ und gekoppelte Haupt-PCs – ein Klick wechselt
+// Gekoppelte Haupt-PCs in der Leiste – wie Projekte: ein Klick zeigt deren Chats, die eigenen bleiben offen
 function renderRailHosts() {
-  const hosts = remoteState?.hosts || [], cur = store.remote?.id || null;
+  const hosts = remoteState?.hosts || [], pid = activeProjectId();
   $('#rail-hosts-sep').hidden = !hosts.length;
-  $('#rail-hosts').replaceChildren(...(hosts.length ? [
-    el('button', { class: 'rail-profile' + (!cur ? ' active' : ''), title: _('Dieser PC') + (cur ? '\n' + _('Klicken zum Wechseln') : ''), onclick: () => { if (cur) switchTarget(null); } },
-      el('div', { class: 'avatar host-pc' }, icon(MONITOR))),
-    ...hosts.map(h => el('button', { class: 'rail-profile' + (h.id === cur ? ' active' : ''), title: _('Haupt-PC: {name}', { name: h.name }) + '\n' + h.address + ':' + h.port + (h.id === cur ? '' : '\n' + _('Klicken zum Wechseln')), onclick: () => { if (h.id !== cur) switchTarget(h.id); } },
-      el('div', { class: 'avatar host' }, initials(h.name), el('span', { class: 'host-mark' }, icon(MONITOR))),
-      h.id === cur ? el('span', { class: 'badge ' + ((remoteState?.state || store.remote?.state) === 'connected' ? 'on' : 'off') }) : null)),
-  ] : []));
+  $('#rail-hosts').replaceChildren(...hosts.map(h => el('button', {
+    class: 'rail-profile' + (pid === 'host:' + h.id ? ' active' : ''),
+    title: _('Haupt-PC: {name}', { name: h.name }) + '\n' + h.address + ':' + h.port + '\n' + (h.state === 'connected' ? _('verbunden') : _('nicht verbunden')),
+    onclick: () => switchProject('host:' + h.id),
+  }, el('div', { class: 'avatar host' }, initials(h.name), el('span', { class: 'host-mark' }, icon(MONITOR))),
+    el('span', { class: 'badge ' + (h.state === 'connected' ? (tabs.some(t => t.host === h.id && (t.running || t.unread)) ? 'on busy' : 'on') : 'off') }))));
 }
 
 async function onRailDrop(e, targetId) {
@@ -355,7 +404,7 @@ function openAccountMenu() {
   document.body.append(menu);
 }
 function closeMenus() { document.querySelectorAll('.popmenu').forEach(x => x.remove()); }
-document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#btn-remote') && !e.target.closest('#btn-add-project') && !e.target.closest('#ch-settings') && !e.target.closest('#bgbar')) closeMenus(); });
+document.addEventListener('mousedown', e => { if (!e.target.closest('.popmenu') && !e.target.closest('#btn-account') && !e.target.closest('#btn-add-project') && !e.target.closest('#ch-settings') && !e.target.closest('#bgbar')) closeMenus(); });
 
 // Rechtsklick auf einen Chat: in Projekt verschieben / schließen
 function openChatMenu(e, t) {
@@ -367,7 +416,7 @@ function openChatMenu(e, t) {
     el('span', { class: 'pm-av' }, avatar(pr, 'sm')), pr.name));
   items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), _('Neues Projekt …')));
   items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), _('Umbenennen …')));
-  if (!store.remote && t.sessionId && remoteState?.host?.devices.length) items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openShareChat(t); } }, el('span', { class: 'pm-ic' }, '🖥'), _('Für Gerät freigeben …')));
+  if (!t.host && t.sessionId && remoteState?.host?.devices.length) items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openShareChat(t); } }, el('span', { class: 'pm-ic' }, '🖥'), _('Für Gerät freigeben …')));
   items.push(el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), _('Chat schließen')));
   const menu = el('div', { class: 'popmenu', style: `left:${e.clientX}px; top:${e.clientY}px` }, ...items);
   document.body.append(menu);
@@ -402,7 +451,7 @@ async function switchProfile(id) {
   historyCache = {};
   const st = status[id];
   const t = currentTab();
-  if (t && t.profileId !== id) {
+  if (t && !t.host && t.profileId !== id) {
     // Übertragung abgelehnt -> aktives Konto bleibt das des Chats
     if ((await moveTabToProfile(t, id)) === false) store = await api.profiles.setActive(t.profileId);
   } else if (st && !st.loggedIn) toast(st.claudeMissing ? _('Claude Code nicht gefunden') : _('„{name}“ ist nicht angemeldet', { name: profile(id).name }));
@@ -413,6 +462,7 @@ async function switchProfile(id) {
 // Chat auf ein anderes Konto umziehen (Verlauf wird mitgenommen und mit --resume fortgesetzt)
 async function moveTabToProfile(t, to) {
   if (t.profileId === to) return;
+  if (t.host && t.sessionId) { toast(_('Bei Chats eines Haupt-PCs lässt sich das Konto nur vor der ersten Nachricht wechseln')); return false; }
   if (t.running) {
     t.pendingProfile = to;
     toast(_('Wechsel zu „{name}“ nach dieser Antwort', { name: profile(to).name }));
@@ -426,18 +476,19 @@ async function moveTabToProfile(t, to) {
     if (r?.cancelled) { toast(_('Übertragung abgebrochen – der Chat bleibt im bisherigen Konto')); if (t.id === activeTabId) renderChat(); return false; }
     if (!r?.ok) { toast(_('Verlauf konnte nicht übernommen werden – der Chat startet neu')); t.sessionId = null; }
   }
-  const st = status[to];
-  await changeTab({ profileId: to }, _('Weiter mit Konto „{name}“', { name: profile(to).name }) + (st?.email ? ' (' + st.email + ')' : '') + (st && !st.loggedIn ? ' – ' + _('nicht angemeldet!') : ''), t);
+  const st = status[pkey(t.host, to)];
+  await changeTab({ profileId: to }, _('Weiter mit Konto „{name}“', { name: hostProfiles(t.host).find(p => p.id === to)?.name || '?' }) + (st?.email ? ' (' + st.email + ')' : '') + (st && !st.loggedIn ? ' – ' + _('nicht angemeldet!') : ''), t);
 }
 
 // ---------- Modelle & Aufwand ----------
 const modelInfo = {}; // profileId -> { models, effortLevel, ... }
 const EFFORT_LABEL = { low: N_('Niedrig'), medium: N_('Mittel'), high: N_('Hoch'), xhigh: N_('Sehr hoch'), max: N_('Maximum') };
 const effortName = l => (EFFORT_LABEL[l] ? _(EFFORT_LABEL[l]) : l);
-async function loadModels(pid, refresh = false) {
-  if (modelInfo[pid] && !refresh) return modelInfo[pid];
-  const info = await api.profiles.models(pid, refresh);
-  if (info?.models?.length) modelInfo[pid] = info; // leere Antwort nicht merken
+async function loadModels(pid, refresh = false, host = null) {
+  const k = pkey(host, pid);
+  if (modelInfo[k] && !refresh) return modelInfo[k];
+  const info = await tapi(host).profiles.models(pid, refresh);
+  if (info?.models?.length) modelInfo[k] = info; // leere Antwort nicht merken
   return info;
 }
 function modelEntry(pid, value) {
@@ -464,17 +515,17 @@ const MODES = [
   { value: 'bypassPermissions', label: N_('⚠ Alles erlauben'), desc: N_('keine Rückfragen (--dangerously-skip-permissions)') },
 ];
 function modelLabel(t) {
-  if (!t.model) return defaultModelName(t.profileId) || _('Standard');
-  return modelEntry(t.profileId, t.model)?.displayName || t.model;
+  if (!t.model) return defaultModelName(tk(t)) || _('Standard');
+  return modelEntry(tk(t), t.model)?.displayName || t.model;
 }
 function effortLabel(t) {
-  if (!effortLevelsFor(t.profileId, t.model).length) return '';
+  if (!effortLevelsFor(tk(t), t.model).length) return '';
   if (t.effort) return effortName(t.effort);
-  const d = modelInfo[t.profileId]?.effortLevel;
+  const d = modelInfo[tk(t)]?.effortLevel;
   return d ? effortName(d) : 'Auto';
 }
 function renderChatChip(t) {
-  const p = profile(t.profileId);
+  const p = profileOf(t);
   const bypass = t.permissionMode === 'bypassPermissions';
   const eff = effortLabel(t);
   const chip = $('#ch-settings');
@@ -487,7 +538,7 @@ function renderChatChip(t) {
       bypass ? [el('span', { class: 'cc-sep' }, '·'), el('span', { class: 'cc-warn' }, _('⚠ Alles erlaubt'))] : null),
     icon('<path d="m6 9 6 6 6-6"/>'));
   const mode = MODES.find(m => m.value === (t.permissionMode || 'default'));
-  const email = status[t.profileId]?.email;
+  const email = status[tk(t)]?.email;
   const std = ' (' + _('Standard') + ')';
   chip.title = [
     _('Konto: {name}', { name: p?.name || '?' }) + (email ? ' (' + email + ')' : ''),
@@ -508,12 +559,12 @@ function openChatSettingsMenu() {
 
   // Konto
   const items = [el('div', { class: 'pm-title' }, _('Konto für diesen Chat'))];
-  for (const p of store.profiles) {
-    const st = status[p.id];
+  for (const p of hostProfiles(t.host)) {
+    const st = status[pkey(t.host, p.id)];
     items.push(el('button', { class: 'pm-item' + (p.id === t.profileId ? ' sel' : ''), onclick: async () => {
       done();
       await moveTabToProfile(t, p.id);
-      store = await api.profiles.setActive(t.profileId);
+      if (!t.host) store = await api.profiles.setActive(t.profileId);
       renderRail(); renderList(); renderUsage();
     } },
       el('span', { class: 'pm-av' }, avatar(p, 'sm'), el('span', { class: 'badge ' + (st ? (st.loggedIn ? 'on' : 'off') : '') })),
@@ -523,16 +574,16 @@ function openChatSettingsMenu() {
 
   // Modell (die wichtigsten zuerst, ältere hinter "Weitere")
   items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, _('Modell')));
-  const list = (modelInfo[t.profileId]?.models || []).filter(m => m.value !== 'default');
-  const def = modelEntry(t.profileId, 'default');
+  const list = (modelInfo[tk(t)]?.models || []).filter(m => m.value !== 'default');
+  const def = modelEntry(tk(t), 'default');
   const setModel = (value, label) => {
     done();
     const patch = { model: value };
-    if (t.effort && !effortLevelsFor(t.profileId, value).includes(t.effort)) patch.effort = '';
+    if (t.effort && !effortLevelsFor(tk(t), value).includes(t.effort)) patch.effort = '';
     changeTab(patch, _('Modell: {m}', { m: label }));
   };
-  items.push(el('button', { class: 'pm-item' + (!t.model ? ' sel' : ''), onclick: () => setModel('', _('Standard') + ' · ' + (defaultModelName(t.profileId) || '')) },
-    el('span', { class: 'pm-text' }, el('b', {}, _('Standard') + ' · ' + (defaultModelName(t.profileId) || _('laut Konto'))), el('small', {}, def?.description || _('Empfehlung von Claude für dieses Konto'))),
+  items.push(el('button', { class: 'pm-item' + (!t.model ? ' sel' : ''), onclick: () => setModel('', _('Standard') + ' · ' + (defaultModelName(tk(t)) || '')) },
+    el('span', { class: 'pm-text' }, el('b', {}, _('Standard') + ' · ' + (defaultModelName(tk(t)) || _('laut Konto'))), el('small', {}, def?.description || _('Empfehlung von Claude für dieses Konto'))),
     check(!t.model)));
   const main = list.slice(0, 4), more = list.slice(4);
   const modelItem = m => el('button', { class: 'pm-item' + (t.model === m.value ? ' sel' : ''), onclick: () => setModel(m.value, m.displayName) },
@@ -545,8 +596,8 @@ function openChatSettingsMenu() {
   if (!list.length) items.push(el('div', { class: 'pm-note' }, _('Modelle werden geladen …')));
 
   // Aufwand als Segment-Leiste
-  const levels = effortLevelsFor(t.profileId, t.model);
-  const defEff = modelInfo[t.profileId]?.effortLevel;
+  const levels = effortLevelsFor(tk(t), t.model);
+  const defEff = modelInfo[tk(t)]?.effortLevel;
   const defEffName = defEff ? effortName(defEff) : _('automatisch');
   items.push(el('div', { class: 'pm-sep' }), el('div', { class: 'pm-title' }, _('Aufwand')));
   if (levels.length) {
@@ -564,13 +615,13 @@ function openChatSettingsMenu() {
       done();
       if (on) return;
       // Warnung und Bestätigung kommen als nativer Dialog aus dem Hauptprozess
-      if (m.value === 'bypassPermissions' && !(await api.session.confirmBypass(t.id))) return;
+      if (m.value === 'bypassPermissions' && !(await tapi(t).session.confirmBypass(t.id))) return;
       changeTab({ permissionMode: m.value }, m.value === 'bypassPermissions' ? _('⚠ Alles erlauben: keine Rückfragen mehr (--dangerously-skip-permissions)') : _('Berechtigungen: {m}', { m: _(m.label) }));
     } }, el('span', { class: 'pm-text' }, el('b', {}, _(m.label)), el('small', {}, _(m.desc))), check(on)));
   }
 
   // Sonstiges
-  items.push(el('div', { class: 'pm-sep' }),
+  if (!t.host) items.push(el('div', { class: 'pm-sep' }),
     el('button', { class: 'pm-item', onclick: () => { done(); api.profiles.openTerminal(t.profileId, t.cwd); } }, el('span', { class: 'pm-ic' }, '›_'), _('Im Terminal öffnen')),
     t.cwd ? el('button', { class: 'pm-item', onclick: () => { done(); api.openPath(t.cwd); } }, el('span', { class: 'pm-ic' }, '📁'), _('Ordner im Explorer öffnen')) : null);
 
@@ -604,7 +655,7 @@ function renderList() {
     const inMessages = t => q && t.items.some(it => (it.kind === 'me' || it.kind === 'ai') && (it.text || '').toLowerCase().includes(q));
     const items = tabs.filter(t => tabInProject(t, pid) && (match(t.title, t.cwd, t.preview) || inMessages(t))).sort((a, b) => (b.updated || 0) - (a.updated || 0));
     nodes = items.map(t => {
-      const p = profile(t.profileId);
+      const p = profileOf(t);
       const pr = pid === 'all' ? project(t.projectId) : null;
       return el('div', { class: 'item' + (t.id === activeTabId ? ' active' : ''), onclick: () => openTab(t.id),
         oncontextmenu: e => openChatMenu(e, t), draggable: 'true', ondragstart: e => e.dataTransfer.setData('text/chat', t.id),
@@ -612,7 +663,7 @@ function renderList() {
         avatar(p),
         el('div', { class: 'meta' },
           el('div', { class: 'row1' }, el('span', { class: 'title' }, t.title || _('Neuer Chat')), el('span', { class: 'time' }, fmtTime(t.updated))),
-          el('div', { class: 'sub' }, t.preview || baseName(t.cwd))),
+          el('div', { class: 'sub' }, t.host ? el('span', { class: 'host-tag' }, '🖥 ' + hostName(t.host) + ' · ') : '', t.preview || baseName(t.cwd))),
         t.running ? el('span', { class: 'busy', title: _('arbeitet …') }) : bgRunning(t) ? el('span', { class: 'busy bg', title: _('Hintergrund-Aufgabe läuft …') }) : t.unread ? el('span', { class: 'unread' }) : null,
         el('button', { class: 'close', title: _('Chat schließen'), onclick: e => { e.stopPropagation(); closeTab(t.id); } }, icon(ICONS.x)));
     });
@@ -630,7 +681,8 @@ function renderList() {
   }
 
   if (view === 'history') {
-    const pid = store.activeProfileId;
+    const hv = hostOfView(activeProjectId());
+    const pid = hv ? 'host:' + hv : store.activeProfileId; // Cache-Schlüssel; beim Haupt-PC: Verlauf aller freigegebenen Konten
     const pr = project(activeProjectId());
     const inProject = h => !pr?.cwd || (h.cwd || '').toLowerCase().startsWith(pr.cwd.toLowerCase());
     // Volltextsuche (ab 2 Zeichen): durchsucht die Nachrichten aller Sitzungen des Kontos im Hauptprozess
@@ -640,7 +692,7 @@ function renderList() {
         searchState = { key, loading: true, results: [] };
         const s0 = searchState;
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(async () => { const r = await api.history.search(pid, q); if (searchState === s0) { s0.results = r; s0.loading = false; if (view === 'history') renderList(); } }, 250);
+        searchTimer = setTimeout(async () => { const r = hv ? await hostHistory(hv, 'search', q) : await api.history.search(pid, q); if (searchState === s0) { s0.results = r; s0.loading = false; if (view === 'history') renderList(); } }, 250);
       }
       if (searchState.loading) { list.replaceChildren(el('div', { class: 'list-empty' }, _('Durchsuche alle Sitzungen …'))); return; }
       const hits = searchState.results.filter(inProject);
@@ -657,7 +709,7 @@ function renderList() {
     }
     if (!historyCache[pid]) {
       list.replaceChildren(el('div', { class: 'list-empty' }, _('Verlauf wird geladen …')));
-      api.history.list(pid).then(h => { historyCache[pid] = h; if (view === 'history') renderList(); });
+      (hv ? hostHistory(hv, 'list') : api.history.list(pid)).then(h => { historyCache[pid] = h; if (view === 'history') renderList(); });
       return;
     }
     const items = historyCache[pid].filter(h => inProject(h) && match(h.title, h.cwd));
@@ -675,6 +727,13 @@ function renderList() {
   }
   list.replaceChildren(...nodes);
   renderRail();
+}
+// Verlauf eines Haupt-PCs: alle freigegebenen Konten zusammen, neueste zuerst
+async function hostHistory(host, kind, q) {
+  if (!hostConnected(host) || !hostStores[host]) return [];
+  const lists = await Promise.all(hostStores[host].profiles.map(async p =>
+    (await (kind === 'search' ? tapi(host).history.search(p.id, q) : tapi(host).history.list(p.id))).map(h => ({ ...h, host, profileId: p.id }))));
+  return lists.flat().sort((a, b) => (b.when || b.mtime) - (a.when || a.mtime));
 }
 // Sitzung wurde in den letzten 2 Minuten geschrieben und ist in der App nicht offen -> läuft vermutlich im Terminal
 const isLive = h => Date.now() - h.mtime < 120000 && !tabs.some(t => t.sessionId === h.sessionId && t.running);
@@ -730,10 +789,15 @@ function makeTab(o) {
 }
 
 async function newChat(cwd) {
-  if (store.scope && !store.scope.newChats) return toast(_('Neue Chats sind für dieses Gerät nicht freigegeben – nur die geteilten Chats im Verlauf.'));
-  let profileId = store.activeProfileId;
-  if (cwd === undefined) { const picked = await pickFolderModal(); if (picked === null) return; ({ cwd, profileId } = picked); }
-  const t = makeTab({ cwd, profileId });
+  const host = cwd === undefined ? hostOfView(activeProjectId()) : null;
+  if (host) {
+    const hs = hostStores[host];
+    if (!hostConnected(host) || !hs) return toast(_('Haupt-PC „{name}“ ist nicht verbunden', { name: hostName(host) }));
+    if (!hs.scope.newChats) return toast(_('Neue Chats sind für dieses Gerät nicht freigegeben – nur die geteilten Chats im Verlauf.'));
+  }
+  let profileId = host ? hostStores[host].activeProfileId || hostStores[host].profiles[0]?.id : store.activeProfileId;
+  if (cwd === undefined) { const picked = await pickFolderModal(host); if (picked === null) return; ({ cwd, profileId } = picked); }
+  const t = makeTab(host ? { cwd, profileId, host, projectId: null, model: hostStores[host].settings.model, effort: hostStores[host].settings.effort, permissionMode: hostStores[host].settings.permissionMode } : { cwd, profileId });
   tabs.push(t);
   view = 'chats'; setSeg();
   openTab(t.id);
@@ -741,9 +805,9 @@ async function newChat(cwd) {
 }
 
 async function resumeFromHistory(h) {
-  const existing = tabs.find(t => t.sessionId === h.sessionId);
+  const existing = tabs.find(t => t.sessionId === h.sessionId && (t.host || null) === (h.host || null));
   if (existing) { view = 'chats'; setSeg(); return openTab(existing.id); }
-  const t = makeTab({ title: h.title, cwd: h.cwd, sessionId: h.sessionId, updated: h.mtime, loaded: false });
+  const t = makeTab({ title: h.title, cwd: h.cwd, sessionId: h.sessionId, updated: h.mtime, loaded: false, ...(h.host ? { host: h.host, profileId: h.profileId, projectId: null } : {}) });
   if (isLive(h)) t.items.push({ kind: 'sys', error: true, text: _('Achtung: Diese Sitzung wird gerade woanders benutzt (z. B. im Terminal).\nBitte dort zuerst beenden, bevor du hier weiterschreibst – sonst arbeiten zwei Claude-Prozesse gleichzeitig an derselben Sitzung.') });
   tabs.push(t);
   view = 'chats'; setSeg();
@@ -754,7 +818,7 @@ async function resumeFromHistory(h) {
 function closeTab(id) {
   const t = tabs.find(x => x.id === id);
   if (t?.running && !confirm(_('Claude arbeitet noch in diesem Chat. Trotzdem schließen?'))) return;
-  api.session.close(id);
+  tapi(t).session.close(id);
   tabs = tabs.filter(x => x.id !== id);
   if (activeTabId === id) activeTabId = null;
   saveTabs(); renderList(); renderChat();
@@ -766,9 +830,9 @@ async function openTab(id) {
   if (t) { lastOpened.all = t.id; if (t.projectId) lastOpened[t.projectId] = t.id; }
   if (t) {
     t.unread = false;
-    if (!t.loaded) {
+    if (!t.loaded && (!t.host || hostConnected(t.host))) {
       t.loaded = true;
-      const msgs = await api.history.loadSession({ profileId: t.profileId, sessionId: t.sessionId, cwd: t.cwd });
+      const msgs = await tapi(t).history.loadSession({ profileId: t.profileId, sessionId: t.sessionId, cwd: t.cwd });
       const live = t.items; t.items = [];
       for (const m of msgs) ingest(t, m, true);
       if (msgs.length) t.items.push({ kind: 'sys', text: _('Bisheriger Verlauf – ab hier geht es weiter') });
@@ -776,7 +840,7 @@ async function openTab(id) {
     }
   }
   // Die Kontoleiste zeigt immer das Konto des offenen Chats
-  if (t && t.profileId !== store.activeProfileId && profile(t.profileId)) {
+  if (t && !t.host && t.profileId !== store.activeProfileId && profileOf(t)) {
     store = await api.profiles.setActive(t.profileId);
     historyCache = {};
     renderRail(); renderUsage();
@@ -795,13 +859,13 @@ function renderChat() {
   $('#bgbar').hidden = true;
   if (!t) return;
   renderBgBar(t);
-  const p = profile(t.profileId);
+  const p = profileOf(t);
   $('#ch-avatar').replaceWith(Object.assign(avatar(p), { id: 'ch-avatar' }));
   $('#ch-title').textContent = t.title || _('Neuer Chat');
   $('#ch-cwd').textContent = t.cwd || _('~ (Benutzerordner)');
   $('#ch-cwd').title = t.cwd ? _('Ordner im Explorer öffnen') : '';
   renderChatChip(t);
-  if (!modelInfo[t.profileId]) loadModels(t.profileId).then(() => { if (currentTab() === t) renderChatChip(t); });
+  if (!modelInfo[tk(t)] && (!t.host || hostConnected(t.host))) loadModels(t.profileId, false, t.host).then(() => { if (currentTab() === t) renderChatChip(t); });
   renderMessages();
   updateComposer();
 }
@@ -989,8 +1053,8 @@ function renderPerm(t, it) {
   return card;
 }
 // Antworten und Nachrichten an Claude laufen über diese beiden Funktionen (Tests können sie abfangen)
-function claudeRespond(t, requestId, resp) { return api.session.respond(t.id, requestId, resp); }
-function claudeSend(t, content) { return api.session.send(plainTab(t), content); }
+function claudeRespond(t, requestId, resp) { return tapi(t).session.respond(t.id, requestId, resp); }
+function claudeSend(t, content) { return tapi(t).session.send(plainTab(t), content); }
 function answerPerm(t, it, how) {
   if (how === 'deny') {
     claudeRespond(t, it.requestId, { behavior: 'deny', message: CLAUDE_TEXT.denied });
@@ -1252,7 +1316,7 @@ function openBgMenu(t) {
       el('div', { class: 'pm-text' },
         el('b', {}, task.desc || task.id),
         el('small', {}, [TASK_TYPES[task.type] ? _(TASK_TYPES[task.type]) : task.type || _('Aufgabe'), task.status === 'running' ? _('läuft seit {d}', { d: taskDuration(task) }) : (task.summary || task.status) + ' · ' + taskDuration(task)].join(' · '))),
-      task.output ? el('button', { class: 'ghost', onclick: () => { closeMenus(); showTaskOutput(task); } }, _('Ausgabe')) : null));
+      task.output ? el('button', { class: 'ghost', onclick: () => { closeMenus(); showTaskOutput(task, t); } }, _('Ausgabe')) : null));
   }
   if (list.some(x => x.status !== 'running')) items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: () => {
     for (const [id, x] of Object.entries(t.tasks)) if (x.status !== 'running') delete t.tasks[id];
@@ -1261,11 +1325,11 @@ function openBgMenu(t) {
   const menu = el('div', { class: 'popmenu bg-menu', id: 'bg-menu', style: `left:${r.left}px; bottom:${window.innerHeight - r.top + 6}px` }, ...items);
   document.body.append(menu);
 }
-async function showTaskOutput(task) {
+async function showTaskOutput(task, t) {
   const pre = el('pre', { class: 'task-output' }, _('Wird geladen …'));
   const info = el('div', { class: 'hint' });
   const load = async () => {
-    const r = await api.readTaskOutput(task.output);
+    const r = await tapi(t).readTaskOutput(task.output);
     pre.textContent = r.error ? r.error : (r.text || _('(noch keine Ausgabe)'));
     const kb = Math.round((r.size || 0) / 1024 * 10) / 10;
     info.textContent = r.error ? '' : (r.truncated ? _('Letzte 64 KB von {kb} KB', { kb }) : kb + ' KB') + ' · ' + (task.status === 'running' ? _('läuft noch') : _('beendet'));
@@ -1481,7 +1545,7 @@ async function sendMessage() {
   const local = /^\/(\S+)\s*$/.exec(text) && LOCAL_COMMANDS.find(c => c.name === text.slice(1).trim());
   if (local && !attachments.length) { input.value = ''; autosize(); closeCommandPopup(); return local.run(); }
   if (!text && !attachments.length) return;
-  const st = status[t.profileId];
+  const st = status[tk(t)];
   if (st && !st.loggedIn) {
     if (st.claudeMissing) { toast(_('Claude Code nicht gefunden – bitte installieren oder Pfad in den Einstellungen angeben')); return openSettings(); }
     toast(_('Dieses Konto ist nicht angemeldet'));
@@ -1490,7 +1554,8 @@ async function sendMessage() {
   closeCommandPopup();
   if (text) rememberInput(text);
   // Anhänge: Bilder als Bild-Blöcke, Dateien als Pfadliste im Text (Claude liest sie selbst)
-  const imgs = attachments.filter(a => a.kind === 'image'), files = attachments.filter(a => a.kind === 'file');
+  const imgs = attachments.filter(a => a.kind === 'image'), files = t.host ? [] : attachments.filter(a => a.kind === 'file');
+  if (t.host && attachments.some(a => a.kind === 'file')) toast(_('Dateien dieses PCs gehen nicht an einen Haupt-PC – nur Bilder werden mitgeschickt'));
   attachments = []; renderAttachments();
   // ohne eigenen Text: Claude bekommt einen englischen Platzhalter, die Sprechblase zeigt ihn übersetzt
   const sent = text || (imgs.length ? CLAUDE_TEXT.seeImage : CLAUDE_TEXT.seeFile);
@@ -1516,7 +1581,7 @@ async function changeTab(patch, note, t = currentTab()) {
   if (!t) return;
   if (t.running) { toast(_('Bitte warten, bis Claude fertig ist')); renderChat(); return; }
   Object.assign(t, patch);
-  await api.session.restart(t.id);
+  await tapi(t).session.restart(t.id);
   if (note) appendItem(t, { kind: 'sys', text: note });
   saveTabs(); renderList();
   if (t.id === activeTabId) renderChat();
@@ -1532,27 +1597,29 @@ function modal(cls, title, ...body) {
   return { close, root: bg.firstChild };
 }
 
-function pickFolderModal() {
+function pickFolderModal(host = null) {
+  const hs = host ? hostStores[host] : null;
+  const favorites = hs ? hs.favorites : store.favorites;
   return new Promise(resolve => {
     let done = false;
-    let profileId = store.activeProfileId;
+    let profileId = hs ? hs.activeProfileId || hs.profiles[0]?.id : store.activeProfileId;
     const finish = cwd => { if (done) return; done = true; m.close(); resolve({ cwd, profileId }); };
     const chips = el('div', { class: 'acc-chips' });
-    const drawChips = () => chips.replaceChildren(...store.profiles.map(x => el('button', {
-      class: 'acc-chip' + (x.id === profileId ? ' sel' : ''), title: status[x.id]?.email || '',
+    const drawChips = () => chips.replaceChildren(...hostProfiles(host).map(x => el('button', {
+      class: 'acc-chip' + (x.id === profileId ? ' sel' : ''), title: status[pkey(host, x.id)]?.email || '',
       onclick: () => { profileId = x.id; drawChips(); },
-    }, avatar(x, 'sm'), x.name, status[x.id] && !status[x.id].loggedIn ? el('span', { class: 'muted' }, ' (' + _('abgemeldet') + ')') : '')));
+    }, avatar(x, 'sm'), x.name, status[pkey(host, x.id)] && !status[pkey(host, x.id)].loggedIn ? el('span', { class: 'muted' }, ' (' + _('abgemeldet') + ')') : '')));
     drawChips();
-    const m = modal('pickfolder', _('Neuer Chat'),
+    const m = modal('pickfolder', host ? _('Neuer Chat auf „{name}“', { name: hostName(host) }) : _('Neuer Chat'),
       el('div', { class: 'hint' }, _('Mit welchem Konto?')), chips,
-      el('div', { class: 'hint' }, project(activeProjectId()) ? _('Projekt: {name} – in welchem Ordner soll Claude arbeiten?', { name: project(activeProjectId()).name }) : _('In welchem Ordner soll Claude arbeiten?')),
+      el('div', { class: 'hint' }, !host && project(activeProjectId()) ? _('Projekt: {name} – in welchem Ordner soll Claude arbeiten?', { name: project(activeProjectId()).name }) : _('In welchem Ordner soll Claude arbeiten?')),
       el('div', { class: 'pick' },
-        project(activeProjectId())?.cwd ? el('button', { class: 'proj-folder', onclick: () => finish(project(activeProjectId()).cwd) }, avatar(project(activeProjectId()), 'sm'), el('div', {}, _('Projektordner'), el('small', {}, project(activeProjectId()).cwd))) : null,
-        ...store.favorites.map(f => el('button', { onclick: () => finish(f.path) }, el('div', { class: 'folder-ic' }, icon(ICONS.star)), el('div', {}, f.name, el('small', {}, f.path)))),
+        !host && project(activeProjectId())?.cwd ? el('button', { class: 'proj-folder', onclick: () => finish(project(activeProjectId()).cwd) }, avatar(project(activeProjectId()), 'sm'), el('div', {}, _('Projektordner'), el('small', {}, project(activeProjectId()).cwd))) : null,
+        ...favorites.map(f => el('button', { onclick: () => finish(f.path) }, el('div', { class: 'folder-ic' }, icon(ICONS.star)), el('div', {}, f.name, el('small', {}, f.path)))),
         // Fernzugriff: Ordner des Haupt-PCs zur Auswahl (ein Datei-Dialog dort ginge ins Leere)
-        ...(store.remote ? (store.allowedFolders || []).filter(p => !store.favorites.some(f => f.path === p)).slice(0, 40).map(p => el('button', { onclick: () => finish(p) }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, baseName(p), el('small', {}, p))))
+        ...(hs ? (hs.allowedFolders || []).filter(p => !favorites.some(f => f.path === p)).slice(0, 40).map(p => el('button', { onclick: () => finish(p) }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, baseName(p), el('small', {}, p))))
           : [el('button', { onclick: async () => { const d = await api.pickFolder(); if (d) finish(d); } }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, _('Ordner auswählen …'), el('small', {}, _('beliebiges Projekt'))))]),
-        store.scope?.limited ? null : el('button', { onclick: () => finish('') }, el('div', { class: 'folder-ic' }, '~'), el('div', {}, _('Ohne Projekt'), el('small', {}, _('im Benutzerordner'))))));
+        hs?.scope.limited ? null : el('button', { onclick: () => finish('') }, el('div', { class: 'folder-ic' }, '~'), el('div', {}, _('Ohne Projekt'), el('small', {}, _('im Benutzerordner'))))));
     // Schließen über × oder Hintergrund = abbrechen
     new MutationObserver((_, obs) => { if (!$('.modal.pickfolder')) { obs.disconnect(); if (!done) { done = true; resolve(null); } } }).observe($('#modal-root'), { childList: true });
   });
@@ -1849,37 +1916,6 @@ function openSettings() {
 // Dieser PC als Haupt-PC (andere Geräte verbinden sich) bzw. Verbindung zu einem Haupt-PC. Im Fernzugriff
 // zeigt Swapline Chats und Konten des Haupt-PCs; Claude läuft dort.
 let remoteState = null, pairCode = null, remoteTimer = null;
-function renderRemoteBar() {
-  const r = store.remote, bar = $('#remote-bar');
-  document.body.classList.toggle('remote', !!r);
-  $('#btn-remote').classList.toggle('active', !!r);
-  $('#btn-remote').title = r ? _('Fernzugriff – verbunden mit {name}', { name: r.name }) : _('Fernzugriff');
-  if (!r) { bar.hidden = true; return; }
-  const st = remoteState?.state || r.state;
-  bar.hidden = false;
-  fill(bar, el('span', { class: 'dot' + (st === 'connected' ? ' on' : '') }),
-    el('span', { class: 'grow', title: r.address || '' }, _('Haupt-PC: {name}', { name: r.name }), st === 'connected' ? '' : ' · ' + _('verbinde neu …')),
-    el('button', { class: 'link', onclick: () => switchTarget(null) }, _('Zurück zu diesem PC')));
-}
-async function switchTarget(id) {
-  if (tabs.some(t => t.running || bgRunning(t)) && !confirm(_('Claude arbeitet noch. Trotzdem wechseln? Die Antwort läuft im Hintergrund weiter.'))) return;
-  await api.remote.use(id);
-  location.reload();
-}
-async function openRemoteMenu() {
-  closeMenus();
-  remoteState = await api.remote.info();
-  const r = $('#btn-remote').getBoundingClientRect(), cur = store.remote?.id || null;
-  const menu = el('div', { class: 'popmenu', id: 'remote-menu', style: `left:${r.right + 10}px; bottom:${window.innerHeight - r.bottom}px` },
-    el('div', { class: 'pm-title' }, _('Chats und Konten von')),
-    el('button', { class: 'pm-item' + (!cur ? ' sel' : ''), onclick: () => { closeMenus(); if (cur) switchTarget(null); } },
-      el('span', { class: 'pm-ic' }, '💻'), el('span', { class: 'pm-text' }, el('b', {}, _('Diesem PC'))), !cur ? el('span', { class: 'pm-check' }, '✓') : null),
-    ...remoteState.hosts.map(x => el('button', { class: 'pm-item' + (x.id === cur ? ' sel' : ''), onclick: () => { closeMenus(); if (x.id !== cur) switchTarget(x.id); } },
-      el('span', { class: 'pm-ic' }, '🖥'), el('span', { class: 'pm-text' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port}`)), x.id === cur ? el('span', { class: 'pm-check' }, '✓') : null)),
-    el('div', { class: 'pm-sep' }),
-    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openRemote(); } }, el('span', { class: 'pm-ic' }, '⚙'), _('Fernzugriff einrichten …')));
-  document.body.append(menu);
-}
 async function openRemote() {
   remoteState = await api.remote.info();
   modal('remote', _('Fernzugriff'), el('div', { id: 'remote-body' }));
@@ -1975,10 +2011,8 @@ function drawRemote() {
   toggle.onchange = () => setHost(toggle.checked);
   portIn.onchange = () => { if (h.enabled) setHost(true); };
   const left = h.pairingExpires ? Math.max(0, Math.round((h.pairingExpires - Date.now()) / 1000)) : 0;
-  const hostNote = store.remote ? el('p', { class: 'hint' }, _('Du bist gerade mit einem Haupt-PC verbunden. Freigaben für Geräte, die sich mit diesem PC verbinden, bearbeitest du nach „Zurück zu diesem PC“.')) : null;
   const host = [
     el('h3', {}, _('Dieser PC als Haupt-PC')),
-    hostNote,
     el('p', { class: 'hint' }, _('Andere eigene Geräte mit Swapline können sich verbinden und alle Chats und Konten dieses PCs nutzen; Claude läuft dabei hier. Die Verbindung ist verschlüsselt, jedes Gerät wird einmal mit einem Code gekoppelt.')),
     el('div', { class: 'row' }, el('label', { class: 'row' }, toggle, _('Fernzugriff erlauben')), el('span', { class: 'hint' }, _('Port')), portIn,
       h.enabled && !h.running ? el('span', { class: 'hint', style: 'color:var(--danger)' }, _('nicht gestartet')) : null),
@@ -1995,7 +2029,7 @@ function drawRemote() {
       return el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (d.connected ? ' on' : '') }),
         el('div', { class: 'grow' }, el('b', {}, d.name), el('small', {}, d.connected ? _('verbunden') : d.lastSeen ? _('zuletzt {t}', { t: new Date(d.lastSeen).toLocaleString(locale()) }) : _('noch nie verbunden'), d.lastAddress ? ' · ' + d.lastAddress : ''),
           el('small', {}, _('Freigabe: {s}', { s: scopeText(d.scope) }))),
-        el('button', { class: 'ghost', disabled: !!store.remote, title: store.remote ? _('Zum Bearbeiten zurück zu diesem PC wechseln') : '', onclick: () => openScopeEditor(d) }, _('Freigabe …')),
+        el('button', { class: 'ghost', onclick: () => openScopeEditor(d) }, _('Freigabe …')),
         el('label', { class: 'row', title: _('Darf Chats mit „Alles erlauben“ (--dangerously-skip-permissions) starten') }, bypass, _('„Alles erlauben“')),
         el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Gerät „{name}“ entfernen? Es kann sich danach nicht mehr verbinden.', { name: d.name }))) return; remoteState = await api.remote.deviceRemove(d.id); drawRemote(); } }, _('Entfernen')));
     }),
@@ -2013,19 +2047,27 @@ function drawRemote() {
   } }, _('Koppeln'));
   const client = [
     el('h3', { style: 'margin-top:16px' }, _('Mit einem Haupt-PC verbinden')),
-    ...r.hosts.map(x => el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (x.id === r.target && r.state === 'connected' ? ' on' : '') }),
-      el('div', { class: 'grow' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port}`)),
-      x.id === r.target ? el('button', { class: 'ghost', onclick: () => switchTarget(null) }, _('Trennen')) : el('button', { class: 'primary', onclick: () => switchTarget(x.id) }, _('Verbinden')),
-      el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Haupt-PC „{name}“ entfernen?', { name: x.name }))) return; const wasTarget = x.id === r.target; remoteState = await api.remote.hostRemove(x.id); if (wasTarget) location.reload(); else drawRemote(); } }, _('Entfernen')))),
+    ...r.hosts.map(x => el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (x.state === 'connected' ? ' on' : '') }),
+      el('div', { class: 'grow' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port} · ` + (x.state === 'connected' ? _('verbunden') : x.state === 'connecting' || x.state === 'reconnecting' ? _('verbinde …') : _('nicht verbunden')))),
+      el('button', { class: 'primary', onclick: () => { $('#modal-root').replaceChildren(); switchProject('host:' + x.id); } }, _('Chats zeigen')),
+      el('button', { class: 'ghost danger', onclick: async () => {
+        if (!confirm(_('Haupt-PC „{name}“ entfernen?', { name: x.name }))) return;
+        remoteState = await api.remote.hostRemove(x.id);
+        delete hostStores[x.id];
+        if (activeProjectId() === 'host:' + x.id) await switchProject('all');
+        drawRemote(); renderRail();
+      } }, _('Entfernen')))),
     el('p', { class: 'hint' }, _('Am Haupt-PC unter Fernzugriff „Gerät koppeln …“ wählen und den Code hier eingeben.')),
     el('div', { class: 'row' }, addr, port), el('div', { class: 'row', style: 'margin-top:6px' }, code, pairBtn),
   ];
   fill(box, ...host, ...client);
 }
 api.remote.onStatus(info => {
+  const before = remoteState;
   remoteState = info;
-  if (store.remote) store.remote.state = info.state;
-  renderRemoteBar(); renderRail();
+  // Haupt-PC (wieder) verbunden: dessen Konten, Ordner und Freigabe neu laden
+  for (const h of info.hosts) if (h.state === 'connected' && before?.hosts?.find(x => x.id === h.id)?.state !== 'connected') refreshHost(h.id);
+  renderRail(); renderList();
   if ($('.modal.remote')) drawRemote();
 });
 
@@ -2055,11 +2097,11 @@ $('#btn-account').onclick = () => ($('#account-menu') ? closeMenus() : openAccou
 $('#btn-project-edit').onclick = () => { const pr = project(activeProjectId()); if (pr) openProjectForm(pr); };
 $('#btn-settings').onclick = openSettings;
 $('#btn-extensions').onclick = () => openExtensions();
-$('#btn-remote').onclick = () => ($('#remote-menu') ? closeMenus() : openRemoteMenu());
+$('#btn-remote').onclick = () => openRemote();
 $('#search').oninput = renderList;
 document.querySelectorAll('#seg button').forEach(b => b.onclick = () => { view = b.dataset.view; setSeg(); renderList(); });
 $('#btn-send').onclick = sendMessage;
-$('#btn-stop').onclick = () => { const t = currentTab(); if (t) api.session.interrupt(t.id); };
+$('#btn-stop').onclick = () => { const t = currentTab(); if (t) tapi(t).session.interrupt(t.id); };
 $('#input').addEventListener('input', autosize);
 $('#input').addEventListener('keydown', e => {
   const input = e.currentTarget;
@@ -2113,7 +2155,7 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newChat(); }
   if (e.key === 'Escape') {
     if ($('#modal-root').children.length) return $('#modal-root').replaceChildren();
-    const t = currentTab(); if (t?.running) api.session.interrupt(t.id);
+    const t = currentTab(); if (t?.running) tapi(t).session.interrupt(t.id);
   }
   if (e.ctrlKey && /^[1-9]$/.test(e.key)) { const p = store.profiles[+e.key - 1]; if (p) switchProfile(p.id); }
 });
@@ -2123,7 +2165,6 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
 (async function init() {
   store = await api.getStore();
   VERSION = store.appVersion || '';
-  if (store.remote?.id) LS_TABS += ':' + store.remote.id;
   // Sprache vor dem ersten Zeichnen festlegen und die festen Texte aus index.html übersetzen
   setLang(store.settings.language || 'auto');
   translateStatic();
@@ -2132,9 +2173,8 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
   tabs = (saved.tabs || []).map(t => makeTab({ ...t, loaded: !t.sessionId }));
   activeTabId = tabs.some(t => t.id === saved.activeTabId) ? saved.activeTabId : null;
   lastOpened = saved.lastOpened || {};
-  renderRail(); renderList(); renderUsage(); renderRemoteBar();
-  api.remote.info().then(r => { remoteState = r; renderRail(); });
-  if (store.remoteError) toast(_('Haupt-PC „{name}“ nicht erreichbar – Swapline zeigt wieder diesen PC', { name: store.remoteError }));
+  renderRail(); renderList(); renderUsage();
+  api.remote.info().then(r => { remoteState = r; renderRail(); for (const h of r.hosts) if (h.state === 'connected') refreshHost(h.id); });
   if (activeTabId) openTab(activeTabId); else renderChat();
   refreshStatus();
   for (const p of store.profiles) loadModels(p.id).then(() => { const t = currentTab(); if (t?.profileId === p.id) renderChatChip(t); });

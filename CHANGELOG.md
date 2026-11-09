@@ -7,6 +7,13 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Fernzugriff: Chats eines Haupt-PCs laufen jetzt **neben** den eigenen statt die ganze Oberfläche umzuschalten.
+  „Allgemein“ zeigt alle Chats zusammen; der Haupt-PC in der Leiste wirkt wie ein Projekt (nur dessen Chats und
+  Verlauf, neue Chats dort). Jeder gekoppelte Haupt-PC bleibt im Hintergrund verbunden.
+- Sicherheit: Geräteschlüssel (auch verschlüsselt) gehen nicht mehr an die Oberfläche.
+
 ## [0.3.0] – 2026-11-09
 
 - Projekt-Ordner: Projekte in der Leiste in Ordnern zusammenfassen (auf-/zuklappbar, Projekte per Ziehen oder im

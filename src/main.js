@@ -16,10 +16,16 @@ let STORE_FILE; // wird nach app.ready gesetzt
 let win;
 const sessions = new Map(); // tabId -> { proc, profileId, ... }
 
-// IPC: jeder Kanal wird hier registriert. Ist dieses Swapline mit einem Haupt-PC verbunden (Fernzugriff),
-// gehen die Chat-Kanäle dorthin (routeIpc, siehe Abschnitt Fernzugriff); sonst läuft alles lokal.
-const H = new Map(); // Kanal -> Funktion (auch vom Fernzugriff des Haupt-PCs genutzt)
-function handle(ch, fn) { H.set(ch, fn); ipcMain.handle(ch, (e, ...args) => routeIpc(ch, e, args)); }
+// IPC: jeder Kanal wird hier registriert. Die Tabelle nutzt auch der Fernzugriff des Haupt-PCs (hostDispatch),
+// damit Anfragen gekoppelter Geräte durch dieselben Prüfungen laufen wie lokale Eingaben.
+const H = new Map(); // Kanal -> Funktion
+// Antworten an die Oberfläche: Geräteschlüssel (auch verschlüsselt) und interne Zähler aus dem Speicherstand entfernen
+function publicView(v) {
+  if (!v || typeof v !== 'object' || !('profiles' in v) || !('settings' in v)) return v;
+  const { remoteHost, remoteHosts, sessionCost, ...rest } = v;
+  return rest;
+}
+function handle(ch, fn) { H.set(ch, fn); ipcMain.handle(ch, async (e, ...args) => publicView(await fn(e, ...args))); }
 
 // ---------- Persistenter Speicher ----------
 function loadStore() {
@@ -382,7 +388,7 @@ function recordLimits(profileId, info) {
 }
 function pushUsage() {
   remoteHost?.broadcast('usage', getStore().usage);
-  if (!remoteActive() && win && !win.isDestroyed()) win.webContents.send('usage:update', getStore().usage);
+  if (win && !win.isDestroyed()) win.webContents.send('usage:update', getStore().usage);
 }
 
 // ---------- Verlauf aus <configDir>/projects lesen ----------
@@ -942,25 +948,11 @@ function openExternalSafe(url) {
 // ---------- Fernzugriff (Swapline ↔ Swapline, siehe src/remote.js) ----------
 // Haupt-PC: nimmt Verbindungen gekoppelter Geräte an und führt deren Anfragen mit denselben Prüfungen aus wie
 // lokale Eingaben – aber nur Chat-Kanäle; Konten, Projekte, Plugins und Einstellungen des Haupt-PCs bleiben
-// unverändert. Gerät: reicht die Chat-Kanäle an den gewählten Haupt-PC weiter; Darstellung, Sprache, Töne,
-// Benachrichtigungen und Updates bleiben lokal.
+// unverändert. Gerät: bleibt mit jedem gekoppelten Haupt-PC im Hintergrund verbunden; dessen Chats laufen in der
+// Oberfläche neben den eigenen, ihre Anfragen gehen über remote:call an genau diesen Haupt-PC.
 const remote = require('./remote');
-let remoteHost = null, remoteClient = null;
+let remoteHost = null;
 const remoteTabs = new Map(); // interne Tab-ID auf dem Haupt-PC -> { deviceId, tabId } (Chats von Geräten)
-
-// Kanäle, die ein Gerät an den Haupt-PC weiterreicht
-const FORWARD = new Set(['store:get', 'profiles:setActive', 'profiles:status', 'profiles:models', 'profiles:add', 'profiles:update', 'profiles:remove',
-  'profiles:login', 'profiles:loginConsole', 'profiles:loginCancel', 'profiles:logout', 'profiles:openTerminal', 'favorites:add', 'favorites:remove',
-  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder', 'projects:groupAdd', 'projects:groupUpdate', 'projects:groupRemove',
-  'history:list', 'history:loadSession', 'history:search', 'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close',
-  'session:confirmBypass', 'session:moveProfile', 'task:readOutput', 'ext:list', 'ext:action']);
-// Kanäle, deren Ergebnis der ganze Speicherstand ist (bei Fehlern trotzdem einen Stand zurückgeben)
-const STORE_RESULT = new Set(['store:get', 'profiles:setActive', 'profiles:add', 'profiles:update', 'profiles:remove', 'favorites:add', 'favorites:remove',
-  'settings:set', 'projects:add', 'projects:update', 'projects:remove', 'projects:setActive', 'projects:reorder', 'projects:groupAdd', 'projects:groupUpdate', 'projects:groupRemove']);
-// Einstellungen, die auf dem Gerät bleiben
-const LOCAL_SETTINGS = ['theme', 'language', 'notify', 'sound', 'notifyStay', 'toolView', 'updateMode'];
-const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && k in o).map(k => [k, o[k]]));
-const remoteActive = () => !!remoteClient?.target;
 
 // --- Haupt-PC ---
 const getDevices = () => getStore().remoteHost?.devices || [];
@@ -1123,76 +1115,59 @@ async function startRemoteHost() {
 }
 
 // --- Gerät ---
-let lastRemoteStore = null;
 const remoteHosts = () => getStore().remoteHosts || [];
-function useRemoteTarget(id) {
-  const h = id ? remoteHosts().find(x => x.id === id) : null;
-  updateStore(s => { s.remoteTarget = h ? h.id : null; });
-  lastRemoteStore = null;
-  remoteClient.use(h ? { id: h.id, address: h.address, port: h.port, deviceId: h.deviceId, key: Buffer.from(decryptSecret(h.keyEnc), 'base64') } : null);
-}
-function waitRemote(ms) {
-  return new Promise(resolve => {
-    const end = Date.now() + ms;
-    const tick = () => (remoteClient.state === 'connected' || Date.now() > end ? resolve(remoteClient.state === 'connected') : setTimeout(tick, 150));
-    tick();
+const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
+// Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
+const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search',
+  'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput']);
+const REMOTE_FALLBACK = { 'store:get': null, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
+function connectHost(h) {
+  clients.get(h.id)?.use(null);
+  const c = remote.createClient({
+    onEvent: (kind, data) => {
+      if (!win || win.isDestroyed()) return;
+      if (kind === 'claude' && typeof data?.tabId === 'string' && data.msg && typeof data.msg === 'object') win.webContents.send('claude:event', { tabId: data.tabId, msg: data.msg, host: h.id });
+    },
+    onStatus: () => pushRemoteStatus(),
+    log: logError,
   });
+  clients.set(h.id, c);
+  try { c.use({ id: h.id, address: h.address, port: h.port, deviceId: h.deviceId, key: Buffer.from(decryptSecret(h.keyEnc), 'base64') }); }
+  catch (e) { logError('Fernzugriff: ' + e.message); }
 }
-// Stand vom Haupt-PC + lokale Einstellungen; Namen und Bilder vom Haupt-PC werden wie lokale Eingaben geprüft
-function mergeRemoteStore(v) {
-  if (v && typeof v === 'object') lastRemoteStore = v;
-  const r = lastRemoteStore || {}, local = getStore(), h = remoteHosts().find(x => x.id === remoteClient.target?.id);
+// Stand eines Haupt-PCs für die Oberfläche: Namen, Bilder und Pfade werden wie lokale Eingaben geprüft
+function cleanHostStore(r) {
+  if (!r || typeof r !== 'object') return null;
+  const str = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : '');
   return {
-    ...r,
-    profiles: (r.profiles || []).map(p => ({ id: String(p.id), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), isDefault: !!p.isDefault })),
-    projects: (r.projects || []).map(p => ({ id: String(p.id), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), cwd: typeof p.cwd === 'string' ? p.cwd : '', ...(cleanIcon(p.icon) ? { icon: cleanIcon(p.icon) } : {}), ...(typeof p.groupId === 'string' ? { groupId: p.groupId } : {}) })),
-    projectGroups: (r.projectGroups || []).map(g => ({ id: String(g.id), name: cleanName(g.name, '?'), color: cleanColor(g.color, '#64748B') })),
-    favorites: (r.favorites || []).filter(f => typeof f?.path === 'string').map(f => ({ path: f.path, name: cleanName(f.name, '?') })),
-    allowedFolders: (r.allowedFolders || []).filter(x => typeof x === 'string'),
-    settings: { ...pick(local.settings, LOCAL_SETTINGS), ...pick(r.settings, ['model', 'effort', 'permissionMode']) },
-    appVersion: app.getVersion(), bypassAcknowledged: local.bypassAcknowledged,
-    remote: { id: h?.id, name: h?.name || r.hostName || '', address: h?.address, state: remoteClient.state, allowBypass: !!r.allowBypass, hostVersion: r.hostVersion || '' },
+    profiles: (r.profiles || []).map(p => ({ id: str(p.id, 80), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), isDefault: !!p.isDefault })),
+    activeProfileId: str(r.activeProfileId, 80),
+    projects: (r.projects || []).map(p => ({ id: str(p.id, 80), name: cleanName(p.name, '?'), color: cleanColor(p.color, '#1581FF'), cwd: str(p.cwd), ...(cleanIcon(p.icon) ? { icon: cleanIcon(p.icon) } : {}), ...(typeof p.groupId === 'string' ? { groupId: str(p.groupId, 80) } : {}) })),
+    projectGroups: (r.projectGroups || []).map(g => ({ id: str(g.id, 80), name: cleanName(g.name, '?'), color: cleanColor(g.color, '#64748B') })),
+    favorites: (r.favorites || []).filter(f => typeof f?.path === 'string').map(f => ({ path: str(f.path), name: cleanName(f.name, '?') })),
+    allowedFolders: (r.allowedFolders || []).filter(x => typeof x === 'string').map(x => x.slice(0, 500)).slice(0, 300),
+    settings: { model: isModel(r.settings?.model || '') ? r.settings?.model || '' : '', effort: EFFORTS.includes(r.settings?.effort || '') ? r.settings?.effort || '' : '', permissionMode: MODES.includes(r.settings?.permissionMode) ? r.settings.permissionMode : 'default' },
+    scope: { limited: !!r.scope?.limited, accountsLimited: !!r.scope?.accountsLimited, newChats: r.scope?.newChats !== false },
+    hostName: cleanName(r.hostName, ''), hostVersion: str(r.hostVersion, 40), allowBypass: !!r.allowBypass,
   };
 }
-const REMOTE_FALLBACK = { 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'ext:list': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
-async function routeIpc(ch, e, args) {
-  const fn = H.get(ch);
-  if (!remoteActive()) return fn(e, ...args);
-  // lokal auch im Fernzugriff – Dateien und Ordner dieses PCs haben auf dem Haupt-PC keine Bedeutung
-  if (ch === 'dialog:pickFolder' || ch === 'projects:pickIcon') return null;
-  if (ch === 'shell:openPath') return false;
-  if (ch === 'attach:pick') return (await fn(e, ...args)).filter(a => a.kind === 'image');
-  if (!FORWARD.has(ch)) return fn(e, ...args);
-  if (ch === 'store:get' && !(await waitRemote(10000))) {
-    // Haupt-PC nicht erreichbar: zurück auf diesen PC, damit die Oberfläche bedienbar bleibt
-    const name = remoteHosts().find(x => x.id === remoteClient.target?.id)?.name || '';
-    useRemoteTarget(null);
-    return { ...(await fn(e)), remoteError: name };
-  }
+handle('remote:call', async (_e, hostId, ch, args) => {
+  const c = clients.get(hostId);
+  if (!c || !REMOTE_CALLS.has(ch) || !Array.isArray(args)) return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
   // „Alles erlauben“ zuerst auf diesem Gerät bestätigen (einmalig, wie lokal) – der Haupt-PC prüft die Gerätefreigabe
   if (ch === 'session:confirmBypass' && !confirmBypass()) return false;
   if (ch === 'session:send' && args[0]?.tab?.permissionMode === 'bypassPermissions' && !confirmBypass()) return false;
-  if (ch === 'settings:set') {
-    const patch = args[0] && typeof args[0] === 'object' ? args[0] : {};
-    const localPart = pick(patch, LOCAL_SETTINGS), remotePart = Object.fromEntries(Object.entries(patch).filter(([k]) => !LOCAL_SETTINGS.includes(k)));
-    if (remotePart.permissionMode === 'bypassPermissions' && !confirmBypass()) return { ...mergeRemoteStore(null), rejected: 'Bypass nicht bestätigt' };
-    if (Object.keys(localPart).length) { const r = await fn(e, localPart); if (r?.rejected) return { ...mergeRemoteStore(null), rejected: r.rejected }; }
-    if (!Object.keys(remotePart).length) return mergeRemoteStore(null);
-    args = [remotePart];
-  }
   try {
-    const v = await remoteClient.call(ch, args);
-    return STORE_RESULT.has(ch) ? mergeRemoteStore(v) : v;
+    const v = await c.call(ch, args);
+    return ch === 'store:get' ? cleanHostStore(v) : v;
   } catch (err) {
-    if (STORE_RESULT.has(ch)) return { ...mergeRemoteStore(null), rejected: err.message };
     if (ch === 'session:send' && typeof args[0]?.tab?.id === 'string') {
       win?.webContents.send('claude:event', { tabId: args[0].tab.id, msg: { type: 'app_error', message: tr('Haupt-PC: ', 'Host PC: ') + err.message } });
       return false;
     }
-    if (ch === 'ext:action' || ch === 'session:moveProfile') return { ok: false, error: err.message };
     return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
   }
-}
+});
 
 // --- Status und Einstellungen ---
 function remoteInfo() {
@@ -1204,8 +1179,7 @@ function remoteInfo() {
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
       devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
-    hosts: remoteHosts().map(h => ({ id: h.id, name: h.name, address: h.address, port: h.port })),
-    target: remoteClient?.target?.id || null, state: remoteClient?.state || 'off',
+    hosts: remoteHosts().map(h => ({ id: h.id, name: h.name, address: h.address, port: h.port, state: clients.get(h.id)?.state || 'off' })),
   };
 }
 function pushRemoteStatus() { if (win && !win.isDestroyed()) win.webContents.send('remote:status', remoteInfo()); }
@@ -1256,7 +1230,10 @@ handle('remote:pair', async (_e, { address, port, code } = {}) => {
   if (!safeStorage.isEncryptionAvailable()) return { ...remoteInfo(), error: tr('Verschlüsselter Speicher nicht verfügbar', 'Encrypted storage not available') };
   try {
     const r = await remote.pair({ address, port, code, name: os.hostname().slice(0, 40) });
-    updateStore(s => { s.remoteHosts = [...(s.remoteHosts || []).filter(h => !(h.address === address && h.port === port)), { id: r.deviceId, name: cleanName(r.hostName, address) || address, address, port, deviceId: r.deviceId, keyEnc: encryptSecret(r.key) }]; });
+    const host = { id: r.deviceId, name: cleanName(r.hostName, address) || address, address, port, deviceId: r.deviceId, keyEnc: encryptSecret(r.key) };
+    for (const old of remoteHosts().filter(h => h.address === address && h.port === port)) { clients.get(old.id)?.use(null); clients.delete(old.id); }
+    updateStore(s => { s.remoteHosts = [...(s.remoteHosts || []).filter(h => !(h.address === address && h.port === port)), host]; });
+    connectHost(host);
     logError(`Fernzugriff: mit Haupt-PC ${address}:${port} gekoppelt`);
     return { ...remoteInfo(), paired: r.deviceId };
   } catch (err) {
@@ -1267,29 +1244,17 @@ handle('remote:pair', async (_e, { address, port, code } = {}) => {
   }
 });
 handle('remote:hostRemove', (_e, id) => {
-  if (remoteClient?.target?.id === id) useRemoteTarget(null);
+  clients.get(id)?.use(null);
+  clients.delete(id);
   updateStore(s => { s.remoteHosts = (s.remoteHosts || []).filter(h => h.id !== id); });
-  return remoteInfo();
-});
-// Ziel wechseln (Haupt-PC oder dieser PC); die Oberfläche lädt danach neu
-handle('remote:use', (_e, id) => {
-  if (id !== null && !remoteHosts().some(h => h.id === id)) return remoteInfo();
-  useRemoteTarget(id);
+  pushRemoteStatus();
   return remoteInfo();
 });
 
 function initRemote() {
-  remoteClient = remote.createClient({
-    onEvent: (kind, data) => {
-      if (!win || win.isDestroyed()) return;
-      if (kind === 'claude' && typeof data?.tabId === 'string' && data.msg && typeof data.msg === 'object') win.webContents.send('claude:event', { tabId: data.tabId, msg: data.msg });
-      else if (kind === 'usage' && data && typeof data === 'object') win.webContents.send('usage:update', data);
-    },
-    onStatus: () => pushRemoteStatus(),
-    log: logError,
-  });
   const s = getStore();
-  if (s.remoteTarget && safeStorage.isEncryptionAvailable()) { try { useRemoteTarget(s.remoteTarget); } catch (e) { logError('Fernzugriff: ' + e.message); useRemoteTarget(null); } }
+  if ('remoteTarget' in s) updateStore(x => { delete x.remoteTarget; }); // bis 0.3.0: ganze Oberfläche umgeschaltet
+  if (safeStorage.isEncryptionAvailable()) for (const h of remoteHosts()) connectHost(h);
   if (s.remoteHost?.enabled) startRemoteHost().catch(e => logError('Fernzugriff: ' + e.message));
 }
 

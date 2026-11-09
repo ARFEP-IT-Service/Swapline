@@ -259,12 +259,10 @@ button.link:hover { color: var(--accent); }
 
 #update-banner { position: fixed; left: 84px; bottom: 16px; z-index: 55; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
 #update-banner button.ghost { padding: 4px 6px; }
-#remote-bar { display: flex; align-items: center; gap: 8px; margin: 0 12px 8px; padding: 7px 10px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); font-size: 12.5px; }
-#remote-bar .dot, .dev-row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--warn); }
-#remote-bar .dot.on, .dev-row .dot.on { background: #22c55e; }
-#remote-bar .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-row .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--warn); }
+.dev-row .dot.on { background: #22c55e; }
 #btn-remote.active { color: var(--accent); }
-body.remote #btn-add-project { display: none; }
+.item .host-tag { color: var(--accent); }
 .modal.remote h3 { margin: 6px 0 6px; font-size: 14px; }
 .modal.remote .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .modal.remote input[type=text], .modal.remote input[type=number] { min-width: 0; width: auto; }

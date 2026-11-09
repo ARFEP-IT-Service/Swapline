@@ -75,7 +75,8 @@ contextBridge.exposeInMainWorld('api', {
     deviceRemove: id => invoke('remote:deviceRemove', id),
     pair: data => invoke('remote:pair', data),
     hostRemove: id => invoke('remote:hostRemove', id),
-    use: id => invoke('remote:use', id),
+    // Anfrage für einen Chat eines Haupt-PCs (nur freigegebene Kanäle, siehe main.js REMOTE_CALLS)
+    call: (host, ch, args) => ipcRenderer.invoke('remote:call', host, ch, args),
     onStatus: cb => ipcRenderer.on('remote:status', (_e, d) => cb(d)),
   },
   onNotifyClick: cb => ipcRenderer.on('notify:click', (_e, tabId) => cb(tabId)),

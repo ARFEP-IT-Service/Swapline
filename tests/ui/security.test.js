@@ -34,6 +34,8 @@
   check('settings:set updateMode auto angenommen (Gegenprobe)', !um.rejected && um.settings.updateMode === 'auto');
   await api.setSettings({ updateMode: 'notify' });
   check('Update installieren ohne fertiges Update abgelehnt', (await api.update.install()) === false);
+  const pubA = await api.getStore(), pubB = await api.setSettings({ theme: 'dark' });
+  check('Speicherstand an die Oberfläche ohne Geräteschlüssel', ['remoteHost', 'remoteHosts', 'sessionCost'].every(k => !(k in pubA) && !(k in pubB)));
   check('settings:set gültiger Wert übernommen (Gegenprobe)', !(await api.setSettings({ theme: 'dark' })).rejected);
   check('settings:set language nur auto/de/en', !!(await api.setSettings({ language: 'fr' })).rejected);
   const langEn = await api.setSettings({ language: 'en' });
