@@ -5,14 +5,16 @@
 
 let LANG = 'de';
 
-// pref: 'de' | 'en' | 'auto' (auto = Sprache des Systems; Deutsch nur, wenn sie mit „de“ beginnt)
+// pref: 'de' | 'en' | 'tr' | 'auto' (auto = Sprache des Systems: Deutsch bzw. Türkisch, wenn sie mit „de“ bzw. „tr“
+// beginnt, sonst Englisch)
 function setLang(pref) {
-  LANG = pref === 'de' || pref === 'en' ? pref : (String(navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en');
+  const sys = String(navigator.language || '').toLowerCase();
+  LANG = pref === 'de' || pref === 'en' || pref === 'tr' ? pref : sys.startsWith('de') ? 'de' : sys.startsWith('tr') ? 'tr' : 'en';
   document.documentElement.lang = LANG;
   return LANG;
 }
 // Locale für Datum und Uhrzeit (en-GB: 24-Stunden-Format)
-const locale = () => (LANG === 'en' ? 'en-GB' : 'de-DE');
+const locale = () => (LANG === 'en' ? 'en-GB' : LANG === 'tr' ? 'tr-TR' : 'de-DE');
 
 // Markiert einen Text für die Übersetzung, ohne ihn schon zu übersetzen (für Konstanten, die vor
 // setLang() entstehen). Übersetzt wird erst beim Anzeigen mit _(text).
@@ -21,7 +23,10 @@ const N_ = s => s;
 // Text in der aktuellen Sprache; {name} wird aus vars ersetzt (auch im deutschen Text)
 function _(de, vars) {
   if (typeof de !== 'string') return de;
-  let s = LANG === 'en' && Object.prototype.hasOwnProperty.call(EN, de) ? EN[de] : de;
+  const has = (d, k) => typeof d === 'object' && d && Object.prototype.hasOwnProperty.call(d, k);
+  // Türkisch (src/renderer/i18n-tr.js); fehlt ein Text dort, Englisch statt Deutsch
+  let s = LANG === 'en' ? (has(EN, de) ? EN[de] : de)
+    : LANG === 'tr' ? (has(typeof TR !== 'undefined' ? TR : null, de) ? TR[de] : has(EN, de) ? EN[de] : de) : de;
   if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
   return s;
 }

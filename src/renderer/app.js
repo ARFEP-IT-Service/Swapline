@@ -2185,7 +2185,7 @@ function openSettings() {
     return e;
   };
   // Sprache der Oberfläche: wird beim Neuladen übernommen (sofort, wenn gerade kein Chat arbeitet)
-  const langSel = el('select', {}, [['auto', _('Wie System')], ['de', 'Deutsch'], ['en', 'English']].map(([v, l]) => el('option', { value: v, selected: (s.language || 'auto') === v }, l)));
+  const langSel = el('select', {}, [['auto', _('Wie System')], ['de', 'Deutsch'], ['en', 'English'], ['tr', 'Türkçe']].map(([v, l]) => el('option', { value: v, selected: (s.language || 'auto') === v }, l)));
   langSel.addEventListener('change', async () => {
     const r = await api.setSettings({ language: langSel.value });
     if (r.rejected) { langSel.value = s.language || 'auto'; return toast(_('Nicht übernommen')); }

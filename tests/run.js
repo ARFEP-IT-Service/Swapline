@@ -69,6 +69,17 @@ function checkTranslations() {
   const ph = s => [...s.matchAll(/\{(\w+)\}/g)].map(x => x[1]).sort().join(',');
   const badPh = Object.entries(EN).filter(([de, en]) => ph(de) !== ph(en));
   results.push({ name: 'Übersetzungen: gleiche Platzhalter {…} in Deutsch und Englisch', ok: !badPh.length, detail: badPh.map(([k]) => JSON.stringify(k)).join('\n      ') });
+  // Türkisch (src/renderer/i18n-tr.js): jeder Text der Oberfläche und jedes tr('…') in src/main.js, gleiche Platzhalter
+  const TR = require(path.join(dir, 'i18n-tr.js'));
+  const mainSrc = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
+  const mainKeys = [...mainSrc.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)].map(m => vm.runInNewContext(`'${m[1]}'`));
+  const missTr = [...new Set([...keys.keys(), ...mainKeys])].filter(k => !Object.prototype.hasOwnProperty.call(TR, k));
+  results.push({ name: `Übersetzungen: alle Texte haben einen türkischen Eintrag`, ok: !missTr.length, detail: missTr.map(k => JSON.stringify(k)).join('\n      ') });
+  const badTr = Object.entries(TR).filter(([de, t]) => typeof t !== 'string' || !t.trim() || ph(de) !== ph(t));
+  results.push({ name: 'Übersetzungen: gleiche Platzhalter {…} in Deutsch und Türkisch', ok: !badTr.length, detail: badTr.map(([k]) => JSON.stringify(k)).join('\n      ') });
+  // Texte mit eingesetzten Werten (Template-Strings) brauchen Türkisch als dritten Wert
+  const tpl2 = [...mainSrc.matchAll(/\btr\(`[^`]*`,\s*`[^`]*`\)/g)].length;
+  results.push({ name: 'Übersetzungen: tr(`…`) in main.js mit türkischem dritten Wert', ok: !tpl2, detail: `${tpl2} Aufruf(e) nur mit Deutsch und Englisch` });
   const unused = Object.keys(EN).filter(k => !keys.has(k));
   if (unused.length) console.log(`  (Hinweis: ${unused.length} ungenutzte Einträge in EN: ${unused.slice(0, 10).map(k => JSON.stringify(k)).join(', ')})`);
   return results;

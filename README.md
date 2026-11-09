@@ -29,7 +29,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 - **Erweiterungen:** Plugins aus den Marktplätzen installieren, aktivieren, deaktivieren und entfernen, Skills und Befehle des Kontos ansehen.
 - **Geteilte Ansicht:** zwei Chats nebeneinander (Strg+# oder Rechtsklick → „Daneben öffnen“).
 - **Eigene Bilder** für Chats und Haupt-PCs (Rechtsklick).
-- **Anzeige nach Wunsch:** Werkzeug-Aufrufe alle, kompakt oder ausgeblendet; Recap („während du weg warst“); Antworten und Code kopieren; Chats umbenennen; Hell/Dunkel; Deutsch/Englisch.
+- **Anzeige nach Wunsch:** Werkzeug-Aufrufe alle, kompakt oder ausgeblendet; Recap („während du weg warst“); Antworten und Code kopieren; Chats umbenennen; Hell/Dunkel; Deutsch, Englisch und Türkisch.
 - **Benachrichtigungen:** Windows-Benachrichtigung bei fertiger Antwort oder Rückfrage, auf Wunsch bis zum Klick sichtbar, mit wählbarem Ton.
 - **Fernzugriff:** Chats und Konten dieses PCs von einem anderen eigenen PC oder mit der **Swapline-App für Android** nutzen – im Netzwerk oder übers Internet (siehe [Fernzugriff](#fernzugriff)).
 - **Updates** aus den GitHub-Releases: Hinweis bei neuer Version, Installation per Klick (wahlweise automatisch oder aus).
@@ -125,6 +125,7 @@ SWAPLINE_PROFILE=test npm start
 | `src/preload.js` | Brücke zwischen Oberfläche und Hauptprozess |
 | `src/renderer/` | Oberfläche (HTML/CSS/JS ohne Framework), Markdown über marked + DOMPurify |
 | `src/renderer/i18n.js` | Übersetzungen (Deutsch ist Quelltext, Englisch als Wörterbuch) |
+| `src/renderer/i18n-tr.js` | Türkische Texte (auch für Dialoge und Meldungen des Hauptprozesses) |
 | `tests/` | Testlauf (`tests/run.js`) und Testdateien (`tests/ui/*.test.js`) |
 | `tools/` | Lizenzsammlung, Bundle-Prüfung, Release-Hilfen |
 | `.github/workflows/` | CI (Tests + Build) und Release (Tests, Build, Prüfsummen, Veröffentlichung) |

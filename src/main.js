@@ -84,16 +84,20 @@ const NOTIFY = ['always', 'background', 'off']; // Benachrichtigung bei fertiger
 const SOUND = ['off', 'on', 'chime', 'ping', 'drop', 'rise', 'soft', 'system']; // 'on' = Glocke (ältere Versionen)
 const TOOLVIEW = ['all', 'compact', 'hidden']; // Werkzeug-Aufrufe im Chat
 const NOTIFYSTAY = ['sticky', 'auto']; // Benachrichtigung bleibt bis zum Klick / verschwindet von selbst
-const LANGS = ['auto', 'de', 'en']; // Sprache der Oberfläche ('auto' = Systemsprache)
+const LANGS = ['auto', 'de', 'en', 'tr']; // Sprache der Oberfläche ('auto' = Systemsprache)
 // Sprache für native Dialoge, Benachrichtigungen und Fehlertexte an die Oberfläche (wie in der Oberfläche:
-// Deutsch nur, wenn eingestellt bzw. die Systemsprache Deutsch ist). Logeinträge bleiben deutsch.
+// Deutsch bzw. Türkisch nur, wenn eingestellt bzw. die Systemsprache es ist). Logeinträge bleiben deutsch.
 function uiLang() {
   let l = '';
   try { l = getStore().settings.language; } catch {}
-  if (l === 'de' || l === 'en') return l;
-  return String(app.getLocale() || '').toLowerCase().startsWith('de') ? 'de' : 'en';
+  if (l === 'de' || l === 'en' || l === 'tr') return l;
+  const sys = String(app.getLocale() || '').toLowerCase();
+  return sys.startsWith('de') ? 'de' : sys.startsWith('tr') ? 'tr' : 'en';
 }
-const tr = (de, en) => (uiLang() === 'en' ? en : de);
+// Türkisch: dritter Wert (Texte mit eingesetzten Werten) oder Wörterbuch der Oberfläche (Schlüssel = deutscher Text);
+// fehlt beides, Englisch
+const TR = require('./renderer/i18n-tr.js');
+const tr = (de, en, tk) => { const l = uiLang(); return l === 'en' ? en : l === 'tr' ? (tk ?? (Object.prototype.hasOwnProperty.call(TR, de) ? TR[de] : en)) : de; };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
 // Netzwerkpfade (UNC, \\server\… oder //server/…) werden nie geprüft oder benutzt – schon die Existenzprüfung
@@ -270,16 +274,17 @@ handle('ext:action', async (_e, { profileId, action, id } = {}) => {
     title: LABEL[0], message: `${LABEL[1]}: ${id}`,
     detail: action === 'install' || action === 'enable'
       ? tr(`Plugins erweitern Claude Code um Befehle, Skills, Hooks oder MCP-Server und können dabei Code auf deinem PC ausführen. Nur Plugins verwenden, denen du vertraust.\n\nKonto: ${p.name}`,
-        `Plugins extend Claude Code with commands, skills, hooks or MCP servers and can run code on your PC. Only use plugins you trust.\n\nAccount: ${p.name}`)
+        `Plugins extend Claude Code with commands, skills, hooks or MCP servers and can run code on your PC. Only use plugins you trust.\n\nAccount: ${p.name}`,
+        `Eklentiler Claude Code'a komutlar, beceriler (skills), kancalar (hooks) veya MCP sunucuları ekler ve bilgisayarınızda kod çalıştırabilir. Yalnızca güvendiğiniz eklentileri kullanın.\n\nHesap: ${p.name}`)
       : action === 'uninstall'
-        ? tr(`Das Plugin wird für das Konto „${p.name}“ entfernt.`, `The plugin will be removed for the account “${p.name}”.`)
-        : tr(`Das Plugin wird für das Konto „${p.name}“ deaktiviert.`, `The plugin will be disabled for the account “${p.name}”.`),
+        ? tr(`Das Plugin wird für das Konto „${p.name}“ entfernt.`, `The plugin will be removed for the account “${p.name}”.`, `Eklenti “${p.name}” hesabı için kaldırılacak.`)
+        : tr(`Das Plugin wird für das Konto „${p.name}“ deaktiviert.`, `The plugin will be disabled for the account “${p.name}”.`, `Eklenti “${p.name}” hesabı için devre dışı bırakılacak.`),
   });
   if (ok !== 1) return { ok: false, cancelled: true };
   const r = await runClaude(p, ['plugin', action, id]);
   modelCache.delete(profileId); // Befehlsliste neu laden
   const msg = (r.out + '\n' + r.err).trim().split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 400);
-  return r.code === 0 ? { ok: true, message: msg } : { ok: false, error: msg || tr(`Fehler (Code ${r.code})`, `Error (code ${r.code})`) };
+  return r.code === 0 ? { ok: true, message: msg } : { ok: false, error: msg || tr(`Fehler (Code ${r.code})`, `Error (code ${r.code})`, `Hata (kod ${r.code})`) };
 });
 
 // ---------- Sitzungen (ein Claude-Prozess pro Chat-Tab) ----------
@@ -351,7 +356,7 @@ function startSession(tab) {
     send(tab.id, m);
   });
   proc.stderr.on('data', d => { s.stderr = (s.stderr + d).slice(-4000); });
-  proc.on('error', e => send(tab.id, { type: 'app_error', message: tr(`Claude konnte nicht gestartet werden: ${e.message}`, `Could not start Claude: ${e.message}`) }));
+  proc.on('error', e => send(tab.id, { type: 'app_error', message: tr(`Claude konnte nicht gestartet werden: ${e.message}`, `Could not start Claude: ${e.message}`, `Claude başlatılamadı: ${e.message}`) }));
   proc.on('close', code => {
     if (code) logError(`Claude beendet mit Code ${code} (Chat ${tab.id}, Sitzung ${s.tab.sessionId || '-'}): ${s.stderr.trim().split('\n').slice(-5).join(' | ')}`);
     if (sessions.get(tab.id) === s) sessions.delete(tab.id);
@@ -572,7 +577,7 @@ handle('profiles:login', (_e, id) => {
     modelCache.delete(id);
     const st = await authStatus(p);
     if (st.loggedIn) loginEvent(id, { state: 'done', status: st });
-    else loginEvent(id, { state: 'error', error: tr(`Anmeldung nicht abgeschlossen (Code ${code}).`, `Sign-in not completed (code ${code}).`) });
+    else loginEvent(id, { state: 'error', error: tr(`Anmeldung nicht abgeschlossen (Code ${code}).`, `Sign-in not completed (code ${code}).`, `Oturum açma tamamlanmadı (kod ${code}).`) });
   });
   return true;
 });
@@ -883,9 +888,10 @@ handle('session:moveProfile', (_e, { sessionId, cwd, fromProfileId, toProfileId 
   const ok = dialog.showMessageBoxSync(win, {
     type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Übertragen', 'Transfer')], defaultId: 0, cancelId: 0, noLink: true,
     title: tr('Chat in anderes Konto übertragen', 'Transfer chat to another account'),
-    message: tr(`Chat in Konto „${to.name}“ übertragen?`, `Transfer chat to account “${to.name}”?`),
+    message: tr(`Chat in Konto „${to.name}“ übertragen?`, `Transfer chat to account “${to.name}”?`, `Sohbet “${to.name}” hesabına aktarılsın mı?`),
     detail: tr(`Der gesamte Verlauf inkl. Dateiinhalten und Befehlsausgaben wird in Konto „${to.name}“ kopiert. Nicht zwischen Firmen- und Privatkonten übertragen.`,
-      `The entire history, including file contents and command output, will be copied to account “${to.name}”. Do not transfer between work and personal accounts.`),
+      `The entire history, including file contents and command output, will be copied to account “${to.name}”. Do not transfer between work and personal accounts.`,
+      `Dosya içerikleri ve komut çıktıları dahil tüm geçmiş “${to.name}” hesabına kopyalanır. İş ve kişisel hesaplar arasında aktarmayın.`),
   });
   if (ok !== 1) return { ok: false, cancelled: true };
   try { return { ok: copySessionToProfile(sessionId, cwd, from, to) }; } catch (e) { logError('Übertragung: ' + e.message); return { ok: false, error: e.message }; }
@@ -1316,9 +1322,10 @@ async function confirmPairing({ name, address }) {
   const r = await dialog.showMessageBox(win, {
     type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Koppeln', 'Pair')], defaultId: 0, cancelId: 0, noLink: true,
     title: tr('Gerät koppeln', 'Pair device'),
-    message: tr(`Gerät „${name}“ koppeln?`, `Pair device “${name}”?`),
+    message: tr(`Gerät „${name}“ koppeln?`, `Pair device “${name}”?`, `“${name}” cihazı eşleştirilsin mi?`),
     detail: tr(`Adresse: ${address}\n\nDas Gerät kann danach alle Chats und Konten dieses PCs nutzen, Claude hier Befehle ausführen lassen und – solange in der Geräteliste erlaubt – „Alles erlauben“ verwenden. Nur eigene Geräte koppeln.`,
-      `Address: ${address}\n\nThe device can then use all chats and accounts of this PC, let Claude run commands here and – as long as allowed in the device list – use “Allow everything”. Only pair your own devices.`),
+      `Address: ${address}\n\nThe device can then use all chats and accounts of this PC, let Claude run commands here and – as long as allowed in the device list – use “Allow everything”. Only pair your own devices.`,
+      `Adres: ${address}\n\nCihaz bundan sonra bu bilgisayarın tüm sohbetlerini ve hesaplarını kullanabilir, Claude'a burada komut çalıştırtabilir ve – cihaz listesinde izin verildiği sürece – “Her şeye izin ver” seçeneğini kullanabilir. Yalnızca kendi cihazlarınızı eşleştirin.`),
   });
   return r.response === 1;
 }
@@ -1978,7 +1985,7 @@ function createWindow() {
       title: tr('Swapline schließen', 'Close Swapline'),
       message: busy === 1
         ? tr('Claude arbeitet noch in 1 Chat (Antwort oder Hintergrund-Aufgabe).', 'Claude is still working in 1 chat (reply or background task).')
-        : tr(`Claude arbeitet noch in ${busy} Chats (Antwort oder Hintergrund-Aufgabe).`, `Claude is still working in ${busy} chats (reply or background task).`),
+        : tr(`Claude arbeitet noch in ${busy} Chats (Antwort oder Hintergrund-Aufgabe).`, `Claude is still working in ${busy} chats (reply or background task).`, `Claude hâlâ ${busy} sohbette çalışıyor (yanıt veya arka plan görevi).`),
       detail: tr('Beim Schließen wird die laufende Antwort abgebrochen. Bisherige Änderungen und der Verlauf bleiben erhalten – danach kannst du den Chat mit „mach weiter“ fortsetzen.',
         'Closing cancels the current reply. Changes so far and the history are kept – afterwards you can continue the chat with “continue”.'),
     });
