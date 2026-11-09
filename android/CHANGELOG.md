@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.3.0] – 2026-11-09
+
+- Neu: **Dokumente an Claude** – Büroklammer im Chat → „Dokument“: beliebige Dateien vom Handy oder aus Cloud-Speichern
+  (PDF, Word, Excel, Text, Code …, je bis 25 MB). Sie gehen an den Haupt-PC, Claude bekommt den Pfad (braucht Swapline
+  am PC ab 0.10.0). Bilder gehen weiterhin direkt als Bild.
+- Große Übertragungen: längere Wartezeit, das Lebenszeichen pausiert während einer Übertragung.
+
 ## [0.2.1] – 2026-11-09
 
 - Behoben: Nachrichten fehlten (z. B. nur ein Bash-Aufruf, danach nichts mehr), wenn die Verbindung kurz weg war –

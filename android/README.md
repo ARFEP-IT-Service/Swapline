@@ -11,6 +11,7 @@ läuft **kein** Claude Code und es gibt keine Claude-Anmeldung – die App ist e
 - **Neuer Chat** mit Konto, Ordner, Modell, Aufwand und Berechtigungen („Alles erlauben“ nur, wenn am Haupt-PC für das Gerät freigegeben).
 - **Antworten live** mit Markdown und Code, Werkzeug-Aufrufe kompakt, **Rückfragen, Fragen und Pläne als Karten**, Claude anhalten.
 - **Bilder an Claude:** Büroklammer im Chat – Foto aufnehmen oder aus der Galerie (bis zu 6 je Nachricht, auf dem Handy verkleinert).
+- **Dokumente an Claude:** Büroklammer → „Dokument“ – beliebige Dateien (je bis 25 MB); sie landen auf dem Haupt-PC in einem eigenen Upload-Ordner, Claude bekommt den Pfad (Swapline am PC ab 0.10.0).
 - **Diktieren:** Mikrofon im Eingabefeld (Spracherkennung von Android, wenn möglich auf dem Gerät); gesendet wird erst mit „Senden“.
 - **Benachrichtigung** bei fertiger Antwort oder Rückfrage – mit „Im Hintergrund verbunden bleiben“ auch bei geschlossener App
   (dauerhafte, stille Benachrichtigung; Lebenszeichen erkennen abgerissene Verbindungen, Netzwechsel verbindet sofort neu).

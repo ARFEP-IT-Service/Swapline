@@ -27,6 +27,7 @@ const host = remote.createHost({
     if (ch === 'echo') return { device: dev.name, args };
     if (ch === 'fail') throw new Error('absichtlich');
     if (ch === 'content') return validContent(args[0]);
+    if (ch === 'files:upload') { const b = Buffer.from(String(args[0]?.data || ''), 'base64'); return { path: 'C:\\Uploads\\' + args[0]?.name, name: args[0]?.name, size: b.length }; }
     if (ch === 'session:send') { // Rauchtest: Nachricht wie der Haupt-PC prüfen und Eckdaten melden
       const c = args[0]?.content, ok = validContent(c);
       out({ sent: { ok, images: Array.isArray(c) ? c.filter(b => b.type === 'image').length : 0, text: Array.isArray(c) ? c.find(b => b.type === 'text')?.text : c } });

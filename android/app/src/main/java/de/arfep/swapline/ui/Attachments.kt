@@ -37,7 +37,32 @@ const val MAX_ATTACH = 6
 private const val MAX_SIDE = 1600
 private const val MAX_BASE64 = 7_000_000 // Grenze des Haupt-PCs je Bild
 
-class Attach(val data: String, val thumb: ImageBitmap) { val mime get() = "image/jpeg" }
+// Bild (thumb gesetzt, JPEG) oder Dokument (name/size; geht als Datei an den Haupt-PC, Claude bekommt den Pfad)
+class Attach(val data: String, val thumb: ImageBitmap?, val name: String = "", val size: Long = 0) { val isImage get() = thumb != null }
+
+const val MAX_DOC = 25L * 1024 * 1024 // Grenze des Haupt-PCs je Datei
+
+fun sizeText(b: Long) = when { b < 1024 -> "$b B"; b < 1024 * 1024 -> "${b / 1024} KB"; else -> String.format("%.1f MB", b / 1048576.0) }
+
+// Dokument einlesen (beliebiger Dateityp, auch aus Cloud-Speichern); null = zu groß oder nicht lesbar
+suspend fun loadDoc(ctx: Context, uri: Uri): Result<Attach> = withContext(Dispatchers.IO) {
+    runCatching {
+        var name = "datei"; var size = -1L
+        ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                c.getString(0)?.let { name = it }
+                if (!c.isNull(1)) size = c.getLong(1)
+            }
+        }
+        if (size > MAX_DOC) error(tr("„$name“ ist zu groß (höchstens 25 MB).", "“$name” is too large (max. 25 MB)."))
+        val bytes = ctx.contentResolver.openInputStream(uri)!!.use { s ->
+            val out = ByteArrayOutputStream(); val buf = ByteArray(64 * 1024); var total = 0L
+            while (true) { val n = s.read(buf); if (n < 0) break; total += n; if (total > MAX_DOC) error(tr("„$name“ ist zu groß (höchstens 25 MB).", "“$name” is too large (max. 25 MB).")); out.write(buf, 0, n) }
+            out.toByteArray()
+        }
+        Attach(Base64.encodeToString(bytes, Base64.NO_WRAP), null, name.take(120), bytes.size.toLong())
+    }
+}
 
 // Bild laden, drehen wie aufgenommen (ImageDecoder beachtet EXIF), verkleinern und als JPEG kodieren
 suspend fun loadAttach(ctx: Context, uri: Uri): Attach? = withContext(Dispatchers.IO) {
@@ -72,7 +97,7 @@ suspend fun loadAttach(ctx: Context, uri: Uri): Attach? = withContext(Dispatcher
     }.getOrNull()
 }
 
-class AttachPicker(val gallery: () -> Unit, val camera: () -> Unit)
+class AttachPicker(val gallery: () -> Unit, val camera: () -> Unit, val document: () -> Unit)
 
 @Composable
 fun rememberAttachPicker(remaining: () -> Int, onAdd: (List<Attach>) -> Unit, onError: (String) -> Unit): AttachPicker {
@@ -85,6 +110,14 @@ fun rememberAttachPicker(remaining: () -> Int, onAdd: (List<Attach>) -> Unit, on
         val list = uris.take(remaining()).mapNotNull { loadAttach(ctx, it) }
         if (list.size < uris.size.coerceAtMost(remaining())) err(tr("Ein Bild konnte nicht gelesen werden.", "An image could not be read."))
         if (list.isNotEmpty()) add(list)
+    }
+    val docs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val list = mutableListOf<Attach>()
+            for (u in uris.take(remaining())) loadDoc(ctx, u).onSuccess { list += it }.onFailure { err(it.message ?: tr("Datei konnte nicht gelesen werden.", "File could not be read.")) }
+            if (list.isNotEmpty()) add(list)
+        }
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACH)) { uris -> if (uris.isNotEmpty()) load(uris) }
     val take = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -108,7 +141,8 @@ fun rememberAttachPicker(remaining: () -> Int, onAdd: (List<Attach>) -> Unit, on
     }
     return remember {
         AttachPicker(
-            gallery = { if (remaining() > 0) pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) else err(tr("Höchstens $MAX_ATTACH Bilder je Nachricht.", "At most $MAX_ATTACH images per message.")) },
+            gallery = { if (remaining() > 0) pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) else err(tr("Höchstens $MAX_ATTACH Anhänge je Nachricht.", "At most $MAX_ATTACH attachments per message.")) },
+            document = { if (remaining() > 0) docs.launch(arrayOf("*/*")) else err(tr("Höchstens $MAX_ATTACH Anhänge je Nachricht.", "At most $MAX_ATTACH attachments per message.")) },
             camera = {
                 if (remaining() <= 0) err(tr("Höchstens $MAX_ATTACH Bilder je Nachricht.", "At most $MAX_ATTACH images per message."))
                 // Die App führt die Kamera-Berechtigung (QR-Code) – Android verlangt sie dann auch für die Kamera-App

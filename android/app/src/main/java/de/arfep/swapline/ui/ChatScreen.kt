@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -183,10 +184,11 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
             Composer(text, { text = it }, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly) {
                 val t = text.trim()
                 if (t.isEmpty() && attachments.isEmpty()) return@Composer
-                val imgs = attachments.map { it.data }
+                val imgs = attachments.filter { it.isImage }.map { it.data }
+                val docs = attachments.filter { !it.isImage }.map { it.name to it.data }
                 text = ""
                 attachments.clear()
-                scope.launch { model.send(chat, t, imgs); list.scrollToItem(0) }
+                scope.launch { model.send(chat, t, imgs, docs); list.scrollToItem(0) }
             }
         }
     }
@@ -220,7 +222,13 @@ private fun Composer(text: String, onText: (String) -> Unit, attachments: Mutabl
             if (attachments.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 attachments.forEachIndexed { i, a ->
                     Box {
-                        androidx.compose.foundation.Image(a.thumb, null, Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        val th = a.thumb
+                        if (th != null) androidx.compose.foundation.Image(th, null, Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        else Column(Modifier.size(width = 120.dp, height = 64.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(10.dp)).padding(8.dp)) {
+                            Icon(Icons.Outlined.Description, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                            Text(sizeText(a.size), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Box(Modifier.align(Alignment.TopEnd).padding(2.dp).size(22.dp).background(Color.Black.copy(alpha = 0.6f), androidx.compose.foundation.shape.CircleShape)
                             .clickable { attachments.removeAt(i) }, contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.Close, tr("Entfernen", "Remove"), Modifier.size(14.dp), tint = Color.White)
@@ -237,6 +245,7 @@ private fun Composer(text: String, onText: (String) -> Unit, attachments: Mutabl
                     DropdownMenu(attachMenu, { attachMenu = false }) {
                         DropdownMenuItem(text = { Text(tr("Foto aufnehmen", "Take photo")) }, leadingIcon = { Icon(Icons.Outlined.PhotoCamera, null) }, onClick = { attachMenu = false; picker.camera() })
                         DropdownMenuItem(text = { Text(tr("Aus Galerie", "From gallery")) }, leadingIcon = { Icon(Icons.Outlined.Image, null) }, onClick = { attachMenu = false; picker.gallery() })
+                        DropdownMenuItem(text = { Text(tr("Dokument", "Document")) }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { attachMenu = false; picker.document() })
                     }
                 }
                 TextField(text, onText, Modifier.weight(1f), placeholder = { Text(tr("Nachricht an Claude …", "Message Claude …")) }, maxLines = 6,
@@ -271,7 +280,8 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
             Surface(color = Accent, contentColor = Color.White, shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp), modifier = Modifier.widthIn(max = 320.dp)) {
                 SelectionContainer {
                     Text(listOfNotNull(it.text.takeIf { t -> t.isNotBlank() && t != ClaudeText.SEE_IMAGE && t != ClaudeText.SEE_IMAGES },
-                        if (it.images > 0) "📷 " + if (it.images == 1) tr("1 Bild", "1 image") else tr("${it.images} Bilder", "${it.images} images") else null).joinToString("\n"),
+                        if (it.images > 0) "📷 " + if (it.images == 1) tr("1 Bild", "1 image") else tr("${it.images} Bilder", "${it.images} images") else null,
+                        it.files.takeIf { f -> f.isNotEmpty() }?.joinToString("\n") { f -> "📎 $f" }).joinToString("\n"),
                         Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
                 }
             }

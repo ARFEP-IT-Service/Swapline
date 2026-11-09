@@ -287,10 +287,25 @@ class AppModel(context: Context, private val notifier: Notifier) {
 
     // Nachricht an Claude: Text, optional mit Bildern (base64-JPEG). Ohne Text steht ein fester englischer Hinweis
     // im Inhalt, den Claude liest (wie in Swapline am PC).
-    suspend fun send(c: Chat, text: String, images: List<String> = emptyList()): Boolean {
+    suspend fun send(c: Chat, text: String, images: List<String> = emptyList(), docs: List<Pair<String, String>> = emptyList()): Boolean {
         val h = host(c.hostId) ?: return false
-        c.addOwn(text, images.size)
-        val content = messageContent(text, images)
+        c.addOwn(text, images.size, docs.map { it.first })
+        // Dokumente zuerst auf den Haupt-PC (je bis 25 MB, über Mobilfunk evtl. langsam) – Claude bekommt die Pfade
+        val paths = mutableListOf<String>()
+        for ((name, data) in docs) {
+            val r = runCatching { h.link.callWithin(10 * 60_000L, "files:upload", buildJsonObject { put("name", name); put("data", data) }) }
+            val p = (r.getOrNull() as? JsonObject)?.str("path")
+            if (p == null) {
+                c.running = false
+                val why = r.exceptionOrNull()?.message.orEmpty()
+                c.ingest(buildJsonObject { put("type", "app_error"); put("message", de.arfep.swapline.ui.tr("„$name“ konnte nicht übertragen werden", "“$name” could not be transferred") + (if (why.isNotEmpty()) ": $why" else "") +
+                    de.arfep.swapline.ui.tr(" (Dokumente brauchen Swapline am PC ab 0.10.0)", " (documents need Swapline on the PC 0.10.0 or later)")) })
+                saveChats()
+                return false
+            }
+            paths += p
+        }
+        val content = messageContent(text, images, paths)
         val ok = runCatching { h.link.call("session:send", buildJsonObject { put("tab", tabJson(c)); put("content", content) }) }
         val sent = ok.getOrNull().let { it is JsonPrimitive && it.booleanOrNull == true }
         if (!sent) {

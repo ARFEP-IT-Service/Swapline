@@ -125,6 +125,18 @@ class ChatTest {
         assertEquals(1, c.items.count { it is Item.Perm })
     }
 
+    @Test fun messageWithFilesLikeDesktop() {
+        // wie sendMessage in src/renderer/app.js: Text, Leerzeile, „Attached files:“, je Pfad „- …“
+        assertEquals("Lies das\n\nAttached files:\n- C:\\U\\a.pdf\n- C:\\U\\b.docx",
+            (messageContent("Lies das", emptyList(), listOf("C:\\U\\a.pdf", "C:\\U\\b.docx")) as kotlinx.serialization.json.JsonPrimitive).content)
+        assertEquals("See attached file.\n\nAttached files:\n- C:\\U\\a.pdf",
+            (messageContent("", emptyList(), listOf("C:\\U\\a.pdf")) as kotlinx.serialization.json.JsonPrimitive).content)
+        // Bild + Datei: Text-Block enthält die Pfade
+        val mixed = messageContent("", listOf("QUJD"), listOf("C:\\U\\a.pdf")) as JsonArray
+        assertEquals("See attached image.\n\nAttached files:\n- C:\\U\\a.pdf", (mixed.last() as JsonObject)["text"].prim())
+        assertEquals("Nur Text", (messageContent("Nur Text", emptyList()) as kotlinx.serialization.json.JsonPrimitive).content)
+    }
+
     @Test fun withinFolders() {
         assertTrue(within("C:\\Work\\app", "c:\\work"))
         assertTrue(within("C:\\Work", "C:\\Work\\"))

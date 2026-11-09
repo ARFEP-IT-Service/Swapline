@@ -139,6 +139,12 @@
   check('Offene Rückfragen eines beigetretenen Chats abrufbar (nach Unterbrechung)', pend && pend.running === false && Array.isArray(pend.requests), JSON.stringify(pend));
   check('Offene Rückfragen: fremder Chat liefert nichts', JSON.stringify(await R('session:pending', { tabId: 'fremd0001' })) === JSON.stringify({ running: false, requests: [] }));
   check('Offene Rückfragen: ungültige ID abgelehnt', (await R('session:pending', { tabId: '../x' })) === false);
+  // Dateien vom Gerät (Dokumente vom Handy): eigener Ordner im Temp-Verzeichnis, nur der Dateiname zählt
+  const up = await R('files:upload', { name: '..\\..\\geheim\\bericht.txt', data: btoa('Hallo Datei') });
+  check('Datei vom Gerät: nur Dateiname, im Upload-Ordner', !!up?.path && /[\\/]swapline-uploads[\\/][^\\/]+[\\/]bericht\.txt$/.test(up.path) && up.size === 11, JSON.stringify(up));
+  check('Datei vom Gerät: reservierter Name entschärft', /[\\/]_con\.txt$/.test((await R('files:upload', { name: 'con.txt', data: btoa('x') }))?.path || ''));
+  check('Datei vom Gerät: ungültige Daten abgelehnt', !(await R('files:upload', { name: 'a.txt', data: 'kein base64!' }))?.path);
+  check('Datei vom Gerät: zu groß abgelehnt', !(await R('files:upload', { name: 'gross.bin', data: 'A'.repeat(36 * 1024 * 1024) }))?.path);
   check('Einstellungen eines beigetretenen Chats ändert nur der Haupt-PC', (await R('session:restart', 'devtab001')) === false);
   check('Austreten beendet den Chat am Haupt-PC nicht', (await R('session:close', 'devtab001')) === true && tabs.includes(open));
   check('Oberfläche darf offene Chats nicht über ein Gerät melden', (await R('tabs:publish', [])) === false);

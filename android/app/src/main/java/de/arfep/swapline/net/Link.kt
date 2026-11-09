@@ -114,9 +114,12 @@ private class Channel(val socket: Socket, val input: InputStream, val output: Ou
     // Senden ohne den aufrufenden Thread zu blockieren (Android verbietet Netzwerk auf dem UI-Thread):
     // ein eigener Thread je Verbindung, Nachrichten in der Reihenfolge des Aufrufs
     private val writer = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "swapline-send").apply { isDaemon = true } }
+    // Nachrichten, die noch gesendet werden (z. B. eine große Datei) – solange ruht das Lebenszeichen
+    val pendingWrites = java.util.concurrent.atomic.AtomicInteger(0)
     fun send(obj: JsonElement, onError: (Exception) -> Unit) {
-        try { writer.execute { try { write(obj) } catch (e: Exception) { onError(e) } } }
-        catch (e: java.util.concurrent.RejectedExecutionException) { onError(e) }
+        pendingWrites.incrementAndGet()
+        try { writer.execute { try { write(obj) } catch (e: Exception) { onError(e) } finally { pendingWrites.decrementAndGet() } } }
+        catch (e: java.util.concurrent.RejectedExecutionException) { pendingWrites.decrementAndGet(); onError(e) }
     }
 
     // Nächste Zeile; null = Verbindung beendet. Zu große Nachrichten beenden die Verbindung.
@@ -270,6 +273,7 @@ class HostLink(
                     while (channel === ch) {
                         delay(heartbeat)
                         if (channel !== ch) break
+                        if (ch.pendingWrites.get() > 0 || calls.size > 0) continue // gerade Verkehr (z. B. Datei-Upload): lebt
                         try { withTimeout(heartbeatTimeout) { call("tabs:list") } }
                         catch (e: kotlinx.coroutines.TimeoutCancellationException) { ch.close(); break }
                         catch (e: Exception) { /* Fehler vom Haupt-PC = Verbindung lebt */ }
@@ -322,7 +326,10 @@ class HostLink(
     }
 
     // Anfrage an den Haupt-PC; der Haupt-PC prüft jede Anfrage selbst
-    suspend fun call(ch: String, vararg args: JsonElement): JsonElement = withTimeout(CALL_TIMEOUT) {
+    suspend fun call(ch: String, vararg args: JsonElement): JsonElement = callWithin(CALL_TIMEOUT, ch, *args)
+
+    // Anfrage mit eigener Wartezeit (große Datei-Uploads über Mobilfunk brauchen länger)
+    suspend fun callWithin(timeout: Long, ch: String, vararg args: JsonElement): JsonElement = withTimeout(timeout) {
         val c = channel
         if (c == null || state != LinkState.CONNECTED) throw LinkException("offline", "Nicht mit dem Haupt-PC verbunden")
         val id = nextId.getAndIncrement()

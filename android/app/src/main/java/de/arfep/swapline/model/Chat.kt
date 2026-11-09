@@ -22,7 +22,7 @@ enum class AnswerKind { ALLOWED, ALWAYS, DENIED, PLAN_ACCEPTED, PLAN_REVISE, PLA
 data class Answer(val kind: AnswerKind, val detail: String = "")
 
 sealed class Item {
-    data class Me(val text: String, val time: Long?, val from: String = "", val images: Int = 0) : Item()
+    data class Me(val text: String, val time: Long?, val from: String = "", val images: Int = 0, val files: List<String> = emptyList()) : Item()
     data class Ai(val text: String, val time: Long?, val streaming: Boolean = false) : Item()
     data class Tool(val id: String, val name: String, val input: JsonElement, val result: String? = null, val isError: Boolean = false) : Item()
     data class Perm(val requestId: String, val toolName: String, val input: JsonElement, val description: String, val suggestions: JsonElement?, val answer: Answer? = null) : Item()
@@ -47,6 +47,8 @@ object ClaudeText {
     const val QUESTION_SKIPPED = "The user does not want to answer the question."
     const val SEE_IMAGE = "See attached image."
     const val SEE_IMAGES = "See attached images."
+    const val SEE_FILE = "See attached file."
+    const val ATTACHED_FILES = "Attached files:"
 }
 
 private fun hiddenUserText(s: String) =
@@ -122,9 +124,9 @@ class Chat(
     }
 
     // Eigene Nachricht sofort anzeigen (der Haupt-PC schickt sie dem Absender nicht zurück)
-    fun addOwn(text: String, images: Int = 0) {
+    fun addOwn(text: String, images: Int = 0, files: List<String> = emptyList()) {
         val now = System.currentTimeMillis()
-        add(Item.Me(text, now, images = images))
+        add(Item.Me(text, now, images = images, files = files))
         running = true
         updated = now
         preview = text.replace(Regex("\\s+"), " ").take(90)
@@ -259,7 +261,14 @@ class Chat(
 }
 
 // Inhalt für session:send: nur Text als Zeichenkette, mit Bildern als Liste aus Bild-Blöcken (JPEG, base64) und Text
-fun messageContent(text: String, images: List<String>): JsonElement = if (images.isEmpty()) JsonPrimitive(text) else JsonArray(
+fun messageContent(text: String, images: List<String>, files: List<String> = emptyList()): JsonElement {
+    // wie in Swapline am PC: Text, darunter „Attached files:“ mit den Pfaden auf dem Haupt-PC
+    val base = text.ifBlank { if (images.size > 1) ClaudeText.SEE_IMAGES else if (images.size == 1) ClaudeText.SEE_IMAGE else if (files.isNotEmpty()) ClaudeText.SEE_FILE else text }
+    val full = if (files.isEmpty()) base else base + "\n\n" + ClaudeText.ATTACHED_FILES + "\n" + files.joinToString("\n") { "- $it" }
+    return if (images.isEmpty()) JsonPrimitive(full) else imageContent(full, images)
+}
+
+private fun imageContent(text: String, images: List<String>): JsonElement = JsonArray(
     images.map { data ->
         kotlinx.serialization.json.buildJsonObject {
             put("type", JsonPrimitive("image"))
@@ -269,7 +278,7 @@ fun messageContent(text: String, images: List<String>): JsonElement = if (images
         }
     } + kotlinx.serialization.json.buildJsonObject {
         put("type", JsonPrimitive("text"))
-        put("text", JsonPrimitive(text.ifBlank { if (images.size == 1) ClaudeText.SEE_IMAGE else ClaudeText.SEE_IMAGES }))
+        put("text", JsonPrimitive(text))
     })
 
 fun requestIdOf(it: Item): String? = when (it) { is Item.Perm -> it.requestId; is Item.Question -> it.requestId; is Item.Plan -> it.requestId; else -> null }

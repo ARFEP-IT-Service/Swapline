@@ -1194,6 +1194,42 @@ function hostProjectEdit(dev, ch, a) {
   // leere Ordner sind beim Gerät sonst unsichtbar (es sieht nur Ordner mit sichtbaren Projekten) – beim Bearbeiten alle zeigen
   return { ...out, projectGroups: getStore().projectGroups };
 }
+// Dateien von Geräten (z. B. Dokumente vom Handy): landen in einem eigenen Ordner je Datei unter
+// %TEMP%\swapline-uploads – nie in Projektordnern. Claude bekommt den Pfad (wie bei Anhängen am PC).
+// Nur der Dateiname zählt (Pfadanteile, Steuer- und reservierte Zeichen fallen weg), höchstens 25 MB; ältere Uploads
+// (> 7 Tage) räumt Swapline selbst weg.
+const UPLOAD_MAX = 25 * 1024 * 1024;
+const uploadRoot = () => path.join(os.tmpdir(), 'swapline-uploads');
+function uploadName(name) {
+  let n = String(name || '').split(/[\\/]/).pop().replace(/[\x00-\x1f<>:"|?*]/g, '_').replace(/[. ]+$/, '').trim().slice(0, 120);
+  if (!n || /^\.+$/.test(n)) n = 'datei';
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(n)) n = '_' + n;
+  return n;
+}
+function cleanUploads() {
+  const root = uploadRoot();
+  let dirs; try { dirs = fs.readdirSync(root, { withFileTypes: true }); } catch { return; }
+  for (const d of dirs) {
+    if (!d.isDirectory()) continue;
+    const p = path.join(root, d.name);
+    try { if (Date.now() - fs.statSync(p).mtimeMs > 7 * 24 * 3600 * 1000) fs.rmSync(p, { recursive: true, force: true }); } catch {}
+  }
+}
+function receiveUpload(dev, a) {
+  const data = a?.data;
+  if (typeof data !== 'string' || data.length > Math.ceil(UPLOAD_MAX / 3) * 4 + 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new Error(tr('Datei ungültig oder zu groß (höchstens 25 MB)', 'File invalid or too large (max. 25 MB)'));
+  const buf = Buffer.from(data, 'base64');
+  if (buf.length > UPLOAD_MAX) throw new Error(tr('Datei zu groß (höchstens 25 MB)', 'File too large (max. 25 MB)'));
+  const name = uploadName(a?.name);
+  cleanUploads();
+  const dir = path.join(uploadRoot(), new Date().toISOString().slice(0, 10) + '-' + crypto.randomBytes(6).toString('hex'));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, buf, { flag: 'wx' });
+  logError(`Fernzugriff: Datei von Gerät „${dev.name}“ empfangen: ${name} (${buf.length} Bytes)`);
+  return { path: file, name, size: buf.length };
+}
+
 async function hostDispatch(dev, ch, args) {
   const e = { remote: dev };
   const call = (c, ...a) => H.get(c)(e, ...a);
@@ -1234,6 +1270,7 @@ async function hostDispatch(dev, ch, args) {
     }
     // Nach einer Unterbrechung: offene Rückfragen eines Chats des Geräts (eigener oder beigetretener Chat) – sie stehen
     // nicht in der Sitzungsdatei. Antwort im Format der CLI-Nachricht, damit das Gerät sie wie live anzeigen kann.
+    case 'files:upload': return receiveUpload(dev, a0);
     case 'session:pending': {
       if (typeof a0?.tabId !== 'string' || !/^[a-z0-9]{6,23}$/i.test(a0.tabId)) return false;
       const own = 'r' + dev.id + a0.tabId;
@@ -1301,7 +1338,7 @@ async function startRemoteHost() {
 const remoteHosts = () => getStore().remoteHosts || [];
 const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
-const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach', 'session:pending',
+const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach', 'session:pending', 'files:upload',
   'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
   'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate', 'projects:remove', 'projects:groupRemove']);
 const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };

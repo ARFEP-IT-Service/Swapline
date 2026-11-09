@@ -7,6 +7,13 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.10.0] – 2026-11-09
+
+- Fernzugriff: Geräte können **Dateien schicken** (z. B. Dokumente aus der Android-App). Sie landen in einem eigenen
+  Ordner je Datei unter `%TEMP%\swapline-uploads` (nie in Projektordnern), höchstens 25 MB, nur der Dateiname zählt;
+  Claude bekommt den Pfad wie bei Anhängen am PC. Uploads älter als 7 Tage räumt Swapline weg; jeder Empfang steht im
+  Protokoll.
+
 ## [0.9.1] – 2026-11-09
 
 - Fernzugriff: Geräte können nach einer Unterbrechung die offenen Rückfragen eines Chats abfragen (sie stehen nicht in

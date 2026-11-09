@@ -119,6 +119,25 @@ class LinkTest {
         scope.cancel()
     }
 
+    @Test fun largeUploadSurvivesHeartbeat() = runBlocking {
+        val p = pairOk("Upload")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val states = CopyOnWriteArrayList<LinkState>()
+        // sehr kurzes Lebenszeichen: darf eine laufende große Übertragung nicht als „tot“ abbrechen
+        val link = HostLink(scope, { _, _ -> }, { s, _ -> states += s }, heartbeat = 100, heartbeatTimeout = 300)
+        link.use(Target("127.0.0.1", port, p.deviceId, p.key))
+        withTimeout(15_000) { while (link.state != LinkState.CONNECTED) delay(20) }
+        val bytes = ByteArray(20 * 1024 * 1024) { (it % 253).toByte() }
+        val data = java.util.Base64.getEncoder().encodeToString(bytes)
+        val r = link.callWithin(120_000, "files:upload", kotlinx.serialization.json.buildJsonObject {
+            put("name", JsonPrimitive("bericht.pdf")); put("data", JsonPrimitive(data))
+        }).jsonObject
+        assertEquals(bytes.size.toString(), r.getValue("size").jsonPrimitive.content)
+        assertTrue("Verbindung blieb bestehen", LinkState.RECONNECTING !in states)
+        link.close()
+        scope.cancel()
+    }
+
     @Test fun heartbeatDetectsDeadConnection() = runBlocking {
         val p = pairOk("Lebenszeichen")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
