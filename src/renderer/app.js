@@ -1254,18 +1254,24 @@ function showUpdate(st) {
   updateInfo = st;
   const info = $('#update-info'); if (info) info.textContent = updateText(st);
   const ready = st.status === 'ready', avail = st.status === 'available';
-  const btn = $('#update-restart'); if (btn) { btn.hidden = !(ready || avail); btn.textContent = ready ? _('Neu starten') : _('Herunterladen und installieren'); }
+  const btn = $('#update-restart'); if (btn) { btn.hidden = !(ready || avail); btn.textContent = ready ? _('Jetzt neu starten') : _('Herunterladen'); }
   $('#update-banner')?.remove();
   if (!(ready || avail) || updateDismissed === st.version) return;
   document.body.append(el('div', { id: 'update-banner' },
-    el('span', {}, avail ? _('Version {v} verfügbar', { v: st.version }) : el('span', {}, el('b', {}, `Swapline ${st.version}`), ' ' + _('ist bereit'))),
-    el('button', { class: 'primary', onclick: installUpdate }, ready ? _('Neu starten') : _('Herunterladen und installieren')),
-    el('button', { class: 'ghost', title: ready ? _('Später – wird beim nächsten Beenden installiert') : _('Später'), onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); } }, icon(ICONS.x))));
+    el('span', {}, avail ? _('Version {v} verfügbar', { v: st.version }) : el('span', {}, el('b', {}, `Swapline ${st.version}`), ' ' + _('ist geladen – jetzt neu starten?'))),
+    el('button', { class: 'primary', onclick: installUpdate }, ready ? _('Jetzt neu starten') : _('Herunterladen')),
+    ready ? el('button', { class: 'ghost', title: _('Später – wird beim nächsten Beenden installiert'), onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); toast(_('Das Update wird beim nächsten Beenden installiert')); } }, _('Später'))
+      : el('button', { class: 'ghost', title: _('Später'), onclick: () => { updateDismissed = st.version; $('#update-banner')?.remove(); } }, icon(ICONS.x))));
 }
+// „Herunterladen“ lädt nur; neu gestartet wird erst nach Klick auf „Jetzt neu starten“
 async function installUpdate() {
+  if (updateInfo.status === 'available') {
+    if (await api.update.download()) toast(_('Update wird geladen – danach kannst du neu starten'));
+    else toast(_('Update ist nicht mehr verfügbar'));
+    return;
+  }
   if (tabs.some(t => t.running || bgRunning(t)) && !confirm(_('Claude arbeitet noch. Trotzdem neu starten und das Update installieren?'))) return;
   if (!(await api.update.install())) toast(_('Update ist nicht mehr verfügbar'));
-  else if (updateInfo.status === 'available') toast(_('Update wird geladen – Swapline startet danach neu'));
 }
 api.update.onStatus(showUpdate);
 api.update.state().then(showUpdate);
@@ -1726,7 +1732,7 @@ function openSettings() {
         return e;
       })()),
       el('button', { class: 'ghost', style: 'align-self:flex-end', disabled: !updateInfo.supported, onclick: () => api.update.check() }, _('Jetzt prüfen')),
-      el('button', { id: 'update-restart', class: 'primary', style: 'align-self:flex-end', hidden: !['ready', 'available'].includes(updateInfo.status), onclick: installUpdate }, updateInfo.status === 'ready' ? _('Neu starten') : _('Herunterladen und installieren'))),
+      el('button', { id: 'update-restart', class: 'primary', style: 'align-self:flex-end', hidden: !['ready', 'available'].includes(updateInfo.status), onclick: installUpdate }, updateInfo.status === 'ready' ? _('Jetzt neu starten') : _('Herunterladen'))),
     el('p', { class: 'hint', id: 'update-info' }, updateText()),
     el('p', { class: 'hint' }, _('Swapline fragt dazu nur bei GitHub (github.com/ARFEP-IT-Service/Swapline) nach neuen Versionen – ohne Konto- oder Nutzungsdaten.')),
     el('div', { class: 'about' },

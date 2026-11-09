@@ -913,13 +913,14 @@ function openExternalSafe(url) {
 // Die ZIP-Variante und der Entwicklungsmodus aktualisieren sich nicht selbst.
 const UPDATE_SUPPORTED = app.isPackaged && process.platform === 'win32' && fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall Swapline.exe'));
 const UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
-let updater = null, updateState = { status: 'idle' }, installAfterDownload = false;
+let updater = null, updateState = { status: 'idle' }, userDownloaded = false; // userDownloaded: Update auf Klick geladen
 const updateMode = () => getStore().settings.updateMode;
 function applyUpdateMode() {
   if (!updater) return;
   const auto = updateMode() === 'auto';
   updater.autoDownload = auto;
-  updater.autoInstallOnAppQuit = auto;
+  // Ein geladenes Update wird beim nächsten Beenden installiert (ohne Neustart), wenn der Nutzer es geladen hat
+  updater.autoInstallOnAppQuit = auto || userDownloaded;
 }
 function setUpdateState(st) { updateState = st; if (win && !win.isDestroyed()) win.webContents.send('update:status', { ...st, supported: UPDATE_SUPPORTED }); }
 function initUpdater() {
@@ -934,14 +935,10 @@ function initUpdater() {
   updater.on('update-available', i => setUpdateState(updater.autoDownload ? { status: 'downloading', version: i.version, percent: 0 } : { status: 'available', version: i.version }));
   updater.on('update-not-available', () => setUpdateState({ status: 'latest', checked: Date.now() }));
   updater.on('download-progress', p => setUpdateState({ status: 'downloading', version: updateState.version, percent: Math.round(p.percent || 0) }));
-  updater.on('update-downloaded', i => {
-    setUpdateState({ status: 'ready', version: i.version });
-    // „Herunterladen und installieren“ geklickt: direkt neu starten (laufende Antworten fragt das Schließen-Fenster ab)
-    if (installAfterDownload) { installAfterDownload = false; setImmediate(() => updater.quitAndInstall(true, true)); }
-  });
+  // Geladen: nie selbst neu starten – die Oberfläche fragt „Jetzt neu starten / Später“
+  updater.on('update-downloaded', i => setUpdateState({ status: 'ready', version: i.version }));
   updater.on('error', e => {
     logError('Updater: ' + (e?.stack || e));
-    installAfterDownload = false;
     if (updateState.status !== 'ready') setUpdateState({ status: 'error', error: String(e?.message || e).split('\n')[0].slice(0, 200) });
   });
   return updater;
@@ -956,15 +953,20 @@ function checkForUpdates(manual = false) {
 }
 ipcMain.handle('update:state', () => ({ ...updateState, supported: UPDATE_SUPPORTED }));
 ipcMain.handle('update:check', () => checkForUpdates(true));
-// Installieren: ist das Update schon geladen, sofort neu starten; sonst erst laden, dann neu starten.
-// Läuft noch eine Antwort, fragt das Schließen-Fenster nach.
-ipcMain.handle('update:install', () => {
-  if (!updater) return false;
-  if (updateState.status === 'ready') { setImmediate(() => updater.quitAndInstall(true, true)); return true; }
-  if (updateState.status !== 'available') return false;
-  installAfterDownload = true;
+// Laden auf Klick („Herunterladen“). Danach fragt die Oberfläche, ob jetzt neu gestartet werden soll;
+// ohne Neustart wird das Update beim nächsten Beenden installiert.
+ipcMain.handle('update:download', () => {
+  if (!updater || updateState.status !== 'available') return false;
+  userDownloaded = true;
+  applyUpdateMode();
   setUpdateState({ status: 'downloading', version: updateState.version, percent: 0 });
   updater.downloadUpdate().catch(() => {}); // Fehler kommen über das 'error'-Ereignis
+  return true;
+});
+// Neu starten und installieren – nur auf ausdrücklichen Klick; läuft noch eine Antwort, fragt das Schließen-Fenster nach
+ipcMain.handle('update:install', () => {
+  if (!updater || updateState.status !== 'ready') return false;
+  setImmediate(() => updater.quitAndInstall(true, true));
   return true;
 });
 

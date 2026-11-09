@@ -112,7 +112,12 @@
   const modeSel = [...document.querySelectorAll('.modal.settings select')].find(s => s.querySelector('option[value="notify"]'));
   check('Einstellung Updates: Nur benachrichtigen (Standard) / Automatisch / Aus', !!modeSel && [...modeSel.options].map(o => o.value).join() === 'notify,auto,off' && modeSel.value === 'notify');
   showUpdate({ status: 'available', version: '9.9.8', supported: true });
-  check('Update verfügbar: Hinweis mit „Herunterladen und installieren“', /Version 9\.9\.8 verfügbar/.test($('#update-banner')?.textContent || '') && /Herunterladen und installieren/.test($('#update-banner button.primary')?.textContent || '') && $('#update-restart').textContent === 'Herunterladen und installieren');
+  check('Update verfügbar: Knopf „Herunterladen“ (kein Neustart)', /Version 9\.9\.8 verfügbar/.test($('#update-banner')?.textContent || '') && $('#update-banner button.primary')?.textContent === 'Herunterladen' && $('#update-restart').textContent === 'Herunterladen');
+  showUpdate({ status: 'ready', version: '9.9.8', supported: true });
+  check('Update geladen: fragt „Jetzt neu starten“ oder „Später“', /jetzt neu starten\?/.test($('#update-banner')?.textContent || '') && $('#update-banner button.primary')?.textContent === 'Jetzt neu starten' && $('#update-banner button.ghost')?.textContent === 'Später');
+  check('Neustart ohne geladenes Update abgelehnt', (await api.update.install()) === false && (await api.update.download()) === false);
+  $('#update-banner button.ghost').click();
+  check('„Später“ schließt den Hinweis ohne Neustart', !$('#update-banner'));
   showUpdate({ status: 'latest', supported: true });
   check('Kein Hinweis, wenn aktuell', !$('#update-banner') && $('#update-restart').hidden);
   $('#modal-root').replaceChildren();

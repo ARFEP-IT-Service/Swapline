@@ -7,6 +7,11 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Update: „Herunterladen“ lädt nur noch. Danach fragt Swapline „Jetzt neu starten“ oder „Später“ und startet nie
+  von selbst neu; mit „Später“ wird das Update beim nächsten Beenden installiert.
+
 ## [0.1.2] – 2026-11-09
 
 - Behoben: Der Kosten-Gegenwert verdoppelte sich nach jedem Fortsetzen eines Chats (App-Neustart, Update,
