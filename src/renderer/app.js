@@ -1108,6 +1108,7 @@ function ingest(t, m, fromHistory = false) {
 const TASK_TYPES = { local_bash: N_('Befehl'), local_agent: N_('Agent'), remote_agent: N_('Agent (Cloud)') };
 // Chat gilt auch nach dem Ende der Antwort als aktiv, solange eine Hintergrund-Aufgabe läuft
 const bgRunning = t => Object.values(t.tasks || {}).some(x => x.status === 'running');
+let bgDoneHideMs = 4000; // so lange bleibt eine erfolgreich beendete Hintergrund-Aufgabe sichtbar
 function trackTask(t, m) {
   t.tasks ||= {};
   if (m.subtype === 'background_tasks_changed') {
@@ -1122,6 +1123,15 @@ function trackTask(t, m) {
     if (m.tool_use_id) task.toolUseId = m.tool_use_id;
     if (m.subtype === 'task_updated' && m.patch?.status) { task.status = m.patch.status; if (m.patch.end_time) task.end = m.patch.end_time; }
     if (m.subtype === 'task_notification') { task.status = m.status || task.status; task.summary = m.summary; if (m.output_file) task.output = m.output_file; task.end ||= Date.now(); }
+  }
+  // erfolgreich beendete Aufgaben nach kurzer Zeit aus der Leiste nehmen – fehlgeschlagene bleiben, bis man sie entfernt
+  for (const task of Object.values(t.tasks)) {
+    if (task.status !== 'completed' || task.hideTimer) continue;
+    task.hideTimer = setTimeout(() => {
+      if (t.tasks?.[task.id]?.status !== 'completed') return;
+      delete t.tasks[task.id];
+      renderBgBar(t);
+    }, bgDoneHideMs);
   }
   renderBgBar(t);
   renderList(); renderRail();
@@ -1933,6 +1943,13 @@ api.remote.onStatus(info => {
   renderRemoteBar();
   if ($('.modal.remote')) drawRemote();
 });
+
+// Knopf „Ganz nach unten“: erscheint, sobald man ein Stück nach oben gescrollt hat
+const scrollToBottom = (smooth = true) => { const box = $('#messages'); box.scrollTo({ top: box.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); };
+function updateBottomBtn() { const box = $('#messages'); $('#btn-bottom').hidden = box.scrollHeight - box.scrollTop - box.clientHeight < 300; }
+$('#messages').addEventListener('scroll', updateBottomBtn, { passive: true });
+$('#btn-bottom').onclick = () => scrollToBottom();
+document.addEventListener('keydown', e => { if (e.ctrlKey && e.key === 'End' && !$('#chat-view').hidden) { e.preventDefault(); scrollToBottom(); } });
 
 // ---------- Ereignisse ----------
 $('#btn-new-chat').onclick = () => newChat();

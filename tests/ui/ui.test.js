@@ -41,6 +41,25 @@
   check('Chat bleibt aktiv, solange eine Hintergrund-Aufgabe läuft', !!document.querySelector('#list .item.active .busy.bg'));
   ingest(t, { type: 'system', subtype: 'task_notification', task_id: 'b1', status: 'completed', summary: 'fertig' });
   check('Hintergrund-Aufgabe beendet', /beendet/.test($('#bgbar').textContent) && !document.querySelector('#list .item.active .busy'));
+  bgDoneHideMs = 150;
+  ingest(t, { type: 'system', subtype: 'task_started', task_id: 'b2', description: 'Kurz', task_type: 'local_bash' });
+  ingest(t, { type: 'system', subtype: 'task_started', task_id: 'b3', description: 'Fehler', task_type: 'local_bash' });
+  ingest(t, { type: 'system', subtype: 'task_notification', task_id: 'b2', status: 'completed', summary: 'ok' });
+  ingest(t, { type: 'system', subtype: 'task_notification', task_id: 'b3', status: 'failed', summary: 'kaputt' });
+  await sleep(400);
+  check('Erfolgreich beendete Aufgaben verschwinden von selbst, fehlgeschlagene bleiben', !t.tasks.b2 && t.tasks.b3?.status === 'failed' && !$('#bgbar').hidden, JSON.stringify(Object.keys(t.tasks)));
+  delete t.tasks.b1; delete t.tasks.b3; renderBgBar(t);
+  check('Ohne Aufgaben ist die Leiste weg', $('#bgbar').hidden);
+  bgDoneHideMs = 4000;
+
+  // Knopf „Ganz nach unten“
+  for (let i = 0; i < 40; i++) t.items.push({ kind: 'ai', text: 'Zeile ' + i + '\n\n'.repeat(3) + 'Text', time: Date.now() });
+  renderMessages();
+  const box = $('#messages');
+  box.scrollTop = 0; updateBottomBtn();
+  check('Weiter oben: Knopf „Ganz nach unten“ sichtbar', !$('#btn-bottom').hidden);
+  scrollToBottom(false); updateBottomBtn();
+  check('Unten angekommen: Knopf wieder weg', $('#btn-bottom').hidden && box.scrollHeight - box.scrollTop - box.clientHeight < 5);
 
   // /-Befehle und Eingabe-Verlauf
   typeInto(input, '/ren');

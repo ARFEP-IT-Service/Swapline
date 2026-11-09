@@ -7,6 +7,12 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Knopf „Ganz nach unten“ (auch Strg+Ende), sobald man im Chat nach oben gescrollt hat.
+- Erfolgreich beendete Hintergrund-Aufgaben verschwinden nach ein paar Sekunden von selbst aus der Leiste;
+  fehlgeschlagene bleiben sichtbar.
+
 ## [0.2.0] – 2026-11-09
 
 - Neu: **Fernzugriff** – ein anderer eigener PC mit Swapline nutzt Chats und Konten dieses PCs, im Netzwerk oder

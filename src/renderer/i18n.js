@@ -433,6 +433,7 @@ const EN = {
   'Du bist gerade mit einem Haupt-PC verbunden. Freigaben für Geräte, die sich mit diesem PC verbinden, bearbeitest du nach „Zurück zu diesem PC“.': 'You are currently connected to a host PC. Edit sharing for devices that connect to this PC after “Back to this PC”.',
   'Zum Bearbeiten zurück zu diesem PC wechseln': 'Switch back to this PC to edit',
   'Freigabe …': 'Sharing …',
+  'Ganz nach unten (Strg+Ende)': 'Jump to bottom (Ctrl+End)',
   'Update ist nicht mehr verfügbar': 'The update is no longer available',
   'Version {v} ist verfügbar.': 'Version {v} is available.',
   'Version {v} verfügbar': 'Version {v} available',
