@@ -26,6 +26,8 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 - **Hintergrund-Aufgaben** (z. B. Befehle mit `run_in_background`, Agenten) als Leiste über dem Eingabefeld, mit Status und Ausgabe; der Chat bleibt als aktiv markiert, solange eine Aufgabe läuft.
 - **Suche:** offene Chats inklusive Nachrichtentext, im Verlauf Volltextsuche durch alle Sitzungen.
 - **Erweiterungen:** Plugins aus den Marktplätzen installieren, aktivieren, deaktivieren und entfernen, Skills und Befehle des Kontos ansehen.
+- **Geteilte Ansicht:** zwei Chats nebeneinander (Strg+# oder Rechtsklick → „Daneben öffnen“).
+- **Eigene Bilder** für Chats und Haupt-PCs (Rechtsklick).
 - **Anzeige nach Wunsch:** Werkzeug-Aufrufe alle, kompakt oder ausgeblendet; Recap („während du weg warst“); Antworten und Code kopieren; Chats umbenennen; Hell/Dunkel; Deutsch/Englisch.
 - **Benachrichtigungen:** Windows-Benachrichtigung bei fertiger Antwort oder Rückfrage, auf Wunsch bis zum Klick sichtbar, mit wählbarem Ton.
 - **Fernzugriff:** Chats und Konten dieses PCs von einem anderen eigenen PC mit Swapline nutzen – im Netzwerk oder übers Internet (siehe [Fernzugriff](#fernzugriff)).
@@ -66,12 +68,23 @@ Ein PC mit Swapline kann **Haupt-PC** sein: Andere eigene Geräte mit Swapline v
 
 **Sicherheit:** Verbindung per TLS 1.2 mit eigenem 256-Bit-Schlüssel je Gerät (TLS-PSK mit ECDHE, beide Seiten prüfen sich gegenseitig). Der Schlüssel entsteht beim Koppeln und wird auf beiden PCs nur verschlüsselt (Windows-Datenschutz-API) gespeichert. Wiederholte Fehlversuche einer Adresse werden für 10 Minuten gesperrt. Ein Gerät kann Chats führen, Rückfragen beantworten und – solange in der Geräteliste erlaubt – „Alles erlauben“ nutzen; Konten, Projekte, Plugins und Einstellungen des Haupt-PCs ändern kann es nicht. Geräte lassen sich jederzeit entfernen. **Nur eigene Geräte koppeln** – das Teilen eines Claude-Kontos mit anderen Personen erlauben Anthropics Bedingungen nicht.
 
+## Server per SSH (z. B. VPS)
+
+Claude Code kann auch auf einem eigenen Server laufen (z. B. VPS mit Ubuntu); Swapline zeigt dessen Chats und Verlauf wie die eines Haupt-PCs.
+
+1. Auf dem Server Claude Code installieren und einen SSH-Zugang **per Schlüssel** einrichten (der öffentliche Schlüssel dieses PCs steht in `~/.ssh/authorized_keys` des Servers). Swapline nutzt den SSH-Client von Windows und fragt nie nach Passwörtern.
+2. Fernzugriff einrichten → **Server per SSH** → Name, Benutzer, Adresse, Port und die Ordner auf dem Server eintragen, in denen Chats laufen dürfen.
+3. **Claude anmelden** öffnet ein Terminal mit `claude auth login` auf dem Server – dort selbst anmelden. Die Zugangsdaten bleiben auf dem Server.
+4. Der Server steht dann links in der Leiste; ein Klick zeigt seine Chats, **+** startet dort einen neuen.
+
+Den Server-Schlüssel übernimmt Swapline beim ersten Verbinden (`StrictHostKeyChecking=accept-new`); ändert er sich später, bricht die Verbindung ab. Alles, was in den Befehl auf dem Server gelangt, ist geprüft oder in Anführungszeichen gesetzt.
+
 ## Daten und Anmeldung
 
 - **Anmeldung:** ausschließlich über `claude auth login`, also Anthropics eigenen Ablauf im System-Browser. Swapline zeigt keine Anmeldeseite an, liest dabei keine Ausgabe und sieht weder Passwort noch Code noch Token.
 - **Zugangsdaten:** Swapline liest, speichert oder überträgt keine Zugangsdaten oder Tokens. Claude Code legt sie selbst in seinem Konfigurationsordner ab; Swapline legt pro Konto nur fest, welcher Ordner das ist (Umgebungsvariable `CLAUDE_CONFIG_DIR`).
 - **Anfragen an Claude:** laufen immer über das unveränderte, installierte Claude-Code-Programm (`claude -p --input-format stream-json …`). Swapline selbst sendet keine Telemetrie und lädt keine Remote-Bilder; https-Links öffnet es im Standard-Browser.
-- **Eigene Netzverbindungen:** nur der Fernzugriff (wenn eingeschaltet, siehe oben) und die Update-Prüfung.
+- **Eigene Netzverbindungen:** nur der Fernzugriff (wenn eingeschaltet, siehe oben), eingetragene Server per SSH (über den SSH-Client von Windows) und die Update-Prüfung.
 - **Update-Prüfung:** Die installierte App fragt beim Start und alle 6 Stunden bei GitHub (`github.com/ARFEP-IT-Service/Swapline`, Release-Daten `latest.yml`) nach einer neuen Version. Geladen wird die neue Version ebenfalls von dort – im Standard „Nur benachrichtigen“ erst nach deinem Klick. Dabei werden keine Konto- oder Nutzungsdaten übertragen. Abschaltbar unter **Einstellungen → Updates** (Aus); die ZIP-Variante und der Start aus dem Quellcode prüfen nie.
 - **„Alles erlauben“:** Die Warnung erscheint bewusst nur beim ersten Einschalten; die Zustimmung wird gespeichert und lässt sich in den Einstellungen zurücksetzen.
 - **Verlauf:** Swapline liest die Sitzungsdateien von Claude Code (`<Konfigurationsordner>/projects/…/*.jsonl`), um alte Chats anzuzeigen und fortzusetzen.

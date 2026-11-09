@@ -312,7 +312,7 @@ function startSession(tab) {
   else if (tab.permissionMode && tab.permissionMode !== 'default') args.push('--permission-mode', tab.permissionMode);
   if (tab.effort) args.push('--effort', tab.effort);
 
-  const proc = spawnClaude(args, profile, { chat: true, cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
+  const proc = tab.ssh ? spawnSsh(tab.ssh, claudeOnServer(args, tab.cwd)) : spawnClaude(args, profile, { chat: true, cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
   // lastCost: letzter Kostenstand der Sitzung. Beim Fortsetzen (--resume) startet Claude Code mit den bisherigen Kosten
   // der Sitzung, deshalb gilt der zuletzt gesehene Stand dieser Sitzung als Ausgangswert.
   const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: (tab.sessionId && getStore().sessionCost[tab.sessionId]) || 0, tasks: new Set(), outputs: new Set() }; // pending: offene Berechtigungsanfragen der CLI
@@ -330,7 +330,7 @@ function startSession(tab) {
     if (m.type === 'control_request' && m.request?.subtype === 'can_use_tool') {
       s.pending.set(m.request_id, { toolName: m.request.tool_name, input: m.request.input, suggestions: m.request.permission_suggestions || null });
     }
-    if (m.type === 'rate_limit_event') recordLimits(tab.profileId, m.rate_limit_info);
+    if (m.type === 'rate_limit_event' && !tab.ssh) recordLimits(tab.profileId, m.rate_limit_info);
     // total_cost_usd ist der Stand der ganzen Sitzung (kumuliert, inkl. fortgesetzter Teile) – gezählt wird nur der Zuwachs
     if (m.type === 'result') s.busy = false;
     if (m.type === 'system') trackBgTask(s, m);
@@ -338,7 +338,7 @@ function startSession(tab) {
       const delta = m.total_cost_usd >= s.lastCost ? m.total_cost_usd - s.lastCost : m.total_cost_usd;
       s.lastCost = m.total_cost_usd;
       m.swapline_cost_delta = delta;
-      recordCost(tab.profileId, delta, s.tab.sessionId, m.total_cost_usd);
+      if (!tab.ssh) recordCost(tab.profileId, delta, s.tab.sessionId, m.total_cost_usd); // Server-Kosten gehören zum Konto auf dem Server
     }
     send(tab.id, m);
   });
@@ -347,6 +347,8 @@ function startSession(tab) {
   proc.on('close', code => {
     if (code) logError(`Claude beendet mit Code ${code} (Chat ${tab.id}, Sitzung ${s.tab.sessionId || '-'}): ${s.stderr.trim().split('\n').slice(-5).join(' | ')}`);
     if (sessions.get(tab.id) === s) sessions.delete(tab.id);
+    const hint = code && tab.ssh ? serverExitMessage(s.stderr) : null; // Server per SSH: Ursache verständlich melden
+    if (hint) send(tab.id, { type: 'app_error', message: hint });
     send(tab.id, { type: 'app_exit', code, stderr: code ? s.stderr : '' });
   });
   return s;
@@ -430,9 +432,16 @@ function listHistory(profile, limit = 200) {
   items.sort((a, b) => b.mtime - a.mtime);
   const untitled = tr('(ohne Titel)', '(untitled)');
   return items.slice(0, limit).map(it => {
-    let title = '', cwd = '', firstPrompt = '';
-    try {
-      const text = readHead(it.file) + '\n' + readTail(it.file, 32768);
+    let text = '';
+    try { text = readHead(it.file) + '\n' + readTail(it.file, 32768); } catch {}
+    const { title, cwd, firstPrompt } = parseSessionHead(text);
+    return { sessionId: it.sessionId, file: it.file, mtime: it.mtime, cwd, title: title || firstPrompt.slice(0, 80) || untitled };
+  }).filter(h => h.cwd || h.title !== untitled);
+}
+function parseSessionHead(text) {
+  let title = '', cwd = '', firstPrompt = '';
+  {
+    {
       for (const line of text.split('\n')) {
         if (!line.startsWith('{')) continue;
         if (line.includes('"ai-title"') || line.includes('"custom-title"')) {
@@ -448,16 +457,19 @@ function listHistory(profile, limit = 200) {
           } catch {}
         }
       }
-    } catch {}
-    return { sessionId: it.sessionId, file: it.file, mtime: it.mtime, cwd, title: title || firstPrompt.slice(0, 80) || untitled };
-  }).filter(h => h.cwd || h.title !== untitled);
+    }
+  }
+  return { title, cwd, firstPrompt };
 }
 
 // Nachrichten einer alten Sitzung für die Anzeige laden
 function loadTranscript(file) {
-  const out = [];
   let text = '';
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return out; }
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
+  return transcriptFromText(text);
+}
+function transcriptFromText(text) {
+  const out = [];
   for (const line of text.split('\n')) {
     if (!line.startsWith('{')) continue;
     let o; try { o = JSON.parse(line); } catch { continue; }
@@ -1240,6 +1252,11 @@ function cleanHostStore(r) {
   };
 }
 handle('remote:call', async (_e, hostId, ch, args) => {
+  if (typeof hostId === 'string' && hostId.startsWith('ssh:')) {
+    const srv = sshServers().find(x => 'ssh:' + x.id === hostId);
+    if (!srv || !REMOTE_CALLS.has(ch) || !Array.isArray(args)) return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
+    return sshDispatch(srv, ch, args);
+  }
   const c = clients.get(hostId);
   if (!c || !REMOTE_CALLS.has(ch) || !Array.isArray(args)) return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
   // „Alles erlauben“ zuerst auf diesem Gerät bestätigen (einmalig, wie lokal) – der Haupt-PC prüft die Gerätefreigabe
@@ -1267,7 +1284,11 @@ function remoteInfo() {
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
       devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
-    hosts: remoteHosts().map(h => ({ id: h.id, name: h.name, address: h.address, port: h.port, color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
+    hosts: [
+      ...remoteHosts().map(h => ({ id: h.id, kind: 'swapline', name: h.name, address: h.address, port: h.port, color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
+      ...sshServers().map(x => ({ id: 'ssh:' + x.id, kind: 'ssh', name: x.name, address: x.user + '@' + x.host, port: x.port, color: x.color || '#0EA5E9', folders: x.folders, state: sshState.get(x.id)?.state || 'off', error: sshState.get(x.id)?.error || '' })),
+    ],
+    sshAvailable: fs.existsSync(SSH_EXE),
   };
 }
 function pushRemoteStatus() { if (win && !win.isDestroyed()) win.webContents.send('remote:status', remoteInfo()); }
@@ -1358,8 +1379,162 @@ function initRemote() {
   const s = getStore();
   if ('remoteTarget' in s) updateStore(x => { delete x.remoteTarget; }); // bis 0.3.0: ganze Oberfläche umgeschaltet
   if (safeStorage.isEncryptionAvailable()) for (const h of remoteHosts()) connectHost(h);
+  for (const srv of sshServers()) checkServer(srv);
   if (s.remoteHost?.enabled) startRemoteHost().catch(e => logError('Fernzugriff: ' + e.message));
 }
+
+// ---------- Server per SSH (z. B. ein VPS mit Claude Code) ----------
+// Swapline startet Claude Code auf dem Server über den SSH-Client von Windows – im selben Chat-Modus wie lokal.
+// Anmeldung am Server nur per SSH-Schlüssel (BatchMode, keine Passwortabfrage); Swapline speichert keine Schlüssel
+// oder Passwörter. Claude meldet man auf dem Server selbst an (claude auth login, z. B. über „Terminal öffnen“).
+// Alle Werte, die in den Befehl auf dem Server gelangen, sind geprüft oder in einfache Anführungszeichen gesetzt.
+const SSH_EXE = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'OpenSSH', 'ssh.exe');
+const shq = v => "'" + String(v).replace(/'/g, "'\\''") + "'";
+const sshServers = () => getStore().sshServers || [];
+const sshState = new Map(); // Server-ID -> { state: 'connected' | 'error' | 'checking', error }
+const validSshUser = u => typeof u === 'string' && /^[a-z_][a-z0-9_.-]{0,31}$/i.test(u);
+const validServerPath = p => typeof p === 'string' && p.length <= 400 && /^\/[^\0\n\r]*$/.test(p);
+function sshArgs(srv, cmd, tty = false) {
+  return [tty ? '-t' : '-T', '-p', String(srv.port || 22), '-o', 'BatchMode=' + (tty ? 'no' : 'yes'), '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'ServerAliveInterval=30', '-o', 'ConnectTimeout=15', '--', `${srv.user}@${srv.host}`, cmd];
+}
+const SERVER_PATH = 'export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"; ';
+function claudeOnServer(args, cwd) { return SERVER_PATH + 'cd ' + (cwd ? shq(cwd) : '"$HOME"') + ' && exec claude ' + args.map(shq).join(' '); }
+function spawnSsh(srv, cmd) {
+  if (!fs.existsSync(SSH_EXE)) throw new Error(tr('SSH-Client von Windows fehlt (Einstellungen → Apps → Optionale Features → OpenSSH-Client)', 'Windows SSH client missing (Settings → Apps → Optional features → OpenSSH Client)'));
+  return spawn(SSH_EXE, sshArgs(srv, cmd), { windowsHide: true });
+}
+function sshRun(srv, cmd, timeout = 30000, max = 60 * 1024 * 1024) {
+  return new Promise(resolve => {
+    let p; try { p = spawnSsh(srv, cmd); } catch (e) { return resolve({ code: -1, out: '', err: e.message }); }
+    let out = '', err = '';
+    const timer = setTimeout(() => { try { p.kill(); } catch {} }, timeout);
+    p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
+    p.stdout.on('data', d => { out += d; if (out.length > max) { try { p.kill(); } catch {} } });
+    p.stderr.on('data', d => { err = (err + d).slice(-4000); });
+    p.on('error', e => { clearTimeout(timer); resolve({ code: -1, out, err: e.message }); });
+    p.on('close', code => { clearTimeout(timer); resolve({ code, out, err }); });
+  });
+}
+const sshError = r => (r.err || '').trim().split('\n').filter(Boolean).pop()?.slice(0, 300) || tr('Keine Verbindung', 'No connection');
+async function checkServer(srv) {
+  sshState.set(srv.id, { state: 'checking' }); pushRemoteStatus();
+  const r = await sshRun(srv, SERVER_PATH + 'claude --version', 25000);
+  sshState.set(srv.id, r.code === 0 ? { state: 'connected', version: r.out.trim().slice(0, 60) } : { state: 'error', error: r.code === 127 || /not found/.test(r.err) ? tr('Claude Code ist auf dem Server nicht installiert', 'Claude Code is not installed on the server') : sshError(r) });
+  pushRemoteStatus();
+}
+// Verlauf auf dem Server: neueste Sitzungsdateien mit Kopf und Ende (nur lesen)
+const SERVER_HISTORY = 'd="$HOME/.claude/projects"; [ -d "$d" ] || exit 0; ls -t "$d"/*/*.jsonl 2>/dev/null | head -n 150 | while IFS= read -r f; do printf \'\\036%s\\t%s\\n\' "$(stat -c %Y "$f" 2>/dev/null || echo 0)" "$f"; head -c 16384 "$f"; printf \'\\n\'; tail -c 16384 "$f"; printf \'\\n\'; done';
+async function serverHistory(srv) {
+  const r = await sshRun(srv, SERVER_HISTORY, 45000, 20 * 1024 * 1024);
+  if (r.code !== 0) return [];
+  const untitled = tr('(ohne Titel)', '(untitled)');
+  return r.out.split('\x1e').slice(1).map(block => {
+    const nl = block.indexOf('\n'), [mtime, file] = block.slice(0, nl).split('\t');
+    const sessionId = (file || '').split('/').pop().replace(/\.jsonl$/, '');
+    if (!UUID_RE.test(sessionId)) return null;
+    const { title, cwd, firstPrompt } = parseSessionHead(block.slice(nl + 1));
+    return { sessionId, mtime: Number(mtime) * 1000 || 0, cwd, title: title || firstPrompt.slice(0, 80) || untitled };
+  }).filter(Boolean);
+}
+const serverTab = (srv, t) => {
+  if (!t || typeof t.id !== 'string' || !/^[a-z0-9]{6,40}$/i.test(t.id)) return null;
+  if (t.sessionId != null && !UUID_RE.test(t.sessionId)) return null;
+  if (!isModel(t.model || '') || !EFFORTS.includes(t.effort || '') || !MODES.includes(t.permissionMode || 'default')) return null;
+  if (t.cwd && !(srv.folders || []).includes(t.cwd)) return null; // nur eingetragene Server-Ordner (oder Home)
+  return { id: t.id, profileId: 'server', cwd: t.cwd || '', sessionId: t.sessionId || null, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode || 'default', ssh: srv };
+};
+async function sshDispatch(srv, ch, args) {
+  const a0 = args[0];
+  switch (ch) {
+    case 'store:get': return {
+      profiles: [{ id: 'server', name: srv.name, color: srv.color || '#0EA5E9' }], activeProfileId: 'server', projects: [], projectGroups: [], favorites: [],
+      allowedFolders: srv.folders || [], settings: { model: '', effort: '', permissionMode: 'default' }, scope: { limited: false, accountsLimited: false, newChats: true },
+      hostName: srv.name, hostVersion: sshState.get(srv.id)?.version || '', allowBypass: true,
+    };
+    case 'profiles:status': {
+      const r = await sshRun(srv, SERVER_PATH + 'claude auth status --json', 25000);
+      try { return JSON.parse(r.out); } catch { return { loggedIn: false, error: sshError(r) }; }
+    }
+    case 'profiles:models': return null;
+    case 'history:list': return serverHistory(srv);
+    case 'history:search': {
+      const q = String(a0?.query || '').slice(0, 200);
+      if (q.length < 2) return [];
+      const r = await sshRun(srv, 'grep -rlis -F --include=*.jsonl -- ' + shq(q) + ' "$HOME/.claude/projects" 2>/dev/null | head -n 60', 45000);
+      const hit = new Set(r.out.split('\n').map(f => f.split('/').pop().replace(/\.jsonl$/, '')));
+      return (await serverHistory(srv)).filter(h => hit.has(h.sessionId)).map(h => ({ ...h, hits: 1, snippet: '', when: h.mtime }));
+    }
+    case 'history:loadSession': {
+      if (!UUID_RE.test(a0?.sessionId || '')) return [];
+      const r = await sshRun(srv, 'cat "$HOME"/.claude/projects/*/' + a0.sessionId + '.jsonl 2>/dev/null | head -c 50000000', 60000);
+      return transcriptFromText(r.out);
+    }
+    case 'session:send': {
+      const tab = serverTab(srv, a0?.tab);
+      if (!tab || !validContent(a0?.content)) return false;
+      if (tab.permissionMode === 'bypassPermissions' && !confirmBypass()) return false;
+      let sess = sessions.get(tab.id);
+      if (!sess) { try { sess = startSession(tab); } catch (e) { send(tab.id, { type: 'app_error', message: e.message }); return false; } }
+      sess.busy = true;
+      writeTo(tab.id, { type: 'user', message: { role: 'user', content: a0.content } });
+      return true;
+    }
+    case 'session:respond': case 'session:interrupt': case 'session:restart': case 'session:close':
+      if (!sessions.get(typeof a0 === 'string' ? a0 : a0?.tabId)?.tab.ssh && ch !== 'session:close' && ch !== 'session:restart') return false;
+      return H.get(ch)({}, ...args);
+    case 'session:confirmBypass': return confirmBypass();
+    case 'task:readOutput': return { error: tr('Auf Servern nicht verfügbar', 'Not available on servers') };
+    case 'tabs:list': return [];
+    case 'session:attach': return false;
+    default: return false;
+  }
+}
+// Fehler beim Start eines Server-Chats (z. B. SSH-Schlüssel fehlt) verständlich melden
+function serverExitMessage(stderr) {
+  if (/Permission denied/i.test(stderr)) return tr('SSH: Anmeldung abgelehnt – ist dein SSH-Schlüssel auf dem Server eingetragen?', 'SSH: login refused – is your SSH key authorized on the server?');
+  if (/Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED/i.test(stderr)) return tr('SSH: Server-Schlüssel hat sich geändert – Verbindung abgebrochen (Sicherheit).', 'SSH: the server key has changed – connection aborted (security).');
+  if (/command not found|claude: not found/i.test(stderr)) return tr('Claude Code ist auf dem Server nicht installiert oder nicht im PATH.', 'Claude Code is not installed on the server or not in PATH.');
+  return null;
+}
+
+handle('ssh:add', (_e, { name, user, host, port, folders } = {}) => {
+  port = port === undefined || port === '' ? 22 : Number(port);
+  folders = Array.isArray(folders) ? folders.map(f => String(f).trim()).filter(Boolean) : [];
+  if (!validSshUser(user) || !validAddress(String(host || '').trim()) || !Number.isInteger(port) || port < 1 || port > 65535 || folders.length > 50 || !folders.every(validServerPath))
+    return { ...remoteInfo(), error: tr('Benutzer, Adresse, Port oder Ordner ungültig (Ordner als /absoluter/pfad)', 'Invalid user, address, port or folder (folders as /absolute/path)') };
+  const srv = { id: 's' + crypto.randomBytes(4).toString('hex'), name: cleanName(name, '') || String(host).trim(), user, host: String(host).trim(), port, folders };
+  updateStore(s => { s.sshServers = [...(s.sshServers || []), srv]; });
+  checkServer(srv);
+  return remoteInfo();
+});
+handle('ssh:update', (_e, { id, folders, name, color } = {}) => {
+  const srv = sshServers().find(x => x.id === id);
+  if (!srv) return remoteInfo();
+  if (folders !== undefined) {
+    folders = Array.isArray(folders) ? folders.map(f => String(f).trim()).filter(Boolean) : null;
+    if (!folders || folders.length > 50 || !folders.every(validServerPath)) return { ...remoteInfo(), error: tr('Ordner ungültig (als /absoluter/pfad)', 'Invalid folder (as /absolute/path)') };
+  }
+  updateStore(s => { const x = s.sshServers.find(y => y.id === id); if (folders) x.folders = folders; if (name !== undefined) x.name = cleanName(name, x.name) || x.name; if (color !== undefined) x.color = cleanColor(color, x.color || '#0EA5E9'); });
+  pushRemoteStatus();
+  return remoteInfo();
+});
+handle('ssh:remove', (_e, id) => {
+  for (const [k, v] of sessions) if (v.tab.ssh?.id === id) stopSession(k);
+  updateStore(s => { s.sshServers = (s.sshServers || []).filter(x => x.id !== id); });
+  sshState.delete(id);
+  pushRemoteStatus();
+  return remoteInfo();
+});
+handle('ssh:test', (_e, id) => { const srv = sshServers().find(x => x.id === id); if (srv) checkServer(srv); return true; });
+// Sichtbares Terminal mit SSH zum Server (z. B. für „claude auth login“) – Eingaben macht der Nutzer selbst
+handle('ssh:terminal', (_e, { id, login } = {}) => {
+  const srv = sshServers().find(x => x.id === id);
+  if (!srv || !fs.existsSync(SSH_EXE)) return false;
+  const cmd = SERVER_PATH + (login ? 'claude auth login; ' : '') + 'exec "${SHELL:-/bin/sh}" -l';
+  spawn(SSH_EXE, sshArgs(srv, cmd, true), { detached: true, windowsHide: false, stdio: 'ignore' }).unref();
+  return true;
+});
 
 // ---------- Automatische Updates (nur die installierte App) ----------
 // Prüft beim Start und alle 6 Stunden die GitHub-Releases von ARFEP-IT-Service/Swapline (latest.yml).

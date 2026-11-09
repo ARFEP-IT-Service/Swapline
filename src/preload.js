@@ -76,6 +76,13 @@ contextBridge.exposeInMainWorld('api', {
     pair: data => invoke('remote:pair', data),
     hostRemove: id => invoke('remote:hostRemove', id),
     hostUpdate: data => invoke('remote:hostUpdate', data),
+    ssh: {
+      add: data => invoke('ssh:add', data),
+      update: data => invoke('ssh:update', data),
+      remove: id => invoke('ssh:remove', id),
+      test: id => invoke('ssh:test', id),
+      terminal: (id, login) => invoke('ssh:terminal', { id, login }),
+    },
     // Anfrage für einen Chat eines Haupt-PCs (nur freigegebene Kanäle, siehe main.js REMOTE_CALLS)
     call: (host, ch, args) => ipcRenderer.invoke('remote:call', host, ch, args),
     onStatus: cb => ipcRenderer.on('remote:status', (_e, d) => cb(d)),

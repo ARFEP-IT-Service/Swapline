@@ -9,6 +9,11 @@ Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
 ## [Unveröffentlicht]
 
+- Neu: **Server per SSH** (z. B. VPS mit Ubuntu) – Claude Code läuft auf dem Server, Chats und Verlauf erscheinen wie
+  bei einem Haupt-PC. Anmeldung am Server nur per SSH-Schlüssel, Claude-Anmeldung auf dem Server über ein Terminal.
+- Neu: **Geteilte Ansicht** – zwei Chats nebeneinander (Strg+#, Rechtsklick → „Daneben öffnen“).
+- Neu: eigenes Bild für Chats; Haupt-PCs in der Leiste mit eigenem Namen, Farbe und Bild.
+
 - Fernzugriff: Die **offenen Chats des Haupt-PCs** erscheinen auf dem Gerät (live aktualisiert, nach Freigabe).
   Öffnen = dem laufenden Chat **beitreten**: gleicher Claude-Prozess, Antworten erscheinen auf beiden PCs, Nachrichten
   und beantwortete Rückfragen werden auf der jeweils anderen Seite angezeigt (mit Absender). Kein zweiter Prozess

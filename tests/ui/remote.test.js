@@ -122,6 +122,23 @@
   open.running = false; tabs.splice(tabs.indexOf(open), 1); renderList();
   await until(() => !tabs.some(x => x.mirror && x.hostTab === open.id), 5000);
 
+  // Server per SSH: Eingaben werden geprüft, bevor etwas in einen Befehl auf dem Server gelangt
+  check('SSH: ungültiger Benutzer abgelehnt', !!(await api.remote.ssh.add({ user: 'root; rm -rf /', host: '1.2.3.4', port: 22, folders: [] })).error);
+  check('SSH: Adresse mit Option abgelehnt', !!(await api.remote.ssh.add({ user: 'ich', host: '-oProxyCommand=calc', port: 22, folders: [] })).error);
+  check('SSH: relativer Ordner abgelehnt', !!(await api.remote.ssh.add({ user: 'ich', host: '127.0.0.1', port: 22, folders: ['projekt'] })).error);
+  check('SSH: Port 0 abgelehnt', !!(await api.remote.ssh.add({ user: 'ich', host: '127.0.0.1', port: 0, folders: [] })).error);
+  const sv = await api.remote.ssh.add({ name: 'Testserver', user: 'ich', host: '127.0.0.1', port: 1, folders: ['/home/ich/p'] });
+  const srvId = sv.hosts.find(x => x.kind === 'ssh')?.id;
+  await until(async () => (await api.remote.info()).hosts.find(x => x.id === srvId)?.state === 'error', 25000);
+  check('SSH: nicht erreichbarer Server meldet Fehler', (await api.remote.info()).hosts.find(x => x.id === srvId)?.state === 'error');
+  const sst = await api.remote.call(srvId, 'store:get', []);
+  check('SSH: eingetragene Server-Ordner, ein Server-Konto', sst?.allowedFolders.join() === '/home/ich/p' && sst.profiles[0].id === 'server', JSON.stringify(sst?.allowedFolders));
+  check('SSH: Chat in nicht eingetragenem Ordner abgelehnt', (await api.remote.call(srvId, 'session:send', [{ tab: { id: 'abcdefgh', cwd: '/etc', model: '', effort: '', permissionMode: 'default', sessionId: null }, content: 'hi' }])) === false);
+  check('SSH: ungültige Sitzungs-ID beim Laden abgelehnt', (await api.remote.call(srvId, 'history:loadSession', [{ sessionId: '../../x' }])).length === 0);
+  check('SSH: Server erscheint in der Leiste', !!document.querySelector('#rail-hosts') && (renderRail(), [...document.querySelectorAll('#rail-hosts .rail-profile')].length >= 1));
+  await api.remote.ssh.remove(srvId.slice(4));
+  check('SSH: Server entfernen', !(await api.remote.info()).hosts.some(x => x.id === srvId));
+
   // Gerät entfernen: Verbindung bricht ab, neue Anmeldung scheitert
   await api.remote.deviceRemove(devId);
   await sleep(1500);

@@ -233,7 +233,7 @@ const hostName = id => hostInfo(id)?.name || hostStores[id]?.hostName || _('Haup
 // Symbol eines Haupt-PCs: eigenes Bild oder Initialen auf Farbe, mit kleinem Bildschirm-Zeichen
 const hostAvatar = (h, cls = '') => {
   const a = h?.icon ? avatar({ icon: h.icon }, 'host ' + cls) : el('div', { class: 'avatar host ' + cls, style: `background:${h?.color || '#475569'}` }, initials(h?.name));
-  a.append(el('span', { class: 'host-mark' }, icon(MONITOR)));
+  a.append(el('span', { class: 'host-mark' }, icon(h?.kind === 'ssh' ? SERVER : MONITOR)));
   return a;
 };
 const hostConnected = id => hostInfo(id)?.state === 'connected';
@@ -296,6 +296,7 @@ async function refreshHost(id) {
   const t = currentTab();
   if (t?.host === id) { if (!t.loaded || t.mirror) openTab(t.id); else renderChat(); }
 }
+const SERVER = '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>';
 const MONITOR = '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>';
 const GLOBE = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"/>';
 
@@ -433,7 +434,7 @@ function renderRailHosts() {
   $('#rail-hosts-sep').hidden = !hosts.length;
   $('#rail-hosts').replaceChildren(...hosts.map(h => el('button', {
     class: 'rail-profile' + (pid === 'host:' + h.id ? ' active' : ''),
-    title: _('Haupt-PC: {name}', { name: h.name }) + '\n' + h.address + ':' + h.port + '\n' + (h.state === 'connected' ? _('verbunden') : _('nicht verbunden')),
+    title: (h.kind === 'ssh' ? _('Server: {name}', { name: h.name }) : _('Haupt-PC: {name}', { name: h.name })) + '\n' + h.address + ':' + h.port + '\n' + (h.state === 'connected' ? _('verbunden') : h.error || _('nicht verbunden')),
     onclick: () => switchProject('host:' + h.id),
     oncontextmenu: e => { e.preventDefault(); openHostForm(h); },
   }, hostAvatar(h),
@@ -454,11 +455,14 @@ function openHostForm(h) {
   };
   draw();
   name.addEventListener('input', draw);
-  const save = async () => { remoteState = await api.remote.hostUpdate({ id: h.id, name: name.value.trim() || h.name, color, icon: img }); m.close(); renderRail(); renderList(); };
+  const save = async () => {
+    remoteState = h.kind === 'ssh' ? await api.remote.ssh.update({ id: h.id.slice(4), name: name.value.trim() || h.name, color }) : await api.remote.hostUpdate({ id: h.id, name: name.value.trim() || h.name, color, icon: img });
+    m.close(); renderRail(); renderList();
+  };
   const m = modal('project', _('Haupt-PC anpassen'),
     el('p', { class: 'hint' }, _('Name, Farbe und Bild gelten nur für die Anzeige auf diesem PC.')),
     el('label', { class: 'field' }, el('span', {}, _('Name')), name),
-    el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Bild (optional)')), preview),
+    h.kind === 'ssh' ? null : el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Bild (optional)')), preview),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
     el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: save }, _('Speichern'))));
 }
@@ -2240,7 +2244,7 @@ function drawRemote() {
   } }, _('Koppeln'));
   const client = [
     el('h3', { style: 'margin-top:16px' }, _('Mit einem Haupt-PC verbinden')),
-    ...r.hosts.map(x => el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (x.state === 'connected' ? ' on' : '') }),
+    ...r.hosts.filter(x => x.kind !== 'ssh').map(x => el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (x.state === 'connected' ? ' on' : '') }),
       el('div', { class: 'grow' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port} · ` + (x.state === 'connected' ? _('verbunden') : x.state === 'connecting' || x.state === 'reconnecting' ? _('verbinde …') : _('nicht verbunden')))),
       el('button', { class: 'primary', onclick: () => { $('#modal-root').replaceChildren(); switchProject('host:' + x.id); } }, _('Chats zeigen')),
       el('button', { class: 'ghost danger', onclick: async () => {
@@ -2253,7 +2257,48 @@ function drawRemote() {
     el('p', { class: 'hint' }, _('Am Haupt-PC unter Fernzugriff „Gerät koppeln …“ wählen und den Code hier eingeben.')),
     el('div', { class: 'row' }, addr, port), el('div', { class: 'row', style: 'margin-top:6px' }, code, pairBtn),
   ];
-  fill(box, ...host, ...client);
+  fill(box, ...host, ...client, ...sshSection(r));
+}
+// Server per SSH (z. B. VPS mit Ubuntu): Claude Code läuft dort, Swapline verbindet sich mit dem SSH-Schlüssel
+function sshSection(r) {
+  const servers = r.hosts.filter(x => x.kind === 'ssh');
+  const name = el('input', { type: 'text', placeholder: _('Name (z. B. VPS)'), style: 'flex:1' });
+  const user = el('input', { type: 'text', placeholder: _('Benutzer'), style: 'width:120px' });
+  const addr = el('input', { type: 'text', placeholder: _('Adresse (IP oder Name)'), style: 'flex:1' });
+  const port = el('input', { type: 'number', min: '1', max: '65535', value: '22', style: 'width:80px' });
+  const folders = el('textarea', { rows: '2', placeholder: _('Ordner auf dem Server, je Zeile einer (z. B. /home/ich/projekt)'), style: 'width:100%' });
+  const lines = v => v.split('\n').map(x => x.trim()).filter(Boolean);
+  const stateText = x => (x.state === 'connected' ? _('verbunden') : x.state === 'checking' ? _('prüfe …') : x.error || _('nicht verbunden'));
+  return [
+    el('h3', { style: 'margin-top:16px' }, _('Server per SSH (z. B. VPS)')),
+    el('p', { class: 'hint' }, _('Claude Code läuft auf dem Server; Swapline verbindet sich mit deinem SSH-Schlüssel (keine Passwörter, nichts wird gespeichert). Auf dem Server einmal „Claude anmelden“ wählen und im Terminal anmelden.')),
+    r.sshAvailable ? null : el('p', { class: 'hint', style: 'color:var(--danger)' }, _('Der SSH-Client von Windows fehlt: Einstellungen → System → Optionale Features → „OpenSSH-Client“ hinzufügen.')),
+    ...servers.map(x => {
+      const ed = el('textarea', { rows: '2', style: 'width:100%' }); ed.value = (x.folders || []).join('\n');
+      return el('div', { class: 'dev-row', style: 'flex-wrap:wrap' }, el('span', { class: 'dot' + (x.state === 'connected' ? ' on' : '') }),
+        el('div', { class: 'grow' }, el('b', {}, x.name), el('small', {}, `${x.address}:${x.port} · ` + stateText(x))),
+        el('button', { class: 'primary', onclick: () => { $('#modal-root').replaceChildren(); switchProject('host:' + x.id); } }, _('Chats zeigen')),
+        el('button', { class: 'ghost', onclick: async () => { await api.remote.ssh.test(x.id.slice(4)); } }, _('Prüfen')),
+        el('button', { class: 'ghost', title: _('Öffnet ein Terminal-Fenster mit „claude auth login“ auf dem Server'), onclick: () => api.remote.ssh.terminal(x.id.slice(4), true) }, _('Claude anmelden')),
+        el('button', { class: 'ghost', onclick: () => api.remote.ssh.terminal(x.id.slice(4), false) }, _('Terminal öffnen')),
+        el('button', { class: 'ghost danger', onclick: async () => {
+          if (!confirm(_('Server „{name}“ entfernen? Laufende Chats dort werden beendet.', { name: x.name }))) return;
+          remoteState = await api.remote.ssh.remove(x.id.slice(4)); delete hostStores[x.id];
+          if (activeProjectId() === 'host:' + x.id) await switchProject('all');
+          drawRemote(); renderRail();
+        } }, _('Entfernen')),
+        el('div', { style: 'flex-basis:100%' }, el('div', { class: 'hint' }, _('Ordner auf dem Server, je Zeile einer:')), ed,
+          el('button', { class: 'ghost', onclick: async () => { const res = await api.remote.ssh.update({ id: x.id.slice(4), folders: lines(ed.value) }); if (res.error) return toast(res.error); remoteState = res; delete hostStores[x.id]; refreshHost(x.id); toast(_('Gespeichert')); } }, _('Ordner speichern'))));
+    }),
+    el('div', { class: 'row', style: 'margin-top:8px' }, name, user),
+    el('div', { class: 'row', style: 'margin-top:6px' }, addr, port),
+    el('div', { style: 'margin-top:6px' }, folders),
+    el('div', { class: 'row', style: 'margin-top:6px;justify-content:flex-end' }, el('button', { class: 'primary', disabled: !r.sshAvailable, onclick: async () => {
+      const res = await api.remote.ssh.add({ name: name.value, user: user.value.trim(), host: addr.value.trim(), port: Number(port.value), folders: lines(folders.value) });
+      if (res.error) return toast(res.error);
+      remoteState = res; toast(_('Server hinzugefügt – Verbindung wird geprüft')); drawRemote(); renderRail();
+    } }, _('Server hinzufügen'))),
+  ];
 }
 api.remote.onStatus(info => {
   const before = remoteState;
