@@ -38,6 +38,8 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.material.icons.filled.MoreVert
@@ -88,6 +90,7 @@ import de.arfep.swapline.model.Answer
 import de.arfep.swapline.model.AppModel
 import de.arfep.swapline.model.Chat
 import de.arfep.swapline.model.ClaudeText
+import de.arfep.swapline.model.CmdOpt
 import de.arfep.swapline.model.Item
 import de.arfep.swapline.model.SysCode
 import de.arfep.swapline.model.prim
@@ -114,8 +117,8 @@ fun answerText(a: Answer): String = when (a.kind) {
     AnswerKind.PLAN_REJECTED -> tr("✕ Plan abgelehnt", "✕ Plan rejected")
     AnswerKind.ANSWERED -> a.detail
     AnswerKind.SKIPPED -> tr("✕ Übersprungen", "✕ Skipped")
-    AnswerKind.ANSWERED_ELSEWHERE -> tr("✓ Beantwortet auf ${a.detail}", "✓ Answered on ${a.detail}")
-    AnswerKind.DENIED_ELSEWHERE -> tr("✕ Abgelehnt auf ${a.detail}", "✕ Declined on ${a.detail}")
+    AnswerKind.ANSWERED_ELSEWHERE -> tr("✓ Beantwortet auf ${a.detail}", "✓ Answered on ${a.detail}", "✓ ${a.detail} üzerinde yanıtlandı")
+    AnswerKind.DENIED_ELSEWHERE -> tr("✕ Abgelehnt auf ${a.detail}", "✕ Declined on ${a.detail}", "✕ ${a.detail} üzerinde reddedildi")
 }
 
 private fun inputText(name: String, input: JsonElement): String {
@@ -182,9 +185,17 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                 }
             }
             BgTaskBar(model, chat)
-            Composer(text, { text = it }, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly) {
+            var commands by remember(chat.id) { mutableStateOf<List<CmdOpt>>(emptyList()) }
+            LaunchedEffect(chat.id, h?.connected) { if (h?.connected == true) commands = model.commands(h, chat.profileId) }
+            Composer(text, { text = it }, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly, commands = commands) {
                 val t = text.trim()
                 if (t.isEmpty() && attachments.isEmpty()) return@Composer
+                // „!befehl“: direkt am Haupt-PC ausführen (wie in der Claude CLI)
+                if (t.startsWith("!") && attachments.isEmpty()) {
+                    text = ""
+                    scope.launch { model.runBang(chat, t.drop(1).trim()); list.scrollToItem(0) }
+                    return@Composer
+                }
                 val imgs = attachments.filter { it.isImage }.map { it.data }
                 val docs = attachments.filter { !it.isImage }.map { it.name to it.data }
                 text = ""
@@ -211,7 +222,7 @@ private fun Typing() {
 }
 
 @Composable
-private fun Composer(text: String, onText: (String) -> Unit, attachments: MutableList<Attach>, enabled: Boolean, offline: Boolean, mic: Boolean, onDeviceOnly: Boolean, onSend: () -> Unit) {
+private fun Composer(text: String, onText: (String) -> Unit, attachments: MutableList<Attach>, enabled: Boolean, offline: Boolean, mic: Boolean, onDeviceOnly: Boolean, commands: List<CmdOpt> = emptyList(), onSend: () -> Unit) {
     var attachMenu by remember { mutableStateOf(false) }
     var micError by remember { mutableStateOf<String?>(null) }
     val (dictation, toggleMic) = rememberDictation(onDeviceOnly, onText = { micError = null; onText(it) }, onError = { micError = it })
@@ -238,6 +249,23 @@ private fun Composer(text: String, onText: (String) -> Unit, attachments: Mutabl
                 }
             }
             if (dictation.listening) Text(tr("Ich höre zu … zum Beenden aufs Mikrofon tippen", "Listening … tap the microphone to stop"), Modifier.padding(start = 16.dp, top = 6.dp), fontSize = 12.sp, color = Accent)
+            // /-Befehle: Auswahl wie am PC; antippen übernimmt „/name “ ins Feld
+            val slash = Regex("^/(\\S*)$").find(text)?.groupValues?.get(1)
+            val sugg = if (slash == null) emptyList() else (commands.filter { it.name.startsWith(slash, true) } +
+                commands.filter { !it.name.startsWith(slash, true) && slash.isNotEmpty() && (it.name + " " + it.description).contains(slash, true) }).take(8)
+            if (sugg.isNotEmpty()) Column(Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()).padding(top = 4.dp)) {
+                sugg.forEach { c ->
+                    Row(Modifier.fillMaxWidth().clickable { onText("/" + c.name + " ") }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("/" + c.name, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        if (c.hint.isNotEmpty()) Text(" " + c.hint, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Spacer(Modifier.width(10.dp))
+                        Text(c.description, Modifier.weight(1f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            val bash = text.startsWith("!")
+            if (bash) Text(tr("Befehl am Haupt-PC ausführen – Claude sieht die Ausgabe mit deiner nächsten Nachricht", "Run a command on the host PC – Claude sees the output with your next message"),
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp), fontSize = 12.sp, color = Accent)
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
                 Box {
                     IconButton(onClick = { attachMenu = true }, modifier = Modifier.size(48.dp)) {
@@ -249,7 +277,9 @@ private fun Composer(text: String, onText: (String) -> Unit, attachments: Mutabl
                         DropdownMenuItem(text = { Text(tr("Dokument", "Document")) }, leadingIcon = { Icon(Icons.Outlined.Description, null) }, onClick = { attachMenu = false; picker.document() })
                     }
                 }
-                TextField(text, onText, Modifier.weight(1f), placeholder = { Text(tr("Nachricht an Claude …", "Message Claude …")) }, maxLines = 6,
+                TextField(text, onText, Modifier.weight(1f).then(if (bash) Modifier.border(1.dp, Accent, RoundedCornerShape(22.dp)) else Modifier),
+                    placeholder = { Text(tr("Nachricht an Claude … (/ Befehle, ! am PC ausführen)", "Message Claude … (/ commands, ! run on PC)")) }, maxLines = 6,
+                    textStyle = if (bash) androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace) else androidx.compose.material3.LocalTextStyle.current,
                     shape = RoundedCornerShape(22.dp), colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent))
                 if (mic) {
                     Spacer(Modifier.width(4.dp))
@@ -281,7 +311,7 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
             Surface(color = Accent, contentColor = Color.White, shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp), modifier = Modifier.widthIn(max = 320.dp)) {
                 SelectionContainer {
                     Text(listOfNotNull(it.text.takeIf { t -> t.isNotBlank() && t != ClaudeText.SEE_IMAGE && t != ClaudeText.SEE_IMAGES },
-                        if (it.images > 0) "📷 " + if (it.images == 1) tr("1 Bild", "1 image") else tr("${it.images} Bilder", "${it.images} images") else null,
+                        if (it.images > 0) "📷 " + if (it.images == 1) tr("1 Bild", "1 image") else tr("${it.images} Bilder", "${it.images} images", "${it.images} görsel") else null,
                         it.files.takeIf { f -> f.isNotEmpty() }?.joinToString("\n") { f -> "📎 $f" }).joinToString("\n"),
                         Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
                 }
@@ -303,8 +333,9 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
             }
         }
         is Item.Tool -> ToolRow(it)
+        is Item.Bash -> BashRow(model, chat, it)
         is Item.Perm -> Card(done = it.answer != null) {
-            Text(tr("Darf Claude ${it.toolName} ausführen?", "Allow Claude to run ${it.toolName}?"), fontWeight = FontWeight.SemiBold)
+            Text(tr("Darf Claude ${it.toolName} ausführen?", "Allow Claude to run ${it.toolName}?", "Claude ${it.toolName} çalıştırabilir mi?"), fontWeight = FontWeight.SemiBold)
             if (it.description.isNotBlank()) Text(it.description, fontSize = 13.sp, color = cs.onSurfaceVariant)
             Spacer(Modifier.height(6.dp))
             CodeBlock(inputText(it.toolName, it.input), maxLines = 30)
@@ -342,6 +373,28 @@ private fun Card(done: Boolean = false, content: @Composable () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(cs.surfaceContainer, RoundedCornerShape(14.dp))
         .border(1.dp, if (done) cs.outlineVariant else Accent.copy(alpha = 0.6f), RoundedCornerShape(14.dp)).padding(12.dp)) { content() }
+}
+
+// „!“-Befehl: Befehl, Status, Ausgabe und Hinweis, dass Claude sie mit der nächsten Nachricht sieht
+@Composable
+private fun BashRow(model: AppModel, chat: Chat, it: Item.Bash) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().background(cs.surfaceContainer, RoundedCornerShape(10.dp)).border(1.dp, Accent.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+        .padding(horizontal = 10.dp, vertical = 7.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("!", fontWeight = FontWeight.Bold, color = Accent, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.width(8.dp))
+            Text(it.command, Modifier.weight(1f), maxLines = 3, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+            if (it.running) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                TextButton(onClick = { model.bashStop(chat) }) { Text(tr("Stopp", "Stop")) }
+            } else Text(if (it.code != 0) "✕" else "✓", color = if (it.code != 0) Danger else Ok)
+        }
+        if (it.output.isNotEmpty()) { Spacer(Modifier.height(6.dp)); CodeBlock(it.output.take(20000), maxLines = 40) }
+        if (!it.running) Text((if (it.code != 0) tr("Beendet mit Code ", "Exited with code ") + it.code + " · " else "") +
+            tr("Claude sieht die Ausgabe mit deiner nächsten Nachricht", "Claude sees the output with your next message") + (if (it.from.isNotEmpty()) " · " + it.from else ""),
+            fontSize = 11.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+    }
 }
 
 @Composable

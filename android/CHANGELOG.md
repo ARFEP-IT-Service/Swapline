@@ -3,6 +3,14 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.7.0] – 2026-11-09
+
+- Neu: **Türkisch** – die App folgt der Systemsprache (Deutsch, Englisch, Türkisch).
+- Neu: **„!“-Befehle** – „!git status“ im Eingabefeld führt den Befehl am Haupt-PC im Ordner des Chats aus, die Ausgabe
+  erscheint als Karte, Claude sieht sie mit der nächsten Nachricht. Braucht Swapline am PC ab 0.14.0 und für dieses Gerät
+  die Freigabe „Alles erlauben“ in der Geräteliste.
+- Neu: **„/“-Befehle** – beim Tippen von „/“ erscheint eine Auswahl der Befehle und Skills des Kontos (wie am PC).
+
 ## [0.6.0] – 2026-11-09
 
 - Neu: **Live-Status in der Benachrichtigung** – solange Claude arbeitet, zeigt eine stille Benachrichtigung je Chat den

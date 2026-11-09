@@ -119,7 +119,7 @@ fun SettingsScreen(model: AppModel, onBack: () -> Unit, onHosts: () -> Unit) {
                         .onFailure { openAppSettings(ctx) }
                 }
             }
-            InfoRow(tr("Haupt-PCs", "Host PCs"), tr("${model.hosts.size} gekoppelt – koppeln, Adressen ändern, entfernen", "${model.hosts.size} paired – pair, change addresses, remove"), arrow = true, onClick = onHosts)
+            InfoRow(tr("Haupt-PCs", "Host PCs"), tr("${model.hosts.size} gekoppelt – koppeln, Adressen ändern, entfernen", "${model.hosts.size} paired – pair, change addresses, remove", "${model.hosts.size} eşleştirildi – eşleştir, adresleri değiştir, kaldır"), arrow = true, onClick = onHosts)
 
             Section(tr("Über", "About"))
             AboutRow(model)

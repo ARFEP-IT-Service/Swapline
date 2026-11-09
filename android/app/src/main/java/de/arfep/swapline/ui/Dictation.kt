@@ -83,7 +83,7 @@ class Dictation internal constructor(private val ctx: Context, private val onTex
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> tr("Kein Zugriff aufs Mikrofon", "No microphone access")
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> tr("Spracherkennung braucht hier eine Internetverbindung", "Speech recognition needs an internet connection here")
                     SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> tr("Sprache für die Erkennung nicht installiert", "Language not installed for recognition")
-                    else -> tr("Spracherkennung fehlgeschlagen (Code $error)", "Speech recognition failed (code $error)")
+                    else -> tr("Spracherkennung fehlgeschlagen (Code $error)", "Speech recognition failed (code $error)", "Konuşma tanıma başarısız (kod $error)")
                 })
                 stop()
             }

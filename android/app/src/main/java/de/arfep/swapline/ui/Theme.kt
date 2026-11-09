@@ -19,8 +19,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 
-// Oberfläche Deutsch oder Englisch nach Systemsprache (wie tr() in src/main.js)
-fun tr(de: String, en: String): String = if (Locale.getDefault().language == "de") de else en
+// Oberfläche Deutsch, Englisch oder Türkisch nach Systemsprache (wie tr() in src/main.js). Türkisch: dritter Wert (Texte
+// mit eingesetzten Werten) oder TR_TEXTS (Schlüssel = deutscher Text); fehlt beides, Englisch.
+fun tr(de: String, en: String, tk: String? = null): String = when (Locale.getDefault().language) {
+    "de" -> de
+    "tr" -> tk ?: TR_TEXTS[de] ?: en
+    else -> en
+}
 
 val Accent = Color(0xFF1581FF)
 val Danger = Color(0xFFE5484D)
@@ -64,9 +69,9 @@ fun ago(ms: Long): String {
     val d = (System.currentTimeMillis() - ms) / 1000
     return when {
         d < 60 -> tr("gerade eben", "just now")
-        d < 3600 -> tr("vor ${d / 60} Min.", "${d / 60} min ago")
-        d < 86400 -> tr("vor ${d / 3600} Std.", "${d / 3600} h ago")
-        else -> tr("vor ${d / 86400} T.", "${d / 86400} d ago")
+        d < 3600 -> tr("vor ${d / 60} Min.", "${d / 60} min ago", "${d / 60} dk önce")
+        d < 86400 -> tr("vor ${d / 3600} Std.", "${d / 3600} h ago", "${d / 3600} sa önce")
+        else -> tr("vor ${d / 86400} T.", "${d / 86400} d ago", "${d / 86400} gün önce")
     }
 }
 

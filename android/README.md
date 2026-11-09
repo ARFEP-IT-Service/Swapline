@@ -13,6 +13,7 @@ läuft **kein** Claude Code und es gibt keine Claude-Anmeldung – die App ist e
 - **Bilder an Claude:** Büroklammer im Chat – Foto aufnehmen oder aus der Galerie (bis zu 6 je Nachricht, auf dem Handy verkleinert).
 - **Dokumente an Claude:** Büroklammer → „Dokument“ – beliebige Dateien (je bis 25 MB); sie landen auf dem Haupt-PC in einem eigenen Upload-Ordner, Claude bekommt den Pfad (Swapline am PC ab 0.10.0).
 - **Hintergrund-Aufgaben:** Leiste über dem Eingabefeld wie am PC, mit Liste und Ausgabe von Befehlen.
+- **„!“- und „/“-Befehle:** „!befehl“ läuft direkt am Haupt-PC (Freigabe „Alles erlauben“ nötig), „/“ zeigt Befehle und Skills des Kontos.
 - **Diktieren:** Mikrofon im Eingabefeld (Spracherkennung von Android, wenn möglich auf dem Gerät); gesendet wird erst mit „Senden“.
 - **Live-Status:** solange Claude arbeitet, zeigt eine Benachrichtigung den aktuellen Schritt mit Laufzeit (Android 16+: Live Update oben in der Statusleiste).
 - **Benachrichtigung** bei fertiger Antwort oder Rückfrage – mit „Im Hintergrund verbunden bleiben“ auch bei geschlossener App
@@ -21,7 +22,7 @@ läuft **kein** Claude Code und es gibt keine Claude-Anmeldung – die App ist e
 - **Über Vermittler** (eigener Server, siehe [relay/](../relay/README.md)): von unterwegs ohne Portfreigabe und ohne VPN; Ende-zu-Ende verschlüsselt.
 - **Mehrere Adressen je Haupt-PC** (Heimnetz, Tailscale, öffentliche Adresse) – die App probiert sie der Reihe nach und übernimmt neue Adressen vom Haupt-PC.
 - **Update-Hinweis**, wenn in den Releases eine neuere Version liegt (Download über den Browser, Android fragt vor der Installation).
-- Deutsch und Englisch nach Systemsprache, hell/dunkel nach System.
+- Deutsch, Englisch und Türkisch nach Systemsprache, hell/dunkel nach System.
 
 ## Installation
 

@@ -50,6 +50,8 @@ data class Group(val id: String, val name: String, val color: String)
 data class OpenTab(val id: String, val title: String, val profileId: String, val cwd: String, val sessionId: String?, val model: String, val effort: String, val permissionMode: String, val running: Boolean, val updated: Long, val preview: String)
 data class HistoryEntry(val sessionId: String, val title: String, val cwd: String, val mtime: Long)
 data class ModelOpt(val value: String, val name: String, val description: String)
+// /-Befehle und Skills eines Kontos (vom Haupt-PC, wie die Auswahl im Eingabefeld am PC)
+data class CmdOpt(val name: String, val description: String, val hint: String)
 
 data class HostStore(
     val profiles: List<Profile>,
@@ -114,6 +116,11 @@ object Parse {
         HistoryEntry(sid, it.s("title", 200), it.s("cwd"), it.n("mtime"))
     }
 
+    fun commands(e: JsonElement?): List<CmdOpt> = ((e as? JsonObject)?.get("commands")).objects().mapNotNull {
+        val n = it.str("name")?.takeIf { s -> Regex("^[A-Za-z0-9:_.-]{1,80}$").matches(s) } ?: return@mapNotNull null
+        CmdOpt(n, it.s("description", 200), it.s("argumentHint", 80))
+    }.take(300)
+
     fun models(e: JsonElement?): List<ModelOpt> = ((e as? JsonObject)?.get("models")).objects().mapNotNull {
         val v = it.str("value") ?: return@mapNotNull null
         ModelOpt(v.take(80), (it.str("displayName") ?: v).take(80), it.s("description", 200))
@@ -131,6 +138,7 @@ class HostState(record: HostRecord) {
     var profileId by mutableStateOf<String?>(null)      // gewähltes Konto für Verlauf und neue Chats (nur auf dem Handy)
     var projectFilter by mutableStateOf<String?>(null)  // Projekt-ID oder null = alle
     val models = HashMap<String, List<ModelOpt>>()
+    val commands = HashMap<String, List<CmdOpt>>()
     lateinit var link: HostLink
 
     val connected get() = state == LinkState.CONNECTED

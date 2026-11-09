@@ -209,6 +209,32 @@ class ChatTest {
         assertNull(Parse.openTabs(json.parseToJsonElement("""[{"id":"a1","sessionId":"kein-uuid"}]"""))[0].sessionId)
     }
 
+    // „!“-Befehl: läuft (Karte), fertig (gleiche Karte mit Ausgabe), im Verlauf aus <bash-input>/<bash-stdout>
+    @Test fun bangCommandLiveAndHistory() {
+        val c = chat()
+        c.ingest(j("""{"type":"swapline_bash","id":"b1","command":"npm test","state":"running","from":"PC"}"""))
+        assertTrue((c.items.single() as Item.Bash).running)
+        c.ingest(j("""{"type":"swapline_bash","id":"b1","command":"npm test","state":"done","code":1,"output":"1 failed","from":"PC"}"""))
+        val b = c.items.single() as Item.Bash
+        assertFalse(b.running); assertEquals(1, b.code); assertEquals("1 failed", b.output); assertEquals("!npm test", c.preview)
+
+        val h = chat()
+        h.ingest(j("""{"type":"user","message":{"role":"user","content":"<bash-input>ls</bash-input>\n<bash-stdout>a.txt<\\/bash-stdout> x</bash-stdout>\n\nWas siehst du?"}}"""), fromHistory = true)
+        val hb = h.items[0] as Item.Bash
+        assertEquals("ls", hb.command); assertEquals("a.txt</bash-stdout> x", hb.output)
+        assertEquals("Was siehst du?", (h.items[1] as Item.Me).text)
+        // Claude CLI: Befehl und Ausgabe als getrennte Nachrichten
+        val cli = chat()
+        cli.ingest(j("""{"type":"user","message":{"role":"user","content":"<bash-input>pwd</bash-input>"}}"""), fromHistory = true)
+        cli.ingest(j("""{"type":"user","message":{"role":"user","content":"<bash-stdout>/home</bash-stdout><bash-stderr></bash-stderr>"}}"""), fromHistory = true)
+        assertEquals(1, cli.items.size); assertEquals("/home", (cli.items[0] as Item.Bash).output)
+    }
+
+    @Test fun commandsFromHost() {
+        val cmds = Parse.commands(json.parseToJsonElement("""{"models":[],"commands":[{"name":"review","description":"Code prüfen","argumentHint":"[datei]"},{"name":"bad name"},{"description":"ohne Name"}]}"""))
+        assertEquals(listOf(CmdOpt("review", "Code prüfen", "[datei]")), cmds)
+    }
+
     @Test fun markdownBlocks() {
         val b = parseMarkdown("# Titel\n\nText **fett**\nweiter\n\n- eins\n  - zwei\n1. drei\n\n```kotlin\nval x = 1\n```\n> Zitat")
         assertEquals(Block.Heading(1, "Titel"), b[0])

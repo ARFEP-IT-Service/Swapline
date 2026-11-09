@@ -31,6 +31,8 @@ sealed class Item {
     data class Recap(val text: String) : Item()
     data class Sys(val text: String, val error: Boolean = false, val code: SysCode = SysCode.TEXT) : Item()
     data class Result(val ok: Boolean, val seconds: Double, val cost: Double?, val model: String) : Item()
+    // „!befehl“: direkt am Haupt-PC ausgeführt (ohne Claude); Claude bekommt die Ausgabe mit der nächsten Nachricht
+    data class Bash(val id: String, val command: String, val running: Boolean, val output: String = "", val code: Int = 0, val from: String = "", val time: Long? = null) : Item()
 }
 
 // Hintergrund-Aufgabe (z. B. Befehl mit run_in_background, Agent im Hintergrund) – gemeldet von Claude Code
@@ -61,6 +63,9 @@ object ClaudeText {
     const val SEE_FILE = "See attached file."
     const val ATTACHED_FILES = "Attached files:"
 }
+
+private val BASH_RE = Regex("^\\s*(?:<bash-input>([\\s\\S]*?)</bash-input>)?\\s*(?:<bash-stdout>([\\s\\S]*?)</bash-stdout>)?\\s*(?:<bash-stderr>([\\s\\S]*?)</bash-stderr>)?")
+private fun unescTag(s: String) = s.replace(Regex("<\\\\/(bash-[a-z]+)>"), "</$1>")
 
 private fun hiddenUserText(s: String) =
     s.isBlank() || Regex("^\\s*<(command-|local-command|system-reminder|bash-|user-memory|task-notification)").containsMatchIn(s) || s.startsWith("[Request interrupted")
@@ -175,6 +180,24 @@ class Chat(
     val mirror get() = hostTab != null
 
     private fun add(it: Item) { items.add(it) }
+
+    // „!“-Befehle im Verlauf (von Swapline oder der Claude CLI): <bash-input>…</bash-input> und <bash-stdout>…</bash-stdout>
+    // am Textanfang werden zu Befehls-Karten; zurück kommt der übrige Text
+    private fun takeBash(text: String, time: Long?): String {
+        var rest = text
+        for (i in 0 until 20) {
+            val m = BASH_RE.find(rest) ?: break
+            if (m.value.isBlank()) break
+            val cmd = m.groups[1]?.value
+            val err = m.groups[3]?.value.orEmpty()
+            val out = listOfNotNull(m.groups[2]?.value, m.groups[3]?.value).filter { it.isNotBlank() }.joinToString("\n") { unescTag(it) }
+            val last = items.lastOrNull()
+            if (cmd == null && last is Item.Bash && last.output.isEmpty()) replace(last, last.copy(output = out)) // CLI: Ausgabe als eigene Nachricht
+            else add(Item.Bash("h$i-${time ?: 0}", unescTag(cmd.orEmpty()), false, out, Regex("exit code (\\d+)").find(err)?.groupValues?.get(1)?.toIntOrNull() ?: 0, "", time))
+            rest = rest.substring(m.value.length)
+        }
+        return rest
+    }
     // Elemente werden nur angehängt oder an ihrer Stelle ersetzt – die Position bleibt der Schlüssel für die Anzeige
     private fun replace(old: Item, new: Item) { val i = items.indexOfLast { it === old }; if (i >= 0) items[i] = new }
 
@@ -241,6 +264,15 @@ class Chat(
                 preview = text.replace(Regex("\\s+"), " ").take(90)
                 if (title.isBlank()) title = text.replace(Regex("\\s+"), " ").take(60)
             }
+            "swapline_bash" -> {
+                val id = m.str("id").orEmpty()
+                val old = items.lastOrNull { it is Item.Bash && it.id == id } as? Item.Bash
+                val n = Item.Bash(id, m.str("command").orEmpty().take(8000), m.str("state") != "done", m.str("output").orEmpty(),
+                    (m["code"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0, (m.str("from") ?: "").take(40), old?.time ?: System.currentTimeMillis())
+                if (old != null) replace(old, n) else add(n)
+                updated = System.currentTimeMillis()
+                preview = ("!" + n.command).replace(Regex("\\s+"), " ").take(90)
+            }
             "swapline_answered" -> {
                 val rid = m.str("requestId")
                 val it = items.firstOrNull { x -> rid != null && requestIdOf(x) == rid && answerOf(x) == null }
@@ -286,7 +318,10 @@ class Chat(
             }
             "user" -> {
                 val c = m.obj("message")?.get("content")
-                if (c is JsonPrimitive) { if (c.isString && !hiddenUserText(c.content)) add(Item.Me(c.content, timeOf(m))); return null }
+                if (c is JsonPrimitive) {
+                    if (c.isString) { val rest = takeBash(c.content, timeOf(m)); if (!hiddenUserText(rest)) add(Item.Me(rest, timeOf(m))) }
+                    return null
+                }
                 val arr = (c as? JsonArray).orEmpty()
                 for (b in arr) {
                     val block = b as? JsonObject ?: continue
@@ -301,7 +336,7 @@ class Chat(
                             replace(tool, tool.copy(result = textOf(block["content"]).ifEmpty { "" }, isError = block.bool("is_error")))
                         }
                         "text" -> if (fromHistory) {
-                            val text = block.str("text").orEmpty()
+                            val text = takeBash(block.str("text").orEmpty(), timeOf(m))
                             if (!hiddenUserText(text)) add(Item.Me(text, timeOf(m), images = arr.count { (it as? JsonObject)?.str("type") == "image" }))
                         }
                     }

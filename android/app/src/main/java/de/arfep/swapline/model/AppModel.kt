@@ -270,9 +270,21 @@ class AppModel(context: Context, private val notifier: Notifier) {
         h.historyLoading = false
     }
 
-    suspend fun models(h: HostState, profileId: String): List<ModelOpt> =
-        h.models[profileId] ?: runCatching { Parse.models(h.link.call("profiles:models", buildJsonObject { put("id", profileId) })) }.getOrDefault(emptyList())
-            .also { if (it.isNotEmpty()) h.models[profileId] = it }
+    suspend fun models(h: HostState, profileId: String): List<ModelOpt> = h.models[profileId] ?: fetchModels(h, profileId)
+
+    // /-Befehle des Kontos (kommen mit den Modellen vom Haupt-PC)
+    suspend fun commands(h: HostState, profileId: String): List<CmdOpt> {
+        h.commands[profileId]?.let { return it }
+        fetchModels(h, profileId)
+        return h.commands[profileId].orEmpty()
+    }
+
+    private suspend fun fetchModels(h: HostState, profileId: String): List<ModelOpt> {
+        val r = runCatching { h.link.call("profiles:models", buildJsonObject { put("id", profileId) }) }.getOrNull()
+        val cmds = Parse.commands(r)
+        if (cmds.isNotEmpty()) h.commands[profileId] = cmds
+        return Parse.models(r).also { if (it.isNotEmpty()) h.models[profileId] = it }
+    }
 
     // ---------- Chats ----------
     fun openMirror(h: HostState, t: OpenTab): Chat =
@@ -337,7 +349,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
             if (p == null) {
                 c.running = false
                 val why = r.exceptionOrNull()?.message.orEmpty()
-                c.ingest(buildJsonObject { put("type", "app_error"); put("message", de.arfep.swapline.ui.tr("„$name“ konnte nicht übertragen werden", "“$name” could not be transferred") + (if (why.isNotEmpty()) ": $why" else "") +
+                c.ingest(buildJsonObject { put("type", "app_error"); put("message", de.arfep.swapline.ui.tr("„$name“ konnte nicht übertragen werden", "“$name” could not be transferred", "“$name” aktarılamadı") + (if (why.isNotEmpty()) ": $why" else "") +
                     de.arfep.swapline.ui.tr(" (Dokumente brauchen Swapline am PC ab 0.10.0)", " (documents need Swapline on the PC 0.10.0 or later)")) })
                 saveChats()
                 return false
@@ -387,6 +399,23 @@ class AppModel(context: Context, private val notifier: Notifier) {
         return o.str("error") ?: (o.str("text").orEmpty().ifEmpty { de.arfep.swapline.ui.tr("(noch keine Ausgabe)", "(no output yet)") } +
             if ((o["truncated"] as? JsonPrimitive)?.booleanOrNull == true) de.arfep.swapline.ui.tr("\n… (gekürzt, letzte 64 KB)", "\n… (truncated, last 64 KB)") else "")
     }
+
+    // „!befehl“: am Haupt-PC im Ordner des Chats ausführen (Haupt-PC erlaubt das nur mit der Freigabe „Alles erlauben“)
+    suspend fun runBang(c: Chat, command: String): Boolean {
+        val h = host(c.hostId) ?: return false
+        if (command.isBlank()) return false
+        if (c.title.isBlank()) c.title = ("!" + command).replace(Regex("\\s+"), " ").take(60)
+        val r = runCatching { h.link.call("session:bash", buildJsonObject { put("tab", tabJson(c)); put("command", command) }) }
+        val v = r.getOrNull()
+        val ok = v is JsonPrimitive && v.booleanOrNull == true
+        if (!ok) c.ingest(buildJsonObject { put("type", "app_error"); put("message", r.exceptionOrNull()?.message ?: (v as? JsonObject)?.str("error")
+            ?: de.arfep.swapline.ui.tr("Befehl nicht ausgeführt", "Command not run")) })
+        else if (c.mirror) c.attached = true
+        saveChats()
+        return ok
+    }
+
+    fun bashStop(c: Chat) = scope.launch { runCatching { host(c.hostId)?.link?.call("session:bashStop", JsonPrimitive(c.id)) } }
 
     fun interrupt(c: Chat) = scope.launch { runCatching { host(c.hostId)?.link?.call("session:interrupt", JsonPrimitive(c.id)) } }
 

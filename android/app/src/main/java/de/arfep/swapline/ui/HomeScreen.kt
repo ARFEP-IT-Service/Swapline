@@ -275,7 +275,7 @@ fun UpdateBanner(model: AppModel) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
         .background(MaterialTheme.colorScheme.secondaryContainer, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
         .padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(tr("Swapline für Android ${u.version} ist verfügbar", "Swapline for Android ${u.version} is available"), Modifier.weight(1f),
+        Text(tr("Swapline für Android ${u.version} ist verfügbar", "Swapline for Android ${u.version} is available", "Android için Swapline ${u.version} mevcut"), Modifier.weight(1f),
             fontSize = 13.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
         TextButton(onClick = { openUrl(ctx, u.apkUrl) }) { Text(tr("Herunterladen", "Download")) }
     }

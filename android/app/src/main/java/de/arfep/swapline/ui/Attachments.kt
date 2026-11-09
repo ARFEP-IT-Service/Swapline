@@ -54,10 +54,10 @@ suspend fun loadDoc(ctx: Context, uri: Uri): Result<Attach> = withContext(Dispat
                 if (!c.isNull(1)) size = c.getLong(1)
             }
         }
-        if (size > MAX_DOC) error(tr("„$name“ ist zu groß (höchstens 25 MB).", "“$name” is too large (max. 25 MB)."))
+        if (size > MAX_DOC) error(tr("„$name“ ist zu groß (höchstens 25 MB).", "“$name” is too large (max. 25 MB).", "“$name” çok büyük (en fazla 25 MB)."))
         val bytes = ctx.contentResolver.openInputStream(uri)!!.use { s ->
             val out = ByteArrayOutputStream(); val buf = ByteArray(64 * 1024); var total = 0L
-            while (true) { val n = s.read(buf); if (n < 0) break; total += n; if (total > MAX_DOC) error(tr("„$name“ ist zu groß (höchstens 25 MB).", "“$name” is too large (max. 25 MB).")); out.write(buf, 0, n) }
+            while (true) { val n = s.read(buf); if (n < 0) break; total += n; if (total > MAX_DOC) error(tr("„$name“ ist zu groß (höchstens 25 MB).", "“$name” is too large (max. 25 MB).", "“$name” çok büyük (en fazla 25 MB).")); out.write(buf, 0, n) }
             out.toByteArray()
         }
         Attach(Base64.encodeToString(bytes, Base64.NO_WRAP), null, name.take(120), bytes.size.toLong())
@@ -141,10 +141,10 @@ fun rememberAttachPicker(remaining: () -> Int, onAdd: (List<Attach>) -> Unit, on
     }
     return remember {
         AttachPicker(
-            gallery = { if (remaining() > 0) pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) else err(tr("Höchstens $MAX_ATTACH Anhänge je Nachricht.", "At most $MAX_ATTACH attachments per message.")) },
-            document = { if (remaining() > 0) docs.launch(arrayOf("*/*")) else err(tr("Höchstens $MAX_ATTACH Anhänge je Nachricht.", "At most $MAX_ATTACH attachments per message.")) },
+            gallery = { if (remaining() > 0) pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) else err(tr("Höchstens $MAX_ATTACH Anhänge je Nachricht.", "At most $MAX_ATTACH attachments per message.", "Mesaj başına en fazla $MAX_ATTACH ek.")) },
+            document = { if (remaining() > 0) docs.launch(arrayOf("*/*")) else err(tr("Höchstens $MAX_ATTACH Anhänge je Nachricht.", "At most $MAX_ATTACH attachments per message.", "Mesaj başına en fazla $MAX_ATTACH ek.")) },
             camera = {
-                if (remaining() <= 0) err(tr("Höchstens $MAX_ATTACH Bilder je Nachricht.", "At most $MAX_ATTACH images per message."))
+                if (remaining() <= 0) err(tr("Höchstens $MAX_ATTACH Bilder je Nachricht.", "At most $MAX_ATTACH images per message.", "Mesaj başına en fazla $MAX_ATTACH görsel."))
                 // Die App führt die Kamera-Berechtigung (QR-Code) – Android verlangt sie dann auch für die Kamera-App
                 else if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
                 else camPerm.launch(Manifest.permission.CAMERA)

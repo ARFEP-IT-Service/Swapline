@@ -92,7 +92,7 @@ fun ChatSetupDialog(model: AppModel, h: HostState, chat: Chat?, onDismiss: () ->
         return
     }
     AlertDialog(onDismissRequest = onDismiss,
-        title = { Text(if (chat == null) tr("Neuer Chat auf ${h.record.name}", "New chat on ${h.record.name}") else tr("Chat-Einstellungen", "Chat settings")) },
+        title = { Text(if (chat == null) tr("Neuer Chat auf ${h.record.name}", "New chat on ${h.record.name}", "${h.record.name} üzerinde yeni sohbet") else tr("Chat-Einstellungen", "Chat settings")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp())) {
                 if (chat == null) {

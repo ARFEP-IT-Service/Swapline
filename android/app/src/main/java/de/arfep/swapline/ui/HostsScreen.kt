@@ -103,7 +103,7 @@ private fun EditHostDialog(model: AppModel, h: HostState, onDone: () -> Unit) {
     var confirmRemove by remember { mutableStateOf(false) }
     if (confirmRemove) {
         AlertDialog(onDismissRequest = { confirmRemove = false },
-            title = { Text(tr("„${h.record.name}“ entfernen?", "Remove “${h.record.name}”?")) },
+            title = { Text(tr("„${h.record.name}“ entfernen?", "Remove “${h.record.name}”?", "“${h.record.name}” kaldırılsın mı?")) },
             text = { Text(tr("Die Kopplung wird auf dem Handy gelöscht. Am Haupt-PC bitte das Gerät zusätzlich unter Fernzugriff entfernen.",
                 "The pairing is deleted on the phone. Please also remove the device under Remote access on the host PC.")) },
             confirmButton = { TextButton(onClick = { model.removeHost(h); confirmRemove = false; onDone() }) { Text(tr("Entfernen", "Remove"), color = Danger) } },
@@ -208,10 +208,10 @@ fun AboutRow(model: AppModel) {
     var checking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Text(tr("Swapline für Android ${de.arfep.swapline.BuildConfig.VERSION_NAME}", "Swapline for Android ${de.arfep.swapline.BuildConfig.VERSION_NAME}"), style = MaterialTheme.typography.titleSmall)
+        Text(tr("Swapline für Android ${de.arfep.swapline.BuildConfig.VERSION_NAME}", "Swapline for Android ${de.arfep.swapline.BuildConfig.VERSION_NAME}", "Android için Swapline ${de.arfep.swapline.BuildConfig.VERSION_NAME}"), style = MaterialTheme.typography.titleSmall)
         Text("ARFEP IT-Service · MIT", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         val u = model.update
-        if (u != null) TextButton(onClick = { openUrl(ctx, u.apkUrl) }) { Text(tr("Version ${u.version} herunterladen", "Download version ${u.version}")) }
+        if (u != null) TextButton(onClick = { openUrl(ctx, u.apkUrl) }) { Text(tr("Version ${u.version} herunterladen", "Download version ${u.version}", "${u.version} sürümünü indir")) }
         else TextButton(enabled = !checking, onClick = { checking = true; scope.launch { model.checkUpdate(force = true).join(); checking = false; if (model.update == null) android.widget.Toast.makeText(ctx, tr("Du hast die neueste Version.", "You have the latest version."), android.widget.Toast.LENGTH_SHORT).show() } }) {
             Text(if (checking) tr("Suche …", "Checking …") else tr("Nach Updates suchen", "Check for updates"))
         }

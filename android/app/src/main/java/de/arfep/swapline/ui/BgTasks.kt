@@ -86,7 +86,7 @@ fun BgTaskBar(model: AppModel, chat: Chat) {
             Spacer(Modifier.width(8.dp))
             Text(when {
                 running == 1 -> tr("1 Hintergrund-Aufgabe läuft", "1 background task running")
-                running > 1 -> tr("$running Hintergrund-Aufgaben laufen", "$running background tasks running")
+                running > 1 -> tr("$running Hintergrund-Aufgaben laufen", "$running background tasks running", "$running arka plan görevi çalışıyor")
                 failed > 0 -> tr("Hintergrund-Aufgabe fehlgeschlagen", "Background task failed")
                 else -> tr("Hintergrund-Aufgabe beendet", "Background task finished")
             }, fontSize = 13.sp)
@@ -126,7 +126,7 @@ private fun TaskListDialog(model: AppModel, chat: Chat, list: List<BgTask>, now:
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(t.desc.ifBlank { t.id }, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                        Text(listOf(typeText(t.type), if (t.running) tr("läuft seit ${duration(t, now)}", "running for ${duration(t, now)}")
+                        Text(listOf(typeText(t.type), if (t.running) tr("läuft seit ${duration(t, now)}", "running for ${duration(t, now)}", "${duration(t, now)} süredir çalışıyor")
                             else (t.summary.ifBlank { t.status }) + " · " + duration(t, now)).joinToString(" · "),
                             fontSize = 12.sp, color = cs.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     }
