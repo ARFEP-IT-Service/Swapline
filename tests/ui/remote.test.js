@@ -158,6 +158,19 @@
   check('SSH: eingetragene Server-Ordner, ein Server-Konto', sst?.allowedFolders.join() === '/home/ich/p' && sst.profiles[0].id === 'server', JSON.stringify(sst?.allowedFolders));
   check('SSH: Chat in nicht eingetragenem Ordner abgelehnt', (await api.remote.call(srvId, 'session:send', [{ tab: { id: 'abcdefgh', cwd: '/etc', model: '', effort: '', permissionMode: 'default', sessionId: null }, content: 'hi' }])) === false);
   check('SSH: ungültige Sitzungs-ID beim Laden abgelehnt', (await api.remote.call(srvId, 'history:loadSession', [{ sessionId: '../../x' }])).length === 0);
+  // Projekte auf dem Server: anlegen, ändern, Ordner, entfernen (nur Liste, Ordner bleibt)
+  let sp = await api.remote.call(srvId, 'projects:add', [{ name: 'API', cwd: '/srv/api' }]);
+  const spId = sp?.projects.find(p => p.name === 'API')?.id;
+  check('SSH: Projekt anlegen', !!spId && sp.canEditProjects && sp.allowedFolders.includes('/srv/api') && sp.projects.some(p => p.cwd === '/home/ich/p'), JSON.stringify(sp?.projects));
+  check('SSH: relativer Projektordner abgelehnt', (await api.remote.call(srvId, 'projects:add', [{ name: 'X', cwd: 'relativ' }])) === false);
+  check('SSH: Ordner anlegen bei nicht erreichbarem Server meldet Fehler', !!(await api.remote.call(srvId, 'projects:add', [{ name: 'Y', cwd: '/srv/y', mkdir: true }]))?.error);
+  sp = await api.remote.call(srvId, 'projects:groupAdd', [{ name: 'Kunden' }]);
+  const sg = sp.projectGroups.find(g => g.name === 'Kunden');
+  sp = await api.remote.call(srvId, 'projects:update', [{ id: spId, patch: { name: 'API v2', groupId: sg.id } }]);
+  check('SSH: Projekt umbenennen und in Ordner', sp.projects.find(p => p.id === spId)?.name === 'API v2' && sp.projects.find(p => p.id === spId).groupId === sg.id);
+  check('SSH: Chat im neuen Projektordner zulässig, außerhalb nicht', (await api.remote.call(srvId, 'session:send', [{ tab: { id: 'abcdefgh', cwd: '/etc', model: '', effort: '', permissionMode: 'default', sessionId: null }, content: 'hi' }])) === false);
+  sp = await api.remote.call(srvId, 'projects:remove', [{ id: spId }]);
+  check('SSH: Projekt entfernen (Liste)', !sp.projects.some(p => p.id === spId) && !sp.allowedFolders.includes('/srv/api'));
   check('SSH: Server erscheint in der Leiste', !!document.querySelector('#rail-hosts') && (renderRail(), [...document.querySelectorAll('#rail-hosts .rail-profile')].length >= 1));
   await api.remote.ssh.remove(srvId.slice(4));
   check('SSH: Server entfernen', !(await api.remote.info()).hosts.some(x => x.id === srvId));

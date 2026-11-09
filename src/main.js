@@ -1271,7 +1271,7 @@ const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
 const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach',
   'session:send', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
-  'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate']);
+  'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate', 'projects:remove', 'projects:groupRemove']);
 const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
 function connectHost(h) {
   clients.get(h.id)?.use(null);
@@ -1302,14 +1302,15 @@ function cleanHostStore(r) {
     allowedFolders: (r.allowedFolders || []).filter(x => typeof x === 'string').map(x => x.slice(0, 500)).slice(0, 300),
     settings: { model: isModel(r.settings?.model || '') ? r.settings?.model || '' : '', effort: EFFORTS.includes(r.settings?.effort || '') ? r.settings?.effort || '' : '', permissionMode: MODES.includes(r.settings?.permissionMode) ? r.settings.permissionMode : 'default' },
     scope: { limited: !!r.scope?.limited, accountsLimited: !!r.scope?.accountsLimited, newChats: r.scope?.newChats !== false },
-    hostName: cleanName(r.hostName, ''), hostVersion: str(r.hostVersion, 40), allowBypass: !!r.allowBypass, canEditProjects: !!r.canEditProjects,
+    hostName: cleanName(r.hostName, ''), hostVersion: str(r.hostVersion, 40), allowBypass: !!r.allowBypass, canEditProjects: !!r.canEditProjects, canRemoveProjects: !!r.canRemoveProjects,
   };
 }
 handle('remote:call', async (_e, hostId, ch, args) => {
   if (typeof hostId === 'string' && hostId.startsWith('ssh:')) {
     const srv = sshServers().find(x => 'ssh:' + x.id === hostId);
     if (!srv || !REMOTE_CALLS.has(ch) || !Array.isArray(args)) return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
-    return sshDispatch(srv, ch, args);
+    try { const v = await sshDispatch(srv, ch, args); return (ch === 'store:get' || ch.startsWith('projects:')) && v && typeof v === 'object' && !v.error ? cleanHostStore(v) : v; }
+    catch (err) { if (ch.startsWith('projects:')) return { error: err.message }; throw err; }
   }
   const c = clients.get(hostId);
   if (!c || !REMOTE_CALLS.has(ch) || !Array.isArray(args)) return ch in REMOTE_FALLBACK ? REMOTE_FALLBACK[ch] : false;
@@ -1497,18 +1498,65 @@ const serverTab = (srv, t) => {
   if (!t || typeof t.id !== 'string' || !/^[a-z0-9]{6,40}$/i.test(t.id)) return null;
   if (t.sessionId != null && !UUID_RE.test(t.sessionId)) return null;
   if (!isModel(t.model || '') || !EFFORTS.includes(t.effort || '') || !MODES.includes(t.permissionMode || 'default')) return null;
-  if (t.cwd && !(srv.folders || []).includes(t.cwd)) return null; // nur eingetragene Server-Ordner (oder Home)
+  if (t.cwd && !serverFolders(srv).includes(t.cwd)) return null; // nur eingetragene Server-Ordner und Projektordner (oder Home)
   return { id: t.id, profileId: 'server', cwd: t.cwd || '', sessionId: t.sessionId || null, model: t.model || '', effort: t.effort || '', permissionMode: t.permissionMode || 'default', ssh: srv };
 };
+// Projekte eines Servers: früher nur die eingetragenen Ordner – beim ersten Zugriff werden daraus Projekte
+const serverProjects = srv => srv.projects || (srv.folders || []).map((f, i) => ({ id: 'f' + i, name: f.split('/').filter(Boolean).pop() || f, color: COLORS_SERVER[i % COLORS_SERVER.length], cwd: f }));
+const serverFolders = srv => [...new Set([...(srv.folders || []), ...serverProjects(srv).map(p => p.cwd).filter(Boolean)])];
+function serverStore(srv) {
+  return {
+    profiles: [{ id: 'server', name: srv.name, color: srv.color || '#0EA5E9' }], activeProfileId: 'server', favorites: [],
+    projects: serverProjects(srv), projectGroups: srv.projectGroups || [],
+    allowedFolders: serverFolders(srv), settings: { model: '', effort: '', permissionMode: 'default' }, scope: { limited: false, accountsLimited: false, newChats: true },
+    hostName: srv.name, hostVersion: sshState.get(srv.id)?.version || '', allowBypass: true, canEditProjects: true, canRemoveProjects: true,
+  };
+}
+// Eigener Server: Projekte und Ordner frei anlegen, ändern, entfernen (entfernt nur den Eintrag, nicht den Ordner auf dem Server).
+// Auf Wunsch legt Swapline den Projektordner auf dem Server an (mkdir -p, Pfad geprüft und in Anführungszeichen).
+async function serverProjectEdit(srv, ch, a) {
+  a = a && typeof a === 'object' ? a : {};
+  const groups = srv.projectGroups || [];
+  const okGroup = id => typeof id === 'string' && groups.some(g => g.id === id);
+  const save = fn => updateStore(s => { const x = s.sshServers.find(y => y.id === srv.id); if (!x) return; x.projects ||= serverProjects(x); x.projectGroups ||= []; fn(x); x.folders = serverFolders(x); });
+  if (ch === 'projects:add' || ch === 'projects:update') {
+    const patch = ch === 'projects:add' ? a : (a.patch && typeof a.patch === 'object' ? a.patch : {});
+    if ('cwd' in patch && patch.cwd !== '' && !validServerPath(patch.cwd)) return false;
+    if (patch.mkdir && patch.cwd) {
+      const r = await sshRun(srv, 'mkdir -p -- ' + shq(patch.cwd), 25000);
+      if (r.code !== 0) throw new Error(tr('Ordner konnte auf dem Server nicht angelegt werden: ', 'Could not create the folder on the server: ') + sshError(r));
+    }
+    save(x => {
+      if (ch === 'projects:add') {
+        if (x.projects.length >= 100) return;
+        x.projects.push({ id: 'p-' + crypto.randomBytes(4).toString('hex'), name: cleanName(patch.name, 'Projekt') || 'Projekt', color: cleanColor(patch.color, '#0EA5E9'), cwd: patch.cwd || '', ...(okGroup(patch.groupId) ? { groupId: patch.groupId } : {}) });
+        return;
+      }
+      const p = x.projects.find(y => y.id === a.id); if (!p) return;
+      if ('name' in patch) p.name = cleanName(patch.name, p.name) || p.name;
+      if ('color' in patch) p.color = cleanColor(patch.color, p.color);
+      if ('cwd' in patch) p.cwd = patch.cwd;
+      if ('groupId' in patch) { if (okGroup(patch.groupId)) p.groupId = patch.groupId; else delete p.groupId; }
+    });
+  } else if (ch === 'projects:remove') {
+    save(x => { x.projects = x.projects.filter(p => p.id !== a.id); x.folders = (x.folders || []).filter(f => x.projects.some(p => p.cwd === f)); });
+  } else if (ch === 'projects:groupAdd') {
+    save(x => { if (x.projectGroups.length < 50) x.projectGroups.push({ id: 'g-' + crypto.randomBytes(4).toString('hex'), name: cleanName(a.name, 'Ordner') || 'Ordner', color: cleanColor(a.color, '#64748B') }); });
+  } else if (ch === 'projects:groupUpdate') {
+    const patch = a.patch && typeof a.patch === 'object' ? a.patch : {};
+    save(x => { const g = x.projectGroups.find(y => y.id === a.id); if (!g) return; if ('name' in patch) g.name = cleanName(patch.name, g.name) || g.name; if ('color' in patch) g.color = cleanColor(patch.color, g.color); });
+  } else if (ch === 'projects:groupRemove') {
+    save(x => { x.projectGroups = x.projectGroups.filter(g => g.id !== a.id); for (const p of x.projects) if (p.groupId === a.id) delete p.groupId; });
+  }
+  pushRemoteStatus();
+  return serverStore(sshServers().find(x => x.id === srv.id) || srv);
+}
 async function sshDispatch(srv, ch, args) {
   const a0 = args[0];
   switch (ch) {
-    case 'store:get': return {
-      profiles: [{ id: 'server', name: srv.name, color: srv.color || '#0EA5E9' }], activeProfileId: 'server', favorites: [], projectGroups: [],
-      projects: (srv.folders || []).map((f, i) => ({ id: 'f' + i, name: f.split('/').filter(Boolean).pop() || f, color: COLORS_SERVER[i % COLORS_SERVER.length], cwd: f })),
-      allowedFolders: srv.folders || [], settings: { model: '', effort: '', permissionMode: 'default' }, scope: { limited: false, accountsLimited: false, newChats: true },
-      hostName: srv.name, hostVersion: sshState.get(srv.id)?.version || '', allowBypass: true,
-    };
+    case 'store:get': return serverStore(srv);
+    case 'projects:add': case 'projects:update': case 'projects:remove': case 'projects:groupAdd': case 'projects:groupUpdate': case 'projects:groupRemove':
+      return serverProjectEdit(srv, ch, a0);
     case 'profiles:status': {
       const r = await sshRun(srv, SERVER_PATH + 'claude auth status --json', 25000);
       try { return JSON.parse(r.out); } catch { return { loggedIn: false, error: sshError(r) }; }

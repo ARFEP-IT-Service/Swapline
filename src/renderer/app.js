@@ -505,22 +505,35 @@ function openHostProjectForm(host, pr = {}) {
   const colors = el('div', { class: 'colors' });
   const drawColors = () => colors.replaceChildren(...COLORS.map(c => el('button', { class: c === color ? 'sel' : '', style: `background:${c}`, onclick: () => { color = c; drawColors(); } })));
   drawColors();
-  const folder = el('select', {}, hs.scope.limited ? null : el('option', { value: '' }, _('kein Ordner – wird pro Chat gewählt')),
-    ...(hs.allowedFolders || []).map(f => el('option', { value: f, selected: f === pr.cwd }, f)));
+  const isServer = hostInfo(host)?.kind === 'ssh';
+  // Server: Pfad frei eingeben (Vorschläge aus den bekannten Ordnern), Haupt-PC: nur freigegebene Ordner
+  const folder = isServer
+    ? el('input', { type: 'text', value: pr.cwd || '', placeholder: _('/home/ich/projekt'), list: 'srv-folders' })
+    : el('select', {}, hs.scope.limited ? null : el('option', { value: '' }, _('kein Ordner – wird pro Chat gewählt')),
+      ...(hs.allowedFolders || []).map(f => el('option', { value: f, selected: f === pr.cwd }, f)));
+  const folderList = isServer ? el('datalist', { id: 'srv-folders' }, ...(hs.allowedFolders || []).map(f => el('option', { value: f }))) : null;
+  const mkdir = el('input', { type: 'checkbox' });
   const group = el('select', {}, el('option', { value: '' }, _('Kein Ordner')), ...(hs.projectGroups || []).map(g => el('option', { value: g.id, selected: g.id === pr.groupId }, g.name)));
   const save = async () => {
     if (!name.value.trim()) return name.focus();
-    const data = { name: name.value.trim(), color, cwd: folder.value, groupId: group.value || null };
+    const data = { name: name.value.trim(), color, cwd: folder.value.trim(), groupId: group.value || null, ...(isServer && mkdir.checked ? { mkdir: true } : {}) };
     const r = await api.remote.call(host, pr.id ? 'projects:update' : 'projects:add', [pr.id ? { id: pr.id, patch: data } : data]);
-    if (!r) return toast(_('Am Haupt-PC nicht erlaubt – Freigabe „Projekte anlegen“ fehlt oder Ordner nicht freigegeben'));
+    if (r?.error) return toast(r.error);
+    if (!r) return toast(isServer ? _('Ordner ungültig – bitte als /absoluter/pfad angeben') : _('Am Haupt-PC nicht erlaubt – Freigabe „Projekte anlegen“ fehlt oder Ordner nicht freigegeben'));
     hostStores[host] = r; m.close(); renderProjectHead(); renderList();
   };
   const m = modal('project', pr.id ? _('Projekt auf „{name}“ bearbeiten', { name: hostName(host) }) : _('Neues Projekt auf „{name}“', { name: hostName(host) }),
     el('label', { class: 'field' }, el('span', {}, _('Name')), name),
     el('div', { class: 'field' }, el('span', { class: 'hint' }, _('Farbe')), colors),
-    el('label', { class: 'field' }, el('span', {}, _('Projektordner auf dem Haupt-PC')), folder),
+    el('label', { class: 'field' }, el('span', {}, isServer ? _('Projektordner auf dem Server') : _('Projektordner auf dem Haupt-PC')), folder, folderList),
+    isServer ? el('label', { class: 'row', style: 'gap:8px' }, mkdir, _('Ordner auf dem Server anlegen, falls er fehlt')) : null,
     (hs.projectGroups || []).length ? el('label', { class: 'field' }, el('span', {}, _('Ordner in der Leiste')), group) : null,
-    el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: save }, pr.id ? _('Speichern') : _('Projekt anlegen'))));
+    el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: save }, pr.id ? _('Speichern') : _('Projekt anlegen')),
+      pr.id && hs.canRemoveProjects ? el('button', { class: 'ghost danger', style: 'margin-left:auto', onclick: async () => {
+        if (!confirm(_('Projekt „{name}“ aus der Liste entfernen? Der Ordner auf dem Server bleibt erhalten.', { name: pr.name }))) return;
+        const r = await api.remote.call(host, 'projects:remove', [{ id: pr.id }]);
+        if (r && !r.error) { hostStores[host] = r; if (hostProjectFilter[host] === pr.id) delete hostProjectFilter[host]; m.close(); renderProjectHead(); renderList(); }
+      } }, _('Projekt entfernen')) : null));
   name.focus();
 }
 function openHostGroupForm(host) {
@@ -535,7 +548,7 @@ function openHostGroupForm(host) {
     el('div', { class: 'row', style: 'margin-top:16px' }, el('button', { class: 'primary', onclick: async () => {
       if (!name.value.trim()) return name.focus();
       const r = await api.remote.call(host, 'projects:groupAdd', [{ name: name.value.trim(), color }]);
-      if (!r) return toast(_('Am Haupt-PC nicht erlaubt – Freigabe „Projekte anlegen“ fehlt'));
+      if (!r || r.error) return toast(_('Am Haupt-PC nicht erlaubt – Freigabe „Projekte anlegen“ fehlt'));
       hostStores[host] = r; m.close(); renderProjectHead();
     } }, _('Ordner anlegen'))));
   name.focus();

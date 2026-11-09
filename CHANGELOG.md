@@ -11,6 +11,8 @@ Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
 - Fernzugriff: Änderungen am Haupt-PC (Freigaben, Projekte, Ordner, Konten) kommen sofort beim Gerät an – kein
   Neuverbinden mehr nötig. „+“ in der Leiste bietet in der Haupt-PC-Ansicht „Neues Projekt auf …“ an.
+- Server per SSH: Projekte und Ordner wie bei einem Haupt-PC anlegen, umbenennen, in Ordner legen und entfernen;
+  den Projektordner legt Swapline auf Wunsch auf dem Server an (mkdir -p).
 
 ## [0.6.0] – 2026-11-09
 
