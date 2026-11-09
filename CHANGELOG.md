@@ -37,8 +37,8 @@ Erste Version.
   bleiben in Liste und Projektleiste als aktiv markiert.
 - Automatische Updates aus den GitHub-Releases (nur installierte App, abschaltbar); Hinweis „Update bereit – Neu starten“.
 - Oberfläche auf Deutsch und Englisch (Einstellung „Sprache“, Standard: wie System).
-- Automatische Tests (`npm test`), GitHub-Workflows für Tests/Build und Release-Entwürfe, Code-Signierung über
-  SignPath vorbereitet (noch nicht aktiv).
+- Automatische Tests (`npm test`), GitHub-Workflows für Tests/Build und Release-Entwürfe
+  (ohne Code-Signierung).
 - Sicherheitsprüfung 2: Antworten können keine Dateien außerhalb der App oder Netzwerkfreigaben laden, Ausgaben von
   Hintergrund-Aufgaben nur aus von Claude Code gemeldeten Dateien, Bestätigung für jede Plugin-Änderung,
   Volltextsuche ohne Einfrieren.

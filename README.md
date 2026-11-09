@@ -46,7 +46,7 @@ by **ARFEP IT-Service**, Göttingen – https://arfep.de
 
 **Ohne Installer:** `Swapline-<Version>-windows.zip` in einen festen Ordner entpacken und `Swapline.exe` starten. Diese Variante aktualisiert sich nicht selbst.
 
-> **Hinweis:** Installer und exe sind derzeit nicht digital signiert (Signierung über die SignPath Foundation ist vorbereitet, siehe [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md)). Windows SmartScreen zeigt deshalb beim ersten Start „Der Computer wurde durch Windows geschützt“. Über **Weitere Informationen → Trotzdem ausführen** startet die App.
+> **Hinweis:** Installer und exe sind nicht digital signiert. Windows SmartScreen zeigt deshalb beim ersten Start „Der Computer wurde durch Windows geschützt“. Über **Weitere Informationen → Trotzdem ausführen** startet die App.
 
 Das bestehende Claude-Code-Konto erscheint als „Standard“. Weitere Konten: Profil links unten → **Konto hinzufügen** → Name eingeben → Claude Code öffnet deinen Standard-Browser mit der Anmeldeseite von Anthropic → dort anmelden. Ist im Browser schon ein anderes Claude-Konto angemeldet, ein privates Fenster verwenden. Verlangt Claude Code einen Code, öffnet Swapline auf Wunsch ein Konsolenfenster mit `claude auth login`, in das du den Code selbst eingibst.
 
@@ -86,7 +86,7 @@ SWAPLINE_PROFILE=test npm start
 | `src/renderer/i18n.js` | Übersetzungen (Deutsch ist Quelltext, Englisch als Wörterbuch) |
 | `tests/` | Testlauf (`tests/run.js`) und Testdateien (`tests/ui/*.test.js`) |
 | `tools/` | Lizenzsammlung, Bundle-Prüfung, Release-Hilfen |
-| `.github/workflows/` | CI (Tests + Build) und Release (Build, optional Signierung, Release-Entwurf) |
+| `.github/workflows/` | CI (Tests + Build) und Release (Build, Prüfsummen, Release-Entwurf) |
 | `src/renderer/assets/swapline.ico`, `.svg` | App-Icon (exe, Fenster, Taskleiste, Benachrichtigungen, README) |
 
 Wie man mitmacht: [CONTRIBUTING.md](CONTRIBUTING.md).
