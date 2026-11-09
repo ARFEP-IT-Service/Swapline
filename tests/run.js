@@ -70,7 +70,7 @@ for (const file of files) {
   // Testkonto mit eigenem (leerem) Konfigurationsordner; Benachrichtigungen aus, damit nichts aufpoppt
   fs.writeFileSync(path.join(userData, 'swapline.json'), JSON.stringify({
     profiles: [{ id: 'test', name: 'Testkonto', color: '#1581FF', configDir }], activeProfileId: 'test',
-    favorites: [], usage: {}, projects: [], activeProjectId: 'all', costFixV1: true, knownFoldersSeeded: true, knownFolders: [work],
+    favorites: [], usage: {}, projects: [], activeProjectId: 'all', costFixV1: true, costFixV2: true, knownFoldersSeeded: true, knownFolders: [work],
     // language: 'de' – die Prüfungen erwarten deutsche Texte, auch auf Rechnern mit englischem System
     settings: { model: '', permissionMode: 'default', claudePath: '', theme: 'system', notify: 'off', sound: 'off', autoUpdate: true, language: 'de' },
   }));

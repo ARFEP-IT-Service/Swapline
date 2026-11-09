@@ -40,6 +40,10 @@ function getStore() {
   s.usage ||= {};
   // bis 0.2.x wurden kumulierte Sitzungskosten mehrfach addiert – die falschen Summen einmalig zurücksetzen
   if (!s.costFixV1) { for (const u of Object.values(s.usage)) { delete u.costUsd; delete u.days; } s.costFixV1 = true; }
+  // bis 0.1.1 wurde nach jedem Fortsetzen einer Sitzung (--resume) deren bisheriger Kostenstand erneut gezählt –
+  // die überhöhten Summen einmalig zurücksetzen (Limits bleiben)
+  if (!s.costFixV2) { for (const u of Object.values(s.usage)) { delete u.costUsd; delete u.days; } s.costFixV2 = true; }
+  s.sessionCost ||= {}; // sessionId -> letzter total_cost_usd dieser Sitzung
   s.projects ||= [];
   s.activeProjectId ||= 'all';
   s.settings ||= { model: '', permissionMode: 'default', claudePath: '' };
@@ -289,26 +293,32 @@ function startSession(tab) {
   if (tab.effort) args.push('--effort', tab.effort);
 
   const proc = spawnClaude(args, profile, { chat: true, cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
-  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: 0, tasks: new Set() }; // pending: offene Berechtigungsanfragen der CLI; lastCost: letzter Sitzungsstand der Kosten
+  // lastCost: letzter Kostenstand der Sitzung. Beim Fortsetzen (--resume) startet Claude Code mit den bisherigen Kosten
+  // der Sitzung, deshalb gilt der zuletzt gesehene Stand dieser Sitzung als Ausgangswert.
+  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: (tab.sessionId && getStore().sessionCost[tab.sessionId]) || 0, tasks: new Set() }; // pending: offene Berechtigungsanfragen der CLI
   sessions.set(tab.id, s);
 
   readline.createInterface({ input: proc.stdout }).on('line', line => {
     if (!line.trim()) return;
     let m; try { m = JSON.parse(line); } catch { return; }
     collectOutputs(line);
-    if (m.type === 'system' && m.subtype === 'init') s.tab.sessionId = m.session_id;
+    if (m.type === 'system' && m.subtype === 'init') {
+      // neue statt fortgesetzter Sitzung (z. B. Verlauf nicht gefunden): Kosten beginnen bei 0
+      if (m.session_id !== s.tab.sessionId) s.lastCost = getStore().sessionCost[m.session_id] || 0;
+      s.tab.sessionId = m.session_id;
+    }
     if (m.type === 'control_request' && m.request?.subtype === 'can_use_tool') {
       s.pending.set(m.request_id, { toolName: m.request.tool_name, input: m.request.input, suggestions: m.request.permission_suggestions || null });
     }
     if (m.type === 'rate_limit_event') recordLimits(tab.profileId, m.rate_limit_info);
-    // total_cost_usd ist der Stand der ganzen laufenden Sitzung (kumuliert) – gezählt wird nur der Zuwachs seit dem letzten Ergebnis
+    // total_cost_usd ist der Stand der ganzen Sitzung (kumuliert, inkl. fortgesetzter Teile) – gezählt wird nur der Zuwachs
     if (m.type === 'result') s.busy = false;
     if (m.type === 'system') trackBgTask(s, m);
     if (m.type === 'result' && typeof m.total_cost_usd === 'number') {
       const delta = m.total_cost_usd >= s.lastCost ? m.total_cost_usd - s.lastCost : m.total_cost_usd;
       s.lastCost = m.total_cost_usd;
       m.swapline_cost_delta = delta;
-      recordCost(tab.profileId, delta);
+      recordCost(tab.profileId, delta, s.tab.sessionId, m.total_cost_usd);
     }
     send(tab.id, m);
   });
@@ -335,8 +345,15 @@ function stopSession(tabId) {
   setTimeout(() => { try { s.proc.kill(); } catch {} }, 1500);
 }
 
-function recordCost(profileId, cost) {
+const SESSION_COST_MAX = 500; // so viele Sitzungen merkt sich Swapline (älteste fallen heraus)
+function recordCost(profileId, cost, sessionId, total) {
   updateStore(st => {
+    if (sessionId && UUID_RE.test(sessionId)) {
+      delete st.sessionCost[sessionId]; // neu einfügen = zuletzt benutzt
+      st.sessionCost[sessionId] = total;
+      const ids = Object.keys(st.sessionCost);
+      for (const id of ids.slice(0, Math.max(0, ids.length - SESSION_COST_MAX))) delete st.sessionCost[id];
+    }
     const u = (st.usage[profileId] ||= {});
     u.costUsd = (u.costUsd || 0) + cost;
     const day = new Date().toISOString().slice(0, 10);
@@ -1074,7 +1091,9 @@ if (!(DEV && process.env.SWAPLINE_PROFILE)) migrateFromLegacy();
 else if (process.env.SWAPLINE_TEST_APPDATA) migrateFromLegacy(process.env.SWAPLINE_TEST_APPDATA);
 
 // Eigene App-Kennung: Taskleiste gruppiert unter Swapline, Benachrichtigungen zeigen Name und Icon der App
-if (process.platform === 'win32') app.setAppUserModelId('de.arfep.swapline');
+// Start aus dem Quellcode (npm start, Tests) mit eigener Kennung: sonst leitet Windows Klicks auf Benachrichtigungen
+// der installierten App an die Entwicklungsversion weiter
+if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'de.arfep.swapline' : 'de.arfep.swapline.dev');
 
 app.whenReady().then(() => {
   purgeEmbeddedLoginData(app.getPath('userData'));

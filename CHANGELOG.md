@@ -7,6 +7,14 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [Unveröffentlicht]
+
+- Behoben: Der Kosten-Gegenwert verdoppelte sich nach jedem Fortsetzen eines Chats (App-Neustart, Update,
+  Modell- oder Berechtigungswechsel), weil Claude Code den bisherigen Kostenstand der Sitzung mitbringt.
+  Die überhöhten Summen werden einmalig zurückgesetzt.
+- Behoben: Klicks auf Benachrichtigungen konnten ein leeres Electron-Fenster öffnen, wenn auf dem Rechner auch aus
+  dem Quellcode gestartet wurde – Entwicklungs- und Testläufe haben jetzt eine eigene App-Kennung.
+
 ## [0.1.1] – 2026-11-09
 
 Prüfung des automatischen Updates; keine Funktionsänderung.

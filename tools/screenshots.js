@@ -42,7 +42,7 @@ for (const file of fs.readdirSync(sceneDir).filter(f => f.endsWith('.js') && f.i
       { id: 'p-doc', name: 'Doku', color: '#EC4899', cwd: '' },
     ],
     usage: { arbeit: { costUsd: 18.42, days: { [day]: 2.37 }, limits: { unifiedWindows: { five_hour: { utilization: 0.34, resetsAt: now + 2 * 3600 + 900 }, seven_day: { utilization: 0.61, resetsAt: now + 3 * 86400 } } } } },
-    costFixV1: true, knownFoldersSeeded: true, knownFolders: [work],
+    costFixV1: true, costFixV2: true, knownFoldersSeeded: true, knownFolders: [work],
     settings: { model: '', permissionMode: 'default', claudePath: '', theme, language, notify: 'off', sound: 'off' },
   }));
   const script = path.join(work, 'scene.js');
