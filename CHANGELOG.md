@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.2.1] – 2026-11-09
 
 - Knopf „Ganz nach unten“ (auch Strg+Ende), sobald man im Chat nach oben gescrollt hat.
 - Erfolgreich beendete Hintergrund-Aufgaben verschwinden nach ein paar Sekunden von selbst aus der Leiste;
