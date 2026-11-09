@@ -18,6 +18,31 @@ const files = fs.readdirSync(path.join(__dirname, 'ui')).filter(f => f.endsWith(
 const helpers = fs.readFileSync(path.join(__dirname, 'ui', '_helpers.js'), 'utf8');
 const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
 
+// Fernzugriff-Test: zweites Konto, Projekt „Arbeit“ (= Testordner) und drei Chats:
+// U1 im Projektordner, U2 in einem anderen Ordner (beide Konto test), U3 im Konto test2
+function remoteSeed(work, configDir) {
+  const other = work + '-other'; // neben dem Projektordner (Unterordner gehören zum Projekt)
+  const config2 = path.join(work, 'claude-config-2');
+  fs.mkdirSync(other, { recursive: true });
+  const chat = (dir, cwd, id, title) => {
+    const d = path.join(dir, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, id + '.jsonl'), [
+      { type: 'user', cwd, sessionId: id, timestamp: new Date().toISOString(), message: { role: 'user', content: 'Hallo ' + title } },
+      { type: 'ai-title', aiTitle: title, sessionId: id },
+    ].map(x => JSON.stringify(x)).join('\n') + '\n');
+  };
+  chat(configDir, work, '11111111-1111-4111-8111-111111111111', 'Chat im Projekt');
+  chat(configDir, other, '22222222-2222-4222-8222-222222222222', 'Chat woanders');
+  chat(config2, work, '33333333-3333-4333-8333-333333333333', 'Chat im zweiten Konto');
+  return {
+    bypassAcknowledged: true, // Warnung zu „Alles erlauben“ schon bestätigt (sonst blockiert der native Dialog den Testlauf)
+    profiles: [{ id: 'test', name: 'Testkonto', color: '#1581FF', configDir }, { id: 'test2', name: 'Zweitkonto', color: '#22C55E', configDir: config2 }],
+    projects: [{ id: 'p-work', name: 'Arbeit', color: '#F59E0B', cwd: work }],
+    knownFolders: [work, other],
+  };
+}
+
 let failed = 0, passed = 0;
 
 // Übersetzungen (ohne App): jeder Text, der in app.js über _('…') bzw. N_('…') angezeigt wird, und jeder
@@ -74,7 +99,7 @@ for (const file of files) {
     // language: 'de' – die Prüfungen erwarten deutsche Texte, auch auf Rechnern mit englischem System
     settings: { model: '', permissionMode: 'default', claudePath: '', theme: 'system', notify: 'off', sound: 'off', autoUpdate: true, language: 'de' },
     // Fernzugriff-Test: Warnung zu „Alles erlauben“ schon bestätigt (sonst blockiert der native Dialog den Testlauf)
-    ...(name === 'remote' ? { bypassAcknowledged: true } : {}),
+    ...(name === 'remote' ? remoteSeed(work, configDir) : {}),
   }));
   // kleines Bild außerhalb des App-Ordners: die Oberfläche darf es nicht laden
   fs.writeFileSync(path.join(work, 'probe.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
@@ -98,6 +123,7 @@ for (const file of files) {
   }
   fs.rmSync(userData, { recursive: true, force: true });
   fs.rmSync(work, { recursive: true, force: true });
+  fs.rmSync(work + '-other', { recursive: true, force: true });
 }
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);
 process.exit(failed ? 1 : 0);

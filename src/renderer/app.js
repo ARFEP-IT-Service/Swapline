@@ -282,6 +282,7 @@ function openChatMenu(e, t) {
     el('span', { class: 'pm-av' }, avatar(pr, 'sm')), pr.name));
   items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), _('Neues Projekt …')));
   items.push(el('div', { class: 'pm-sep' }), el('button', { class: 'pm-item', onclick: async () => { closeMenus(); if (activeTabId !== t.id) await openTab(t.id); renameChat(); } }, el('span', { class: 'pm-ic' }, '✎'), _('Umbenennen …')));
+  if (!store.remote && t.sessionId && remoteState?.host?.devices.length) items.push(el('button', { class: 'pm-item', onclick: () => { closeMenus(); openShareChat(t); } }, el('span', { class: 'pm-ic' }, '🖥'), _('Für Gerät freigeben …')));
   items.push(el('button', { class: 'pm-item danger', onclick: () => { closeMenus(); closeTab(t.id); } }, el('span', { class: 'pm-ic' }, '×'), _('Chat schließen')));
   const menu = el('div', { class: 'popmenu', style: `left:${e.clientX}px; top:${e.clientY}px` }, ...items);
   document.body.append(menu);
@@ -644,6 +645,7 @@ function makeTab(o) {
 }
 
 async function newChat(cwd) {
+  if (store.scope && !store.scope.newChats) return toast(_('Neue Chats sind für dieses Gerät nicht freigegeben – nur die geteilten Chats im Verlauf.'));
   let profileId = store.activeProfileId;
   if (cwd === undefined) { const picked = await pickFolderModal(); if (picked === null) return; ({ cwd, profileId } = picked); }
   const t = makeTab({ cwd, profileId });
@@ -1455,7 +1457,7 @@ function pickFolderModal() {
         // Fernzugriff: Ordner des Haupt-PCs zur Auswahl (ein Datei-Dialog dort ginge ins Leere)
         ...(store.remote ? (store.allowedFolders || []).filter(p => !store.favorites.some(f => f.path === p)).slice(0, 40).map(p => el('button', { onclick: () => finish(p) }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, baseName(p), el('small', {}, p))))
           : [el('button', { onclick: async () => { const d = await api.pickFolder(); if (d) finish(d); } }, el('div', { class: 'folder-ic' }, icon(ICONS.folder)), el('div', {}, _('Ordner auswählen …'), el('small', {}, _('beliebiges Projekt'))))]),
-        el('button', { onclick: () => finish('') }, el('div', { class: 'folder-ic' }, '~'), el('div', {}, _('Ohne Projekt'), el('small', {}, _('im Benutzerordner'))))));
+        store.scope?.limited ? null : el('button', { onclick: () => finish('') }, el('div', { class: 'folder-ic' }, '~'), el('div', {}, _('Ohne Projekt'), el('small', {}, _('im Benutzerordner'))))));
     // Schließen über × oder Hintergrund = abbrechen
     new MutationObserver((_, obs) => { if (!$('.modal.pickfolder')) { obs.disconnect(); if (!done) { done = true; resolve(null); } } }).observe($('#modal-root'), { childList: true });
   });
@@ -1791,6 +1793,82 @@ async function openRemote() {
   // Countdown des Kopplungscodes; endet, sobald das Fenster zu ist
   remoteTimer = setInterval(() => { if (!$('.modal.remote')) { clearInterval(remoteTimer); if (pairCode) api.remote.pairCancel(); pairCode = null; return; } if (pairCode) drawRemote(); }, 1000);
 }
+// Freigabe je Gerät: Konten, Projekte, einzelne Chats (durchgesetzt vom Haupt-PC bei jeder Anfrage)
+function scopeText(sc) {
+  if (!sc || (sc.profiles === null && sc.projects === null)) return _('alles');
+  const parts = [];
+  if (sc.profiles !== null) parts.push(sc.profiles.length === 1 ? _('1 Konto') : _('{n} Konten', { n: sc.profiles.length }));
+  if (sc.projects !== null) {
+    parts.push(sc.projects.length === 1 ? _('1 Projekt') : _('{n} Projekte', { n: sc.projects.length }));
+    parts.push(sc.chats.length === 1 ? _('1 Chat') : _('{n} Chats', { n: sc.chats.length }));
+  }
+  return parts.join(', ');
+}
+// Verlauf aller Konten dieses PCs (für die Chat-Auswahl): sessionId -> { title, profile, cwd }
+async function allHistory() {
+  const map = new Map();
+  for (const p of store.profiles) for (const h of await api.history.list(p.id)) map.set(h.sessionId, { ...h, profile: p });
+  return map;
+}
+async function openScopeEditor(d) {
+  const sc = { profiles: d.scope.profiles === null ? null : [...d.scope.profiles], projects: d.scope.projects === null ? null : [...d.scope.projects], chats: [...d.scope.chats] };
+  const hist = await allHistory();
+  const box = el('div', {});
+  const radio = (name, checked, label, onpick) => { const r = el('input', { type: 'radio', name, checked }); r.onchange = () => { onpick(); draw(); }; return el('label', { class: 'row' }, r, label); };
+  const check = (checked, label, onchange, disabled = false) => { const c = el('input', { type: 'checkbox', checked, disabled }); c.onchange = () => onchange(c.checked); return el('label', { class: 'row' + (disabled ? ' muted' : '') }, c, label); };
+  const toggleIn = (list, id, on) => (on ? [...new Set([...list, id])] : list.filter(x => x !== id));
+  let query = '';
+  function draw() {
+    const picks = [...hist.values()].filter(h => !sc.chats.includes(h.sessionId) && (!query || (h.title + ' ' + h.cwd).toLowerCase().includes(query))).slice(0, 12);
+    const search = el('input', { type: 'text', placeholder: _('Chat suchen …'), value: query });
+    search.oninput = () => { query = search.value.trim().toLowerCase(); const pos = search.selectionStart; draw(); const s2 = box.querySelector('input[type=text]'); s2.focus(); s2.setSelectionRange(pos, pos); };
+    fill(box,
+      el('h3', {}, _('Konten')),
+      radio('sc-acc', sc.profiles === null, _('Alle Konten'), () => { sc.profiles = null; }),
+      radio('sc-acc', sc.profiles !== null, _('Nur ausgewählte Konten'), () => { sc.profiles ??= store.profiles.map(p => p.id); }),
+      sc.profiles !== null ? el('div', { class: 'scope-list' }, ...store.profiles.map(p => check(sc.profiles.includes(p.id), [avatar(p, 'sm'), p.name], on => { sc.profiles = toggleIn(sc.profiles, p.id, on); }))) : null,
+      el('h3', { style: 'margin-top:14px' }, _('Projekte und Chats')),
+      radio('sc-cont', sc.projects === null, _('Alle Projekte und Chats'), () => { sc.projects = null; }),
+      radio('sc-cont', sc.projects !== null, _('Nur ausgewählte Projekte und Chats'), () => { sc.projects ??= []; }),
+      sc.projects !== null ? el('div', { class: 'scope-list' },
+        el('p', { class: 'hint' }, _('Projekte: alle Chats in ihrem Ordner, neue Chats nur dort. Chats: nur diese einzelnen Chats fortsetzen.')),
+        ...(store.projects.length ? store.projects.map(pr => check(sc.projects.includes(pr.id), [avatar(pr, 'sm'), pr.name, el('small', { class: 'muted' }, ' ' + (pr.cwd || _('(ohne Ordner – nicht freigebbar)')))], on => { sc.projects = toggleIn(sc.projects, pr.id, on); }, !pr.cwd)) : [el('p', { class: 'hint' }, _('Noch keine Projekte.'))]),
+        el('div', { class: 'hint', style: 'margin-top:8px' }, _('Einzelne Chats:')),
+        ...sc.chats.map(id => { const h = hist.get(id); return el('div', { class: 'dev-row' }, el('div', { class: 'grow' }, el('b', {}, h?.title || id.slice(0, 8)), el('small', {}, h ? h.profile.name + ' · ' + baseName(h.cwd) : _('nicht mehr im Verlauf'))), el('button', { class: 'ghost', onclick: () => { sc.chats = sc.chats.filter(x => x !== id); draw(); } }, '×')); }),
+        search,
+        ...picks.map(h => el('button', { class: 'pick-chat', onclick: () => { sc.chats = [...sc.chats, h.sessionId]; draw(); } }, '+ ', el('b', {}, h.title), el('small', { class: 'muted' }, ' · ' + h.profile.name + ' · ' + baseName(h.cwd))))) : null,
+      el('div', { class: 'row', style: 'margin-top:14px;justify-content:flex-end' },
+        el('button', { class: 'ghost', onclick: () => openRemote() }, _('Abbrechen')),
+        el('button', { class: 'primary', onclick: async () => {
+          const res = await api.remote.deviceSet({ id: d.id, scope: sc });
+          if (res.error) return toast(res.error);
+          remoteState = res; toast(_('Freigabe gespeichert')); openRemote();
+        } }, _('Speichern'))));
+  }
+  modal('remote scope', _('Freigabe für „{name}“', { name: d.name }), box);
+  draw();
+}
+// Rechtsklick auf einen Chat: einzeln für ein Gerät freigeben
+async function openShareChat(t) {
+  remoteState = await api.remote.info();
+  const box = el('div', {});
+  const draw = () => fill(box, ...remoteState.host.devices.map(d => {
+    const sc = d.scope, all = sc.projects === null && (sc.profiles === null || sc.profiles.includes(t.profileId));
+    const viaProject = !all && sc.projects !== null && store.projects.some(p => p.cwd && sc.projects.includes(p.id) && (t.cwd || '').toLowerCase().startsWith(p.cwd.toLowerCase()));
+    const accountOk = sc.profiles === null || sc.profiles.includes(t.profileId);
+    const c = el('input', { type: 'checkbox', checked: all || viaProject || sc.chats.includes(t.sessionId), disabled: all || viaProject || !accountOk || sc.projects === null });
+    c.onchange = async () => {
+      const chats = c.checked ? [...new Set([...sc.chats, t.sessionId])] : sc.chats.filter(x => x !== t.sessionId);
+      const res = await api.remote.deviceSet({ id: d.id, scope: { ...sc, chats } });
+      if (res.error) toast(res.error); else remoteState = res;
+      draw();
+    };
+    return el('label', { class: 'dev-row' }, c, el('div', { class: 'grow' }, el('b', {}, d.name),
+      el('small', {}, all ? _('hat Zugriff auf alles') : !accountOk ? _('Konto dieses Chats nicht freigegeben') : viaProject ? _('freigegeben über das Projekt') : _('Freigabe: {s}', { s: scopeText(sc) }))));
+  }));
+  modal('remote', _('Chat „{name}“ freigeben', { name: t.title || _('Neuer Chat') }), el('p', { class: 'hint' }, _('Gekoppelte Geräte, die nur ausgewählte Inhalte sehen, können diesen Chat dann fortsetzen.')), box);
+  draw();
+}
 function drawRemote() {
   const box = $('#remote-body'); if (!box || !remoteState) return;
   const r = remoteState, h = r.host;
@@ -1802,8 +1880,10 @@ function drawRemote() {
   toggle.onchange = () => setHost(toggle.checked);
   portIn.onchange = () => { if (h.enabled) setHost(true); };
   const left = h.pairingExpires ? Math.max(0, Math.round((h.pairingExpires - Date.now()) / 1000)) : 0;
+  const hostNote = store.remote ? el('p', { class: 'hint' }, _('Du bist gerade mit einem Haupt-PC verbunden. Freigaben für Geräte, die sich mit diesem PC verbinden, bearbeitest du nach „Zurück zu diesem PC“.')) : null;
   const host = [
     el('h3', {}, _('Dieser PC als Haupt-PC')),
+    hostNote,
     el('p', { class: 'hint' }, _('Andere eigene Geräte mit Swapline können sich verbinden und alle Chats und Konten dieses PCs nutzen; Claude läuft dabei hier. Die Verbindung ist verschlüsselt, jedes Gerät wird einmal mit einem Code gekoppelt.')),
     el('div', { class: 'row' }, el('label', { class: 'row' }, toggle, _('Fernzugriff erlauben')), el('span', { class: 'hint' }, _('Port')), portIn,
       h.enabled && !h.running ? el('span', { class: 'hint', style: 'color:var(--danger)' }, _('nicht gestartet')) : null),
@@ -1818,7 +1898,9 @@ function drawRemote() {
       const bypass = el('input', { type: 'checkbox', checked: d.allowBypass });
       bypass.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBypass: bypass.checked }); drawRemote(); };
       return el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (d.connected ? ' on' : '') }),
-        el('div', { class: 'grow' }, el('b', {}, d.name), el('small', {}, d.connected ? _('verbunden') : d.lastSeen ? _('zuletzt {t}', { t: new Date(d.lastSeen).toLocaleString(locale()) }) : _('noch nie verbunden'), d.lastAddress ? ' · ' + d.lastAddress : '')),
+        el('div', { class: 'grow' }, el('b', {}, d.name), el('small', {}, d.connected ? _('verbunden') : d.lastSeen ? _('zuletzt {t}', { t: new Date(d.lastSeen).toLocaleString(locale()) }) : _('noch nie verbunden'), d.lastAddress ? ' · ' + d.lastAddress : ''),
+          el('small', {}, _('Freigabe: {s}', { s: scopeText(d.scope) }))),
+        el('button', { class: 'ghost', disabled: !!store.remote, title: store.remote ? _('Zum Bearbeiten zurück zu diesem PC wechseln') : '', onclick: () => openScopeEditor(d) }, _('Freigabe …')),
         el('label', { class: 'row', title: _('Darf Chats mit „Alles erlauben“ (--dangerously-skip-permissions) starten') }, bypass, _('„Alles erlauben“')),
         el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Gerät „{name}“ entfernen? Es kann sich danach nicht mehr verbinden.', { name: d.name }))) return; remoteState = await api.remote.deviceRemove(d.id); drawRemote(); } }, _('Entfernen')));
     }),
@@ -1942,6 +2024,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderUsag
   activeTabId = tabs.some(t => t.id === saved.activeTabId) ? saved.activeTabId : null;
   lastOpened = saved.lastOpened || {};
   renderRail(); renderList(); renderUsage(); renderRemoteBar();
+  api.remote.info().then(r => { remoteState = r; });
   if (store.remoteError) toast(_('Haupt-PC „{name}“ nicht erreichbar – Swapline zeigt wieder diesen PC', { name: store.remoteError }));
   if (activeTabId) openTab(activeTabId); else renderChat();
   refreshStatus();

@@ -277,11 +277,13 @@ function send(tabId, msg) {
 // Ausgabedateien von Hintergrund-Aufgaben, die die CLI im Stream gemeldet hat – nur diese darf task:readOutput lesen
 const seenOutputs = new Set();
 const OUTPUT_RE = /(?:Output is being written to:\s*|"output_file":")((?:[^"\\]|\\.)+?\.output)/g;
-function collectOutputs(line) {
+function collectOutputs(line, s) {
   if (!line.includes('.output')) return;
   for (const m of line.matchAll(OUTPUT_RE)) {
     let p; try { p = JSON.parse('"' + m[1] + '"'); } catch { continue; }
-    if (seenOutputs.size < 5000) seenOutputs.add(path.resolve(p.trim()).toLowerCase());
+    const key = path.resolve(p.trim()).toLowerCase();
+    if (seenOutputs.size < 5000) seenOutputs.add(key);
+    if (s && s.outputs.size < 500) s.outputs.add(key); // je Sitzung: ein eingeschränktes Gerät liest nur Ausgaben seiner Chats
   }
 }
 // Laufende Hintergrund-Aufgaben einer Sitzung (task_started … task_notification / background_tasks_changed)
@@ -305,13 +307,13 @@ function startSession(tab) {
   const proc = spawnClaude(args, profile, { chat: true, cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
   // lastCost: letzter Kostenstand der Sitzung. Beim Fortsetzen (--resume) startet Claude Code mit den bisherigen Kosten
   // der Sitzung, deshalb gilt der zuletzt gesehene Stand dieser Sitzung als Ausgangswert.
-  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: (tab.sessionId && getStore().sessionCost[tab.sessionId]) || 0, tasks: new Set() }; // pending: offene Berechtigungsanfragen der CLI
+  const s = { proc, tab: { ...tab }, stderr: '', pending: new Map(), lastCost: (tab.sessionId && getStore().sessionCost[tab.sessionId]) || 0, tasks: new Set(), outputs: new Set() }; // pending: offene Berechtigungsanfragen der CLI
   sessions.set(tab.id, s);
 
   readline.createInterface({ input: proc.stdout }).on('line', line => {
     if (!line.trim()) return;
     let m; try { m = JSON.parse(line); } catch { return; }
-    collectOutputs(line);
+    collectOutputs(line, s);
     if (m.type === 'system' && m.subtype === 'init') {
       // neue statt fortgesetzter Sitzung (z. B. Verlauf nicht gefunden): Kosten beginnen bei 0
       if (m.session_id !== s.tab.sessionId) s.lastCost = getStore().sessionCost[m.session_id] || 0;
@@ -958,15 +960,18 @@ function allowedFolders() {
 // Was ein Gerät vom Haupt-PC sieht: keine Konfigurationsordner, keine Gerätelisten; Auswahl (Konto, Projekt,
 // Modell …) je Gerät getrennt, damit das Gerät die Ansicht am Haupt-PC nicht verstellt
 function remoteStoreFor(dev) {
-  const s = getStore(), v = dev.view || {};
+  const s = getStore(), v = dev.view || {}, limited = contentLimited(dev);
+  const profiles = s.profiles.filter(p => profileAllowed(dev, p.id)).map(({ configDir, ...p }) => p);
+  const projects = limited ? s.projects.filter(p => scopeOf(dev).projects.includes(p.id)) : s.projects;
   return {
-    profiles: s.profiles.map(({ configDir, ...p }) => p),
-    activeProfileId: profileById(v.activeProfileId) ? v.activeProfileId : s.activeProfileId,
-    favorites: s.favorites, projects: s.projects,
-    activeProjectId: v.activeProjectId && (v.activeProjectId === 'all' || s.projects.some(p => p.id === v.activeProjectId)) ? v.activeProjectId : 'all',
+    profiles,
+    activeProfileId: profiles.some(p => p.id === v.activeProfileId) ? v.activeProfileId : profiles.some(p => p.id === s.activeProfileId) ? s.activeProfileId : profiles[0]?.id || null,
+    favorites: limited ? [] : s.favorites, projects,
+    activeProjectId: v.activeProjectId && (v.activeProjectId === 'all' || projects.some(p => p.id === v.activeProjectId)) ? v.activeProjectId : 'all',
+    scope: { limited, accountsLimited: scopeOf(dev).profiles !== null, newChats: !limited || projectFolders(dev).length > 0 },
     usage: s.usage,
     settings: { model: v.model ?? s.settings.model ?? '', effort: v.effort ?? s.settings.effort ?? '', permissionMode: v.permissionMode ?? s.settings.permissionMode ?? 'default' },
-    allowedFolders: allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass,
+    allowedFolders: limited ? projectFolders(dev) : allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass,
   };
 }
 const setView = (dev, patch) => saveDevices(getDevices().map(d => (d.id === dev.id ? { ...d, view: { ...d.view, ...patch } } : d)));
@@ -977,14 +982,59 @@ function hostTabId(dev, id) {
   return h;
 }
 const notAllowed = () => { throw new Error(tr('Auf dem Haupt-PC nicht erlaubt (nur Chats)', 'Not allowed on the host PC (chats only)')); };
+const notShared = () => { throw new Error(tr('Für dieses Gerät nicht freigegeben', 'Not shared with this device')); };
+
+// Freigabe je Gerät: { profiles: null | [Konto-IDs], projects: null | [Projekt-IDs], chats: [Session-IDs] }.
+// profiles null = alle Konten. projects null = alle Inhalte; sonst nur Chats in den Ordnern der gewählten Projekte
+// (auch Unterordner) und die einzeln freigegebenen Chats – neue Chats nur in den Projektordnern.
+// Durchgesetzt wird hier bei jeder Anfrage, nicht nur in der Anzeige.
+const scopeOf = dev => ({ profiles: null, projects: null, chats: [], ...(dev.scope || {}) });
+const contentLimited = dev => scopeOf(dev).projects !== null;
+const deviceLimited = dev => { const sc = scopeOf(dev); return sc.profiles !== null || sc.projects !== null; };
+const profileAllowed = (dev, id) => !!profileById(id) && (scopeOf(dev).profiles === null || scopeOf(dev).profiles.includes(id));
+const projectFolders = dev => getStore().projects.filter(p => p.cwd && scopeOf(dev).projects?.includes(p.id)).map(p => p.cwd);
+function folderAllowed(dev, cwd) {
+  if (!contentLimited(dev)) return true;
+  if (typeof cwd !== 'string' || !cwd) return false;
+  const k = folderKey(cwd);
+  return projectFolders(dev).some(f => k === folderKey(f) || k.startsWith(folderKey(f) + path.sep));
+}
+const historyAllowed = (dev, h) => !contentLimited(dev) || scopeOf(dev).chats.includes(h.sessionId) || folderAllowed(dev, h.cwd);
+// Arbeitsordner einer gespeicherten Sitzung (erste cwd-Angabe in der Sitzungsdatei)
+function sessionCwd(profile, sessionId) {
+  const file = findSessionFile(profile, sessionId);
+  if (!file) return null;
+  for (const line of readHead(file).split('\n')) {
+    if (!line.includes('"cwd"')) continue;
+    try { const o = JSON.parse(line); if (typeof o.cwd === 'string') return o.cwd; } catch {}
+  }
+  return '';
+}
+function sessionAllowed(dev, profileId, sessionId) {
+  if (!profileAllowed(dev, profileId)) return false;
+  if (!contentLimited(dev)) return true;
+  if (scopeOf(dev).chats.includes(sessionId)) return true;
+  const cwd = sessionCwd(profileById(profileId), sessionId);
+  return cwd !== null && folderAllowed(dev, cwd);
+}
+function cleanScope(sc) {
+  if (!sc || typeof sc !== 'object') return null;
+  const st = getStore();
+  const ids = (list, valid) => (list === null ? null : Array.isArray(list) ? [...new Set(list.filter(x => typeof x === 'string' && valid(x)))].slice(0, 500) : undefined);
+  const profiles = ids(sc.profiles, id => st.profiles.some(p => p.id === id));
+  const projects = ids(sc.projects, id => st.projects.some(p => p.id === id));
+  const chats = ids(sc.chats ?? [], id => UUID_RE.test(id));
+  if (profiles === undefined || projects === undefined || !chats) return null;
+  return { profiles, projects, chats };
+}
 async function hostDispatch(dev, ch, args) {
   const e = { remote: dev };
   const call = (c, ...a) => H.get(c)(e, ...a);
   const a0 = args[0];
   switch (ch) {
     case 'store:get': return remoteStoreFor(dev);
-    case 'profiles:setActive': if (profileById(a0)) setView(dev, { activeProfileId: a0 }); return remoteStoreFor(dev);
-    case 'projects:setActive': if (a0 === 'all' || getStore().projects.some(p => p.id === a0)) setView(dev, { activeProjectId: a0 }); return remoteStoreFor(dev);
+    case 'profiles:setActive': if (profileAllowed(dev, a0)) setView(dev, { activeProfileId: a0 }); return remoteStoreFor(dev);
+    case 'projects:setActive': if (a0 === 'all' || remoteStoreFor(dev).projects.some(p => p.id === a0)) setView(dev, { activeProjectId: a0 }); return remoteStoreFor(dev);
     case 'settings:set': {
       const patch = a0 && typeof a0 === 'object' ? a0 : {}, ok = {};
       for (const [k, v] of Object.entries(patch)) {
@@ -996,9 +1046,30 @@ async function hostDispatch(dev, ch, args) {
       setView(dev, ok);
       return remoteStoreFor(getDevices().find(d => d.id === dev.id) || dev);
     }
-    case 'profiles:status': case 'profiles:models': case 'history:list': case 'history:loadSession': case 'history:search': case 'task:readOutput': case 'ext:list':
+    case 'profiles:status': case 'ext:list': if (!profileAllowed(dev, a0)) notShared(); return call(ch, ...args);
+    case 'profiles:models': if (!profileAllowed(dev, a0?.id)) notShared(); return call(ch, ...args);
+    case 'history:list': if (!profileAllowed(dev, a0)) notShared(); return (await call(ch, ...args)).filter(h => historyAllowed(dev, h));
+    case 'history:search': if (!profileAllowed(dev, a0?.profileId)) notShared(); return (await call(ch, ...args)).filter(h => historyAllowed(dev, h));
+    case 'history:loadSession': if (!sessionAllowed(dev, a0?.profileId, a0?.sessionId)) notShared(); return call(ch, ...args);
+    case 'task:readOutput': {
+      // eingeschränkte Geräte: nur Ausgaben aus ihren eigenen Chats
+      const key = typeof a0 === 'string' ? path.resolve(a0).toLowerCase() : '';
+      if (deviceLimited(dev) && ![...remoteTabs].some(([k, v]) => v.deviceId === dev.id && sessions.get(k)?.outputs.has(key))) notShared();
       return call(ch, ...args);
-    case 'session:send': { const id = hostTabId(dev, a0?.tab?.id); return id ? call(ch, { ...a0, tab: { ...a0.tab, id } }) : false; }
+    }
+    case 'session:send': {
+      const t = a0?.tab || {};
+      if (!profileAllowed(dev, t.profileId)) notShared();
+      if (contentLimited(dev)) {
+        if (t.sessionId) {
+          if (!sessionAllowed(dev, t.profileId, t.sessionId)) notShared();
+          const cwd = sessionCwd(profileById(t.profileId), t.sessionId);
+          if (cwd && (t.cwd || '') && folderKey(cwd) !== folderKey(t.cwd)) notShared(); // fortgesetzter Chat bleibt in seinem Ordner
+        } else if (!folderAllowed(dev, t.cwd)) notShared(); // neue Chats nur in freigegebenen Projektordnern
+      }
+      const id = hostTabId(dev, t.id);
+      return id ? call(ch, { ...a0, tab: { ...t, id } }) : false;
+    }
     case 'session:respond': { const id = hostTabId(dev, a0?.tabId); return id ? call(ch, { ...a0, tabId: id }) : false; }
     case 'session:interrupt': case 'session:restart': case 'session:confirmBypass': { const id = hostTabId(dev, a0); return id ? call(ch, id) : false; }
     case 'session:close': { const id = hostTabId(dev, a0); if (!id) return false; const r = call(ch, id); remoteTabs.delete(id); return r; }
@@ -1110,7 +1181,7 @@ function remoteInfo() {
     host: {
       enabled: !!cfg.enabled, port: cfg.port || remote.DEFAULT_PORT, running: !!remoteHost?.running, listenPort: remoteHost?.port || null,
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
-      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, connected: !!remoteHost?.connected(d.id) })),
+      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
     hosts: remoteHosts().map(h => ({ id: h.id, name: h.name, address: h.address, port: h.port })),
     target: remoteClient?.target?.id || null, state: remoteClient?.state || 'off',
@@ -1133,9 +1204,21 @@ handle('remote:hostSet', async (_e, { enabled, port } = {}) => {
 });
 handle('remote:pairStart', () => (remoteHost?.running ? remoteHost.startPairing() : { error: tr('Fernzugriff ist aus', 'Remote access is off') }));
 handle('remote:pairCancel', () => { remoteHost?.cancelPairing(); return true; });
-handle('remote:deviceSet', (_e, { id, allowBypass } = {}) => {
-  if (typeof allowBypass !== 'boolean' || !getDevices().some(d => d.id === id)) return remoteInfo();
-  saveDevices(getDevices().map(d => (d.id === id ? { ...d, allowBypass } : d)));
+handle('remote:deviceSet', (_e, { id, allowBypass, scope } = {}) => {
+  if (!getDevices().some(d => d.id === id)) return remoteInfo();
+  const patch = {};
+  if (allowBypass !== undefined) { if (typeof allowBypass !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowBypass = allowBypass; }
+  if (scope !== undefined) { const sc = cleanScope(scope); if (!sc) return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.scope = sc; }
+  saveDevices(getDevices().map(d => (d.id === id ? { ...d, ...patch } : d)));
+  // Freigabe verkleinert: laufende Chats des Geräts beenden, die nicht mehr freigegeben sind
+  const dev = getDevices().find(d => d.id === id);
+  for (const [k, v] of remoteTabs) {
+    const sess = sessions.get(k);
+    if (v.deviceId !== id || !sess) continue;
+    const t = sess.tab;
+    const ok = profileAllowed(dev, t.profileId) && (!contentLimited(dev) || (t.sessionId ? sessionAllowed(dev, t.profileId, t.sessionId) : folderAllowed(dev, t.cwd)));
+    if (!ok) { stopSession(k); remoteTabs.delete(k); }
+  }
   return remoteInfo();
 });
 handle('remote:deviceRemove', (_e, id) => {

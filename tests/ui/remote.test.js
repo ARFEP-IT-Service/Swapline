@@ -13,7 +13,8 @@
   check('Koppeln ohne offenen Code abgelehnt', !!r.error && r.hosts.length === 0, r.error);
   const p = await api.remote.pairStart();
   check('Kopplungscode erzeugt (128 Bit)', /^[0-9A-Z]{4}(-[0-9A-Z]{1,4}){6}$/.test(p.code || ''), p.code);
-  const wrong = p.code.slice(0, -1) + (p.code.endsWith('0') ? '1' : '0');
+  // erstes Zeichen ändern – das letzte trägt bei 128 Bit nur Füllbits
+  const wrong = (p.code[0] === '0' ? '1' : '0') + p.code.slice(1);
   r = await api.remote.pair({ address: '127.0.0.1', port, code: wrong });
   check('Falscher Code abgelehnt', !!r.error && r.hosts.length === 0, r.error);
   check('Ungültige Adresse abgelehnt', !!(await api.remote.pair({ address: '\\\\server\\share', port, code: p.code })).error);
@@ -38,6 +39,38 @@
   check('Antwort ohne offene Rückfrage abgelehnt', (await api.session.respond('abcdefgh', 'y', { behavior: 'allow', updatedInput: {} })) === false);
   const ea = await api.extensions.action('test', 'install', 'a@b');
   check('Plugins am Haupt-PC nicht installierbar (mit Meldung)', ea?.ok === false && /nicht erlaubt/.test(ea.error || ''), JSON.stringify(ea));
+
+  // Freigabe je Gerät: Konten, Projekte, einzelne Chats – durchgesetzt am Haupt-PC
+  const U1 = '11111111-1111-4111-8111-111111111111', U2 = '22222222-2222-4222-8222-222222222222', U3 = '33333333-3333-4333-8333-333333333333';
+  const BS = String.fromCharCode(92), OTHER = WORK + '-other';
+  const ids = list => list.map(h => h.sessionId).sort().join(',');
+  check('Ohne Einschränkung: beide Konten und alle Chats', (await api.getStore()).profiles.length === 2 && ids(await api.history.list('test')) === [U1, U2].join(','));
+  check('Ungültige Freigabe abgelehnt', !!(await api.remote.deviceSet({ id: devId, scope: { profiles: 'x', projects: null, chats: [] } })).error);
+  await api.remote.deviceSet({ id: devId, scope: { profiles: ['test'], projects: null, chats: [] } });
+  let st = await api.getStore();
+  check('Nur freigegebenes Konto sichtbar', st.profiles.length === 1 && st.profiles[0].id === 'test' && st.scope.accountsLimited, JSON.stringify(st.profiles));
+  check('Verlauf des anderen Kontos gesperrt', (await api.history.list('test2')).length === 0);
+  check('Chat des anderen Kontos nicht ladbar', (await api.history.loadSession({ profileId: 'test2', sessionId: U3 })).length === 0);
+  check('Neuer Chat im anderen Konto abgelehnt', (await api.session.send({ id: 'abcdefgh', profileId: 'test2', cwd: WORK, model: '', effort: '', permissionMode: 'default', sessionId: null }, 'hi')) === false);
+
+  await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: ['p-work'], chats: [] } });
+  st = await api.getStore();
+  check('Projekt-Freigabe: nur Projekt und seine Ordner', st.scope.limited && st.projects.length === 1 && st.allowedFolders.length === 1 && st.favorites.length === 0, JSON.stringify(st.allowedFolders));
+  check('Projekt-Freigabe: nur Chats im Projektordner', ids(await api.history.list('test')) === U1, ids(await api.history.list('test')));
+  check('Projekt-Freigabe: Chat im Projekt ladbar', (await api.history.loadSession({ profileId: 'test', sessionId: U1 })).length > 0);
+  check('Projekt-Freigabe: Chat außerhalb nicht ladbar', (await api.history.loadSession({ profileId: 'test', sessionId: U2 })).length === 0);
+  check('Projekt-Freigabe: neuer Chat außerhalb abgelehnt', (await api.session.send({ id: 'abcdefgh', profileId: 'test', cwd: OTHER, model: '', effort: '', permissionMode: 'default', sessionId: null }, 'hi')) === false);
+  check('Projekt-Freigabe: neuer Chat ohne Ordner abgelehnt', (await api.session.send({ id: 'abcdefgh', profileId: 'test', cwd: '', model: '', effort: '', permissionMode: 'default', sessionId: null }, 'hi')) === false);
+  check('Projekt-Freigabe: fremden Chat fortsetzen abgelehnt', (await api.session.send({ id: 'abcdefgh', profileId: 'test', cwd: OTHER, model: '', effort: '', permissionMode: 'default', sessionId: U2 }, 'hi')) === false);
+  check('Projekt-Freigabe: Ausgabe fremder Aufgaben gesperrt', !!(await api.readTaskOutput(WORK + BS + 'tasks' + BS + 'x.output')).error);
+
+  await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: [], chats: [U2] } });
+  st = await api.getStore();
+  check('Chat-Freigabe: nur der einzelne Chat', ids(await api.history.list('test')) === U2 && st.projects.length === 0 && !st.scope.newChats, ids(await api.history.list('test')));
+  check('Chat-Freigabe: geteilter Chat ladbar', (await api.history.loadSession({ profileId: 'test', sessionId: U2 })).length > 0);
+  check('Chat-Freigabe: Volltextsuche findet nur Freigegebenes', (await api.history.search('test', 'Hallo')).every(h => h.sessionId === U2));
+  check('Geräteliste zeigt die Freigabe', JSON.stringify((await api.remote.info()).host.devices[0].scope) === JSON.stringify({ profiles: null, projects: [], chats: [U2] }));
+  await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: null, chats: [] } });
 
   // „Alles erlauben“ je Gerät
   await api.remote.deviceSet({ id: devId, allowBypass: false });

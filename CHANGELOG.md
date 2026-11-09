@@ -14,6 +14,8 @@ Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
   verschlüsselt per TLS-PSK mit eigenem Schlüssel je Gerät; „Alles erlauben“ je Gerät freigebbar; Geräte entfernbar.
   Auswahl von Konto, Projekt und Modell je Gerät getrennt; Konten, Projekte, Plugins und Einstellungen des Haupt-PCs
   bleiben vom Gerät aus unverändert.
+- Freigabe je Gerät: alle oder ausgewählte Konten, Projekte und einzelne Chats (auch per Rechtsklick auf einen Chat);
+  der Haupt-PC setzt sie bei jeder Anfrage durch.
 
 ## [0.1.3] – 2026-11-09
 
