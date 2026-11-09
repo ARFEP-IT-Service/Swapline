@@ -1458,6 +1458,13 @@ const validPort = p => Number.isInteger(p) && p >= 1024 && p <= 65535;
 const validAddress = a => typeof a === 'string' && a.length <= 253 && !isUnc(a) && (require('node:net').isIP(a) > 0 || /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(a));
 
 handle('remote:info', () => remoteInfo());
+// Einrichtungscode aus der App „Swapline Relay“: srelay1.<base64url(JSON {a: Adresse, p: Port, s: Kennwort})>
+handle('remote:relayCode', (e, code) => {
+  let c = null;
+  try { if (typeof code === 'string' && code.length < 1000 && code.trim().startsWith('srelay1.')) c = JSON.parse(Buffer.from(code.trim().slice(8), 'base64url').toString('utf8')); } catch {}
+  if (!c || typeof c.a !== 'string' || !Number.isInteger(c.p) || typeof c.s !== 'string') return { ...remoteInfo(), error: tr('Ungültiger Einrichtungscode', 'Invalid setup code') };
+  return H.get('remote:relaySet')(e, { enabled: true, address: c.a, port: c.p, secret: c.s });
+});
 // Vermittler einrichten: Adresse und Port prüfen, Kennwort nur verschlüsselt speichern (leer = bisheriges behalten)
 handle('remote:relaySet', (_e, { enabled, address, port, secret } = {}) => {
   const bad = () => ({ ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') });

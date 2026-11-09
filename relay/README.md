@@ -1,47 +1,46 @@
-# Swapline-Vermittler (Relay)
+# Swapline Relay (Vermittler)
 
 Macht einen Haupt-PC mit Swapline von unterwegs erreichbar – **ohne Portfreigabe am Router und ohne VPN**. Haupt-PC
-und Gerät (z. B. die Android-App) verbinden sich beide **nach außen** zu einem eigenen Server, auf dem dieser
-Vermittler läuft; der Vermittler reicht danach nur noch Bytes durch.
+und Gerät (z. B. die Android-App) verbinden sich beide **nach außen** zu einem eigenen Server, auf dem *Swapline Relay*
+läuft; der Vermittler reicht danach nur noch Bytes durch.
 
 ```
-Handy ──TLS-PSK (Ende-zu-Ende)──▶ Vermittler (eigener Server) ◀── Steuer-/Datenverbindung ── Haupt-PC
+Handy ──TLS-PSK (Ende-zu-Ende)──▶ Swapline Relay (eigener Server) ◀── Steuer-/Datenverbindung ── Haupt-PC
 ```
+
+## Einrichten (Windows Server, z. B. 2025)
+
+1. `Swapline-Relay-Setup-<Version>.exe` aus den [Releases](https://github.com/ARFEP-IT-Service/Swapline/releases) (Tags
+   `relay-v…`) auf dem Server installieren (für alle Benutzer). Node.js ist nicht nötig.
+2. **Swapline Relay** öffnen – Windows fragt nach Administratorrechten (für Dienst und Firewall).
+3. **Als Dienst einrichten** klicken: Der Vermittler startet ab jetzt mit Windows, auch ohne Anmeldung, mit dem
+   eingeschränkten Konto *Lokaler Dienst*; die Windows-Firewall wird für TCP **47821** geöffnet.
+4. Hat der Hoster eine eigene Firewall, dort ebenfalls TCP 47821 freigeben.
+5. **Einrichtungscode kopieren** (Adresse des Servers vorher prüfen) und in Swapline am PC unter Fernzugriff →
+   **Über Vermittler erreichbar** einfügen. Steht dort „verbunden“, ist es geschafft – gekoppelte Geräte bekommen die
+   Daten automatisch, neue Geräte über den QR-Code.
+
+Das Fenster zeigt außerdem, welche Swapline-PCs angemeldet sind, wie viele Verbindungen laufen, das Protokoll, Port
+und Firewall. **Neues Kennwort** trennt alle PCs, bis dort der neue Einrichtungscode eingefügt ist. Ein Update wird oben
+angezeigt; der Installer hält den Dienst währenddessen an und startet ihn danach wieder. Beim Deinstallieren werden
+Dienst und Firewall-Regel entfernt, Kennwort und Protokoll bleiben in `C:\ProgramData\SwaplineRelay`.
 
 ## Sicherheit
 
 - **Ende-zu-Ende verschlüsselt:** Innen läuft unverändert die TLS-PSK-Verbindung zwischen Gerät und Haupt-PC (eigener
   256-Bit-Schlüssel je Gerät). Der Vermittler kennt keine Geräteschlüssel und sieht keine Inhalte – auch wer den Server
   übernimmt, kommt nicht an Chats oder Claude.
-- **Kein offener Vermittler:** Haupt-PCs melden sich mit dem Kennwort des Vermittlers an, Geräte mit einer Kennung, die
-  nur gekoppelte Geräte vom Haupt-PC bekommen (dialKey). Beides als HMAC über eine Zufallszahl – Kennwörter gehen nie
-  über die Leitung. Die Kennung eines Geräts prüft der Haupt-PC selbst, nicht der Vermittler.
-- **Begrenzungen:** Sperre nach 10 Fehlversuchen je Adresse (10 Minuten), höchstens 60 neue Verbindungen je Adresse
-  und Minute, 10 s bis zur Anmeldung, höchstens 50 Haupt-PCs und 20 Verbindungen je Haupt-PC. Fehlversuche über den
-  Vermittler sperren am Haupt-PC nur das betreffende Gerät, nicht alle Verbindungen über den Server.
-- **Kopplung wie immer:** Neue Geräte müssen am Haupt-PC bestätigt werden.
-- Keine Abhängigkeiten außer Node.js; der Vermittler speichert nichts außer seinem Protokoll.
+- **Kein offener Vermittler:** Haupt-PCs melden sich mit dem Kennwort an, Geräte mit einer Kennung, die nur gekoppelte
+  Geräte vom Haupt-PC bekommen (dialKey). Beides als HMAC über eine Zufallszahl – nichts davon geht über die Leitung.
+  Die Kennung eines Geräts prüft der Haupt-PC selbst.
+- **Begrenzungen:** Sperre nach 10 Fehlversuchen je Adresse (10 Minuten), höchstens 60 neue Verbindungen je Adresse und
+  Minute, 10 s bis zur Anmeldung, höchstens 50 Haupt-PCs und 20 Verbindungen je Haupt-PC. Fehlversuche über den
+  Vermittler sperren am Haupt-PC nur das betreffende Gerät.
+- **Wenig Rechte:** Der Dienst läuft als *Lokaler Dienst*; der Datenordner ist nur für Administratoren, SYSTEM und das
+  Dienstkonto lesbar (über SIDs, funktioniert auch auf deutschsprachigem Windows). Das Kennwort steht nur in
+  `relay.json`, nie in Status oder Protokoll; das Fenster zeigt es nur auf Klick.
 
-## Einrichten auf Windows Server (z. B. 2025)
-
-1. Node.js 20 oder neuer installieren, z. B. `winget install OpenJS.NodeJS.LTS`.
-2. Den Ordner `relay/` auf den Server kopieren.
-3. PowerShell **als Administrator** öffnen, in den Ordner wechseln:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
-   ```
-   Das Skript legt `C:\ProgramData\SwaplineRelay` an (Zugriff nur Administratoren, SYSTEM und Dienstkonto), öffnet
-   TCP-Port **47821** in der Windows-Firewall, startet den Vermittler als Aufgabe beim Systemstart mit dem
-   eingeschränkten Konto *Lokaler Dienst* (Neustart nach Absturz) und zeigt **einmal** das Kennwort an.
-   Anderer Port: `-Port 50000`.
-4. Hat der Hoster eine eigene Firewall, dort ebenfalls TCP 47821 freigeben.
-5. In Swapline am PC: Fernzugriff → **Über Vermittler erreichbar** → Adresse des Servers, Port und Kennwort eintragen.
-   Gekoppelte Geräte bekommen die Daten automatisch; neue Geräte über den QR-Code.
-
-Protokoll: `C:\ProgramData\SwaplineRelay\relay.log`. Entfernen: `uninstall-windows.ps1` (als Administrator).
-Aktualisieren: neues `relay.js` daneben legen und `install-windows.ps1` erneut ausführen (Kennwort bleibt).
-
-## Einrichten auf Linux (systemd)
+## Ohne App (z. B. Linux, systemd)
 
 ```ini
 # /etc/systemd/system/swapline-relay.service
@@ -52,9 +51,20 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 ```
-`relay.json`: `{ "port": 47821, "secret": "<mindestens 32 zufällige Zeichen>" }`
+Dazu `relay.js` und den Ordner `app/` kopieren. `relay.json`: `{ "port": 47821, "secret": "<mindestens 32 zufällige Zeichen>" }`.
+In Swapline dann Adresse, Port und Kennwort einzeln eintragen.
 
-## Protokoll (für Entwickler)
+## Entwicklung
+
+```
+npm run relay:start      # Fenster aus dem Quellcode (ohne Adminrechte: nur Anzeige)
+npm run relay:dist       # Installer und ZIP nach dist-relay/
+npm test -- relay        # Vermittler, Relay-App (Dienst) und Fernzugriff, echt auf 127.0.0.1
+```
+`SWAPLINE_RELAY_DIR` lenkt den Datenordner um (Tests). Version in `app/package.json`, Tags `relay-v<Version>`,
+Änderungen in [CHANGELOG.md](CHANGELOG.md).
+
+### Protokoll
 
 Eine JSON-Zeile je Nachricht, danach durchgereichte Bytes:
 
@@ -66,5 +76,3 @@ Eine JSON-Zeile je Nachricht, danach durchgereichte Bytes:
 | Vermittler → Haupt-PC | `{"t":"incoming","id","nonce","mac","from"}` |
 | Haupt-PC (Daten) | `{"t":"accept","id","mac":HMAC(secret,"accept|nonce|id")}` oder auf der Steuerung `{"t":"reject","id"}` |
 | Vermittler → Gerät | `{"t":"ok"}` – ab hier TLS-PSK zwischen Gerät und Haupt-PC |
-
-Tests: `npm test -- relay` (Vermittler, Haupt-PC und Gerät echt auf 127.0.0.1).

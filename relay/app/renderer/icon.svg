@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <clipPath id="bubble">
+      <path d="M62 56 H194 Q206 56 206 68 V164 Q206 176 194 176 H116 L68 210 L74 176 H62 Q50 176 50 164 V68 Q50 56 62 56 Z"/>
+    </clipPath>
+    <clipPath id="top">
+      <polygon points="0,0 256,0 256,84.3 0,161.7"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="44" fill="#212830"/>
+  <g clip-path="url(#bubble)">
+    <rect x="0" y="0" width="256" height="256" fill="#1a7cf5"/>
+    <rect x="0" y="0" width="256" height="256" fill="#f4f2ed" clip-path="url(#top)"/>
+    <line x1="0" y1="161.7" x2="256" y2="84.3" stroke="#212830" stroke-width="11"/>
+  </g>
+</svg>

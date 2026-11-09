@@ -2346,10 +2346,19 @@ function relaySection(h) {
     drawRemote();
   };
   on.onchange = save;
+  const code = el('input', { type: 'text', placeholder: _('Einrichtungscode aus „Swapline Relay“ einfügen'), style: 'flex:1', autocomplete: 'off' });
+  const useCode = async () => {
+    remoteState = await api.remote.relayCode(code.value);
+    code.value = '';
+    toast(remoteState.error || _('Vermittler eingerichtet'));
+    drawRemote();
+  };
   return el('div', { class: 'relay-box' },
     el('div', { class: 'row' }, el('label', { class: 'row' }, on, _('Über Vermittler erreichbar (ohne Portfreigabe)')),
       el('span', { class: 'hint', style: r.state === 'error' ? 'color:var(--danger)' : '' }, r.enabled ? state : '')),
-    el('p', { class: 'hint' }, _('Eigener Server mit dem Swapline-Vermittler (Ordner relay/ im Quellcode). Die Verbindung bleibt Ende-zu-Ende verschlüsselt; der Vermittler sieht keine Inhalte.')),
+    el('p', { class: 'hint' }, _('Eigener Server mit der App „Swapline Relay“. Die Verbindung bleibt Ende-zu-Ende verschlüsselt; der Vermittler sieht keine Inhalte.')),
+    el('div', { class: 'row' }, code, el('button', { class: 'primary', onclick: useCode }, _('Übernehmen'))),
+    el('p', { class: 'hint' }, _('Oder einzeln eintragen:')),
     el('div', { class: 'row' }, addr, port), el('div', { class: 'row', style: 'margin-top:6px' }, secret, el('button', { class: 'ghost', onclick: save }, _('Speichern'))));
 }
 function drawRemote() {

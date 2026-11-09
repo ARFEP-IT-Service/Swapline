@@ -1,0 +1,73 @@
+name: Relay release
+
+# Swapline Relay (Vermittler mit Oberfläche, relay/): baut bei einem Tag relay-v<Version> den Installer und das ZIP und
+# veröffentlicht sie – NIE als „Latest“ (das bleibt Swapline am PC, dessen Updates /releases/latest lesen).
+# Veröffentlicht wird erst, wenn Tests, Versionsprüfung und Build durchgelaufen sind. Nicht code-signiert.
+on:
+  push:
+    tags: ["relay-v*"]
+  workflow_dispatch:   # nur bauen und als Artefakt ablegen
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests (Vermittler, Relay-App, Fernzugriff)
+        run: npm test -- relay
+
+      - name: Tag matches relay/app/package.json, Electron version matches
+        shell: pwsh
+        run: |
+          $v = (Get-Content relay/app/package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and "relay-v$v" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME passt nicht zu Version $v" }
+          $e = (Get-Content node_modules/electron/package.json -Raw | ConvertFrom-Json).version
+          if (-not (Select-String -Path relay/electron-builder.yml -SimpleMatch "electronVersion: $e" -Quiet)) { throw "electronVersion in relay/electron-builder.yml passt nicht zu Electron $e" }
+
+      - name: Build installer and ZIP
+        run: npm run relay:dist
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist-relay/Swapline-Relay-Setup-*.exe, dist-relay/Swapline-Relay-*-windows.zip | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content dist-relay/SHA256SUMS.txt
+          Get-Content dist-relay/SHA256SUMS.txt | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: swapline-relay-${{ github.ref_name }}
+          path: |
+            dist-relay/Swapline-Relay-Setup-*.exe
+            dist-relay/Swapline-Relay-*-windows.zip
+            dist-relay/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release (not Latest)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Get-Content relay/app/package.json -Raw | ConvertFrom-Json).version
+          node -e "const s=require('fs').readFileSync('relay/CHANGELOG.md','utf8');const m=s.split(/^## /m).find(x=>x.startsWith('['+process.argv[1]+']'));console.log((m?m.split('\n').slice(1).join('\n').trim():'Swapline Relay '+process.argv[1])+'\n\nInstallation und Einrichtung: https://github.com/ARFEP-IT-Service/Swapline/blob/main/relay/README.md')" $v > dist-relay/notes.md
+          gh release create $env:GITHUB_REF_NAME --title "Swapline Relay $v" --notes-file dist-relay/notes.md --latest=false `
+            (Get-ChildItem dist-relay/Swapline-Relay-Setup-*.exe).FullName `
+            (Get-ChildItem dist-relay/Swapline-Relay-*-windows.zip).FullName `
+            dist-relay/SHA256SUMS.txt

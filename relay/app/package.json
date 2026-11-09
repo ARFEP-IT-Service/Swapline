@@ -1,0 +1,10 @@
+{
+  "name": "swapline-relay",
+  "productName": "Swapline Relay",
+  "version": "0.1.0",
+  "description": "Swapline-Vermittler: macht Swapline-PCs ohne Portfreigabe von unterwegs erreichbar (Ende-zu-Ende verschlüsselt)",
+  "main": "main.js",
+  "author": "ARFEP – IT-Service",
+  "license": "MIT",
+  "homepage": "https://github.com/ARFEP-IT-Service/Swapline/tree/main/relay"
+}

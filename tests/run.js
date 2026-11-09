@@ -97,8 +97,10 @@ if (!filter || 'upnp'.includes(filter)) { // öffentliche Adresse per UPnP (nach
 if (!filter || 'relay'.includes(filter)) { // Vermittler + Haupt-PC + Gerät über den Vermittler (echt, nur 127.0.0.1)
   console.log('\nrelay');
   let results;
-  try { results = JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'relay-check.js')], { encoding: 'utf8', timeout: 60000 }).stdout); }
-  catch (e) { results = [{ name: 'Vermittler prüfen', ok: false, detail: e.message }]; }
+  try {
+    results = JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'relay-check.js')], { encoding: 'utf8', timeout: 60000 }).stdout);
+    results.push(...JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'relay-app-check.js')], { encoding: 'utf8', timeout: 90000 }).stdout)); // App „Swapline Relay“
+  } catch (e) { results = [...(results || []), { name: 'Vermittler prüfen', ok: false, detail: e.message }]; }
   for (const r of results) {
     if (r.ok) passed++; else failed++;
     console.log(`  ${r.ok ? '✓' : '✕'} ${r.name}${r.ok ? '' : '\n      ' + r.detail}`);

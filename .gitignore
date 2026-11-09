@@ -9,3 +9,4 @@ AGENTS.md
 dist-next/
 .env
 /licenses/
+dist-relay/

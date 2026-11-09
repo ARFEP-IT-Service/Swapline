@@ -149,6 +149,11 @@
   const qr = atob(String((await api.remote.pairStart()).qr || '').replace('data:image/svg+xml;base64,', ''));
   check('Vermittler: QR-Code wird erzeugt', qr.startsWith('<svg'));
   await api.remote.pairCancel();
+  check('Vermittler: kaputter Einrichtungscode abgelehnt', !!(await api.remote.relayCode('srelay1.kaputt')).error && !!(await api.remote.relayCode('irgendwas')).error);
+  const goodCode = 'srelay1.' + btoa(JSON.stringify({ a: 'relay.example', p: 47821, s: 'k'.repeat(48) })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  rl = await api.remote.relayCode(goodCode);
+  check('Vermittler: Einrichtungscode übernimmt Adresse, Port und Kennwort', !rl.error && rl.host.relay.address === 'relay.example' && rl.host.relay.port === 47821 && rl.host.relay.hasSecret && !JSON.stringify(rl).includes('k'.repeat(48)), JSON.stringify(rl.host.relay));
+  check('Vermittler: Einrichtungscode mit ungültiger Adresse abgelehnt', !!(await api.remote.relayCode('srelay1.' + btoa(JSON.stringify({ a: 'a b', p: 1, s: 'k'.repeat(48) })))).error);
   rl = await api.remote.relaySet({ enabled: false, address: '127.0.0.1', port: 1 });
   check('Vermittler: ausschalten nimmt die Daten aus der Geräte-Antwort', !rl.error && rl.host.relay.state === 'off' && !(await R('store:get'))?.reach?.relay, rl.host.relay.state);
   // Dateien vom Gerät (Dokumente vom Handy): eigener Ordner im Temp-Verzeichnis, nur der Dateiname zählt

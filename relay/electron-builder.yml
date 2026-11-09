@@ -1,0 +1,42 @@
+# Installer für „Swapline Relay“ (Vermittler mit Oberfläche). Bauen im Hauptordner:
+#   npm run relay:dist      → dist-relay/Swapline-Relay-Setup-<Version>.exe und …-windows.zip
+# Benutzt Electron und electron-builder aus dem Hauptprojekt; electronVersion muss zu package.json passen
+# (tools/check-relay.js prüft das).
+appId: de.arfep.swapline.relay
+productName: Swapline Relay
+copyright: Copyright (c) 2026 Halil Ayberk Bulut (ARFEP IT-Service) and Swapline contributors
+electronVersion: 45.2.3
+directories:
+  app: relay/app
+  output: dist-relay
+  buildResources: relay/build
+files:
+  - "**/*"
+  # nur die App selbst – keine Bibliotheken von Swapline (die Relay-App hat keine Abhängigkeiten)
+  - "!**/node_modules/**"
+asar: true
+# Der Dienst startet service.js mit dem Node der App – liegt deshalb außerhalb des Archivs
+asarUnpack:
+  - service.js
+  - core.js
+  - paths.js
+win:
+  icon: relay/app/renderer/icon.ico
+  # Normaler Start: der Dienst läuft mit derselben EXE als „Lokaler Dienst“ (ohne Adminrechte). Das Fenster fordert
+  # die Rechte beim Öffnen selbst an (Windows-Abfrage), siehe main.js.
+  requestedExecutionLevel: asInvoker
+  artifactName: Swapline-Relay-${version}-windows.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+  artifactName: Swapline-Relay-Setup-${version}.${ext}
+  include: relay/build/installer.nsh
+publish: null

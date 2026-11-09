@@ -9,7 +9,9 @@
     "start": "electron .",
     "licenses": "node tools/collect-licenses.js",
     "dist": "node tools/collect-licenses.js && electron-builder --win --publish never && node tools/check-bundle.js",
-    "test": "node tests/run.js"
+    "test": "node tests/run.js",
+    "relay:start": "electron relay/app",
+    "relay:dist": "electron-builder --config relay/electron-builder.yml --win --publish never"
   },
   "build": {
     "appId": "de.arfep.swapline",
