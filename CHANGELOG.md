@@ -7,7 +7,7 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
-## [Unveröffentlicht]
+## [0.1.3] – 2026-11-09
 
 - Update: „Herunterladen“ lädt nur noch. Danach fragt Swapline „Jetzt neu starten“ oder „Später“ und startet nie
   von selbst neu; mit „Später“ wird das Update beim nächsten Beenden installiert.
