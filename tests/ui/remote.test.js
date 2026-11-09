@@ -80,6 +80,8 @@
   const activeBefore = (await api.getStore()).activeProjectId;
   check('Projekt anlegen ohne Freigabe abgelehnt', (await R('projects:add', { name: 'Neu', cwd: WORK })) === false);
   await api.remote.deviceSet({ id: devId, allowProjects: true });
+  await until(() => hostStores[hostId]?.canEditProjects === true, 5000);
+  check('Freigabe „Projekte anlegen“ kommt sofort beim Gerät an (ohne Neuverbinden)', hostStores[hostId]?.canEditProjects === true);
   const hp = await R('projects:add', { name: 'Vom Laptop', cwd: WORK });
   const np = hp?.projects.find(p => p.name === 'Vom Laptop');
   check('Projekt am Haupt-PC anlegen mit Freigabe', !!np && np.cwd === WORK && hp.canEditProjects, JSON.stringify(hp?.projects));

@@ -65,7 +65,15 @@ function getStore() {
   delete s.settings.autoUpdate;
   return s;
 }
-function updateStore(fn) { const s = getStore(); fn(s); saveStore(s); return s; }
+// Was Geräte im Fernzugriff vom Stand sehen – ändert es sich, holen sie den Stand neu (statt erst beim Neuverbinden)
+const deviceSig = s => JSON.stringify([s.profiles?.map(p => [p.id, p.name, p.color]), s.projects, s.projectGroups, s.favorites, s.remoteHost?.devices?.map(d => [d.id, d.allowBypass, d.allowProjects, d.scope])]);
+let deviceSigTimer = null;
+function updateStore(fn) {
+  const s = getStore(), before = deviceSig(s);
+  fn(s); saveStore(s);
+  if (deviceSig(s) !== before) { clearTimeout(deviceSigTimer); deviceSigTimer = setTimeout(() => remoteHost?.broadcast('store-changed', null), 300); }
+  return s;
+}
 function profileById(id) { return getStore().profiles.find(p => p.id === id); }
 
 // ---------- Eingaben aus der Oberfläche prüfen ----------
@@ -1272,6 +1280,7 @@ function connectHost(h) {
       if (!win || win.isDestroyed()) return;
       if (kind === 'claude' && typeof data?.tabId === 'string' && data.msg && typeof data.msg === 'object') win.webContents.send('claude:event', { tabId: data.tabId, msg: data.msg, host: h.id });
       else if (kind === 'tabs' && Array.isArray(data)) win.webContents.send('remote:tabs', { host: h.id, list: data.slice(0, 200) });
+      else if (kind === 'store-changed') win.webContents.send('remote:storeChanged', { host: h.id });
     },
     onStatus: () => pushRemoteStatus(),
     log: logError,

@@ -494,6 +494,8 @@ const EN = {
   'Am Haupt-PC nicht erlaubt – Freigabe „Projekte anlegen“ fehlt': 'Not allowed on the host PC – “Create projects” is not permitted',
   'Darf auf diesem PC Projekte und Ordner anlegen und umbenennen (nicht löschen)': 'May create and rename projects and folders on this PC (not delete)',
   'Projekte anlegen': 'Create projects',
+  'Neues Projekt auf „{name}“ …': 'New project on “{name}” …',
+  'Neuer Ordner auf „{name}“ …': 'New folder on “{name}” …',
   'Update ist nicht mehr verfügbar': 'The update is no longer available',
   'Version {v} ist verfügbar.': 'Version {v} is available.',
   'Version {v} verfügbar': 'Version {v} available',

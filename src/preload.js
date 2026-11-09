@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('api', {
     call: (host, ch, args) => ipcRenderer.invoke('remote:call', host, ch, args),
     onStatus: cb => ipcRenderer.on('remote:status', (_e, d) => cb(d)),
     onTabs: cb => ipcRenderer.on('remote:tabs', (_e, d) => cb(d)),
+    onStoreChanged: cb => ipcRenderer.on('remote:storeChanged', (_e, d) => cb(d)),
     publishTabs: list => invoke('tabs:publish', list),
   },
   onNotifyClick: cb => ipcRenderer.on('notify:click', (_e, tabId) => cb(tabId)),

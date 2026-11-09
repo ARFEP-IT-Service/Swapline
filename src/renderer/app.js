@@ -289,6 +289,7 @@ function syncMirrors(host, list) {
   if (currentTab()?.mirror) renderChatChip(currentTab());
 }
 api.remote.onTabs(({ host, list }) => syncMirrors(host, list));
+api.remote.onStoreChanged(({ host }) => { if (hostConnected(host)) refreshHost(host); });
 api.onStoreChanged(async () => { store = await api.getStore(); renderRail(); renderList(); });
 async function attachMirror(t) {
   if (!t.mirror || t.attached || !hostConnected(t.host)) return;
@@ -2448,11 +2449,15 @@ function openBeside(id) {
 $('#btn-new-chat').onclick = () => newChat();
 $('#btn-add-project').onclick = () => {
   if ($('#add-menu')) return closeMenus();
+  const hv = hostOfView(activeProjectId());
   closeMenus();
   const r = $('#btn-add-project').getBoundingClientRect();
   document.body.append(el('div', { class: 'popmenu', id: 'add-menu', style: `left:${r.right + 10}px; top:${r.top}px` },
     el('button', { class: 'pm-item', onclick: () => { closeMenus(); openProjectForm(); } }, el('span', { class: 'pm-ic' }, '+'), _('Neues Projekt …')),
-    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openGroupForm(); } }, el('span', { class: 'pm-ic' }, icon(ICONS.folder)), _('Neuer Ordner …'))));
+    el('button', { class: 'pm-item', onclick: () => { closeMenus(); openGroupForm(); } }, el('span', { class: 'pm-ic' }, icon(ICONS.folder)), _('Neuer Ordner …')),
+    ...(hv && hostStores[hv]?.canEditProjects ? [el('div', { class: 'pm-sep' }),
+      el('button', { class: 'pm-item', onclick: () => { closeMenus(); openHostProjectForm(hv); } }, el('span', { class: 'pm-ic' }, '🖥'), _('Neues Projekt auf „{name}“ …', { name: hostName(hv) })),
+      el('button', { class: 'pm-item', onclick: () => { closeMenus(); openHostGroupForm(hv); } }, el('span', { class: 'pm-ic' }, '🖥'), _('Neuer Ordner auf „{name}“ …', { name: hostName(hv) }))] : [])));
 };
 $('#rail-all').onclick = () => switchProject('all');
 $('#rail-all').ondragover = e => { if ([...e.dataTransfer.types].includes('text/chat')) { e.preventDefault(); e.currentTarget.classList.add('drop'); } };
