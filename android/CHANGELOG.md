@@ -3,6 +3,15 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.7.1] – 2026-11-10
+
+- Behoben: **Große Chats brauchten beim Öffnen sehr lange** (über Mobilfunk teils Minuten) – die App lädt jetzt nur die
+  letzten 3 eigenen Nachrichten samt Antworten; „↑ Ältere Nachrichten laden“ oben im Chat holt je 5 weitere. Der
+  Haupt-PC schickt Bilder im Verlauf ohne Daten (📷 bleibt sichtbar) und kürzt lange Ausgaben (braucht Swapline am PC
+  ab 0.14.1; ältere Haupt-PCs schicken weiterhin alles).
+- Update-Hinweis liest jetzt die neuesten 100 statt 30 Releases – PC-, Relay- und Handy-Versionen stehen in derselben
+  Liste, sonst wäre eine neue Handy-Version nach einigen PC-Releases nicht mehr angezeigt worden.
+
 ## [0.7.0] – 2026-11-09
 
 - Neu: **Türkisch** – die App folgt der Systemsprache (Deutsch, Englisch, Türkisch).

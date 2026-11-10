@@ -216,4 +216,6 @@ internal val TR_TEXTS: Map<String, String> = hashMapOf(
     "Befehl am Haupt-PC ausführen – Claude sieht die Ausgabe mit deiner nächsten Nachricht" to "Komutu ana bilgisayarda çalıştır – Claude çıktıyı bir sonraki mesajınızla görür",
     "Nachricht an Claude … (/ Befehle, ! am PC ausführen)" to "Claude'a mesaj … (/ komutlar, ! bilgisayarda çalıştır)",
     "Befehl nicht ausgeführt" to "Komut çalıştırılmadı",
+    "Lade …" to "Yükleniyor …",
+    "Ältere Nachrichten laden" to "Eski mesajları yükle",
 )

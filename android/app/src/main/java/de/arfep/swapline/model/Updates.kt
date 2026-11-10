@@ -17,7 +17,8 @@ import javax.net.ssl.HttpsURLConnection
 data class Update(val version: String, val apkUrl: String, val pageUrl: String)
 
 object Updates {
-    private const val API = "https://api.github.com/repos/ARFEP-IT-Service/Swapline/releases?per_page=30"
+    // 100 statt 30: PC-, Relay- und Handy-Releases stehen in einer Liste – sonst fällt die Handy-Version irgendwann heraus
+    private const val API = "https://api.github.com/repos/ARFEP-IT-Service/Swapline/releases?per_page=100"
     private const val DOWNLOAD = "https://github.com/ARFEP-IT-Service/Swapline/releases/"
     private val VERSION = Regex("^\\d+\\.\\d+\\.\\d+$")
 

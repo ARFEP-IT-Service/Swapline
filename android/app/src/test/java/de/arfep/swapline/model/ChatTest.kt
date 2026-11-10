@@ -230,6 +230,17 @@ class ChatTest {
         assertEquals(1, cli.items.size); assertEquals("/home", (cli.items[0] as Item.Bash).output)
     }
 
+    // Verlauf in Seiten: ältere Nachrichten kommen vor die angezeigten, Bilder ohne Daten zählen als Bild
+    @Test fun prependOlderHistory() {
+        val c = chat()
+        c.loadHistory(JsonArray(listOf(j("""{"type":"user","message":{"role":"user","content":"Frage 5"}}"""), j("""{"type":"assistant","message":{"content":[{"type":"text","text":"Antwort 5"}]}}"""))))
+        c.prependHistory(JsonArray(listOf(j("""{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":""},"omitted":true},{"type":"text","text":"Frage 4"}]}}"""))))
+        val me = c.items[0] as Item.Me
+        assertEquals("Frage 4", me.text); assertEquals(1, me.images)
+        assertEquals("Frage 5", (c.items[1] as Item.Me).text)
+        assertEquals(HISTORY_TURNS, c.loadedTurns)
+    }
+
     @Test fun commandsFromHost() {
         val cmds = Parse.commands(json.parseToJsonElement("""{"models":[],"commands":[{"name":"review","description":"Code prüfen","argumentHint":"[datei]"},{"name":"bad name"},{"description":"ohne Name"}]}"""))
         assertEquals(listOf(CmdOpt("review", "Code prüfen", "[datei]")), cmds)

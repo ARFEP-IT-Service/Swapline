@@ -310,7 +310,12 @@ class AppModel(context: Context, private val notifier: Notifier) {
         if (c.sessionId != null && (!c.loaded || c.stale)) {
             val wasStale = c.stale
             c.loaded = true
-            val msgs = runCatching { h.link.call("history:loadSession", buildJsonObject { put("profileId", c.profileId); put("sessionId", c.sessionId); put("cwd", c.cwd) }) }.getOrNull() as? JsonArray
+            // nur die letzten Nachrichten (große Chats brauchten über Mobilfunk sonst Minuten); ältere per loadOlder()
+            val r = runCatching { h.link.call("history:loadSession", buildJsonObject {
+                put("profileId", c.profileId); put("sessionId", c.sessionId); put("cwd", c.cwd); put("turns", c.loadedTurns)
+            }) }.getOrNull()
+            val msgs = (r as? JsonArray) ?: ((r as? JsonObject)?.get("msgs") as? JsonArray) // ältere Haupt-PCs: ganze Liste
+            c.olderFrom = ((r as? JsonObject)?.get("start") as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it > 0 }
             // offene Rückfragen (ältere Haupt-PCs ohne diese Abfrage: einfach ohne)
             val pend = runCatching { h.link.call("session:pending", buildJsonObject { put("tabId", c.id) }) }.getOrNull() as? JsonObject
             pend?.get("running")?.let { r -> (r as? JsonPrimitive)?.booleanOrNull?.let { c.running = it } }
@@ -416,6 +421,24 @@ class AppModel(context: Context, private val notifier: Notifier) {
     }
 
     fun bashStop(c: Chat) = scope.launch { runCatching { host(c.hostId)?.link?.call("session:bashStop", JsonPrimitive(c.id)) } }
+
+    // Ältere Nachrichten des Chats vom Haupt-PC nachladen (vor die angezeigten)
+    fun loadOlder(c: Chat) = scope.launch {
+        val from = c.olderFrom ?: return@launch
+        if (c.loadingOlder) return@launch
+        val h = host(c.hostId) ?: return@launch
+        c.loadingOlder = true
+        val r = runCatching { h.link.call("history:loadSession", buildJsonObject {
+            put("profileId", c.profileId); put("sessionId", c.sessionId); put("cwd", c.cwd); put("turns", OLDER_TURNS); put("before", from)
+        }) }.getOrNull() as? JsonObject
+        val msgs = r?.get("msgs") as? JsonArray
+        if (msgs != null) {
+            c.prependHistory(msgs)
+            c.olderFrom = (r["start"] as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it > 0 }
+            c.loadedTurns += OLDER_TURNS
+        }
+        c.loadingOlder = false
+    }
 
     fun interrupt(c: Chat) = scope.launch { runCatching { host(c.hostId)?.link?.call("session:interrupt", JsonPrimitive(c.id)) } }
 

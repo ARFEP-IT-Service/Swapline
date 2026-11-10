@@ -64,6 +64,10 @@ object ClaudeText {
     const val ATTACHED_FILES = "Attached files:"
 }
 
+// Verlauf in Seiten: beim Öffnen die letzten 3 eigenen Nachrichten samt Antworten, „Ältere Nachrichten laden“ je 5 weitere
+const val HISTORY_TURNS = 3
+const val OLDER_TURNS = 5
+
 private val BASH_RE = Regex("^\\s*(?:<bash-input>([\\s\\S]*?)</bash-input>)?\\s*(?:<bash-stdout>([\\s\\S]*?)</bash-stdout>)?\\s*(?:<bash-stderr>([\\s\\S]*?)</bash-stderr>)?")
 private fun unescTag(s: String) = s.replace(Regex("<\\\\/(bash-[a-z]+)>"), "</$1>")
 
@@ -108,6 +112,11 @@ class Chat(
     var loaded = false
     // Verbindung war unterbrochen: Ereignisse in der Zwischenzeit sind verloren – beim nächsten Öffnen neu laden
     var stale = false
+    // Verlauf in Seiten: ab dieser Stelle der Sitzungsdatei gibt es ältere Nachrichten (null = alles geladen)
+    var olderFrom by mutableStateOf<Int?>(null)
+    var loadingOlder by mutableStateOf(false)
+    // so viele eigene Nachrichten sind geladen (für das Neuladen nach einer Unterbrechung)
+    var loadedTurns = HISTORY_TURNS
     // Hintergrund-Aufgaben dieses Chats (Leiste über dem Eingabefeld)
     val tasks = androidx.compose.runtime.mutableStateMapOf<String, BgTask>()
     val tasksRunning get() = tasks.values.any { it.running }
@@ -208,6 +217,14 @@ class Chat(
         if (items.isNotEmpty()) add(Item.Sys("", code = SysCode.HISTORY_ABOVE))
         items.addAll(live)
         loaded = true
+    }
+
+    // Ältere Nachrichten vor die angezeigten setzen
+    fun prependHistory(msgs: JsonArray) {
+        val shown = items.toList()
+        items.clear()
+        for (m in msgs) (m as? JsonObject)?.let { ingest(it, fromHistory = true) }
+        items.addAll(shown)
     }
 
     // Nach einer Unterbrechung: Verlauf vollständig aus der Sitzungsdatei des Haupt-PCs, dazu offene Rückfragen

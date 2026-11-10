@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
@@ -177,6 +178,17 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                     if (chat.running) item(key = "typing") { Typing() }
                     items(items.size, key = { items.size - 1 - it }) { i ->
                         ItemView(model, chat, items[items.size - 1 - i])
+                    }
+                    // oben: ältere Nachrichten vom Haupt-PC nachladen
+                    if (chat.olderFrom != null) item(key = "older") {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            OutlinedButton(onClick = { model.loadOlder(chat) }, enabled = !chat.loadingOlder) {
+                                if (chat.loadingOlder) androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (chat.loadingOlder) tr("Lade …", "Loading …") else tr("Ältere Nachrichten laden", "Load older messages"))
+                            }
+                        }
                     }
                 }
                 val atBottom = list.firstVisibleItemIndex == 0
