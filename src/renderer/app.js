@@ -1134,6 +1134,22 @@ function closeTab(id) {
   saveTabs(); renderList(); renderChat();
 }
 
+const HISTORY_TURNS = 3, OLDER_TURNS = 5;
+// Ältere Nachrichten eines Haupt-PC-Chats vor die angezeigten setzen; die Ansicht bleibt an derselben Stelle
+async function loadOlder(t) {
+  if (t.olderFrom == null || t.loadingOlder) return;
+  t.loadingOlder = true; renderMessages(null);
+  const r = await tapi(t).history.loadSession({ profileId: t.profileId, sessionId: t.sessionId, cwd: t.cwd, turns: OLDER_TURNS, before: t.olderFrom }).catch(() => null);
+  t.loadingOlder = false;
+  if (!r || !Array.isArray(r.msgs)) { toast(_('Ältere Nachrichten konnten nicht geladen werden')); renderMessages(null); return; }
+  const box = $('#messages'), fromBottom = box.scrollHeight - box.scrollTop;
+  const shown = t.items; t.items = [];
+  for (const m of r.msgs) ingest(t, m, true);
+  t.items.push(...shown);
+  t.olderFrom = r.start > 0 ? r.start : null;
+  if (t.id === activeTabId) renderMessages(fromBottom);
+}
+
 async function openTab(id) {
   const other = panes.findIndex((p, j) => j !== focusedPane && p.tabId === id);
   if (other >= 0) { focusPane(other); return; }
@@ -1145,7 +1161,11 @@ async function openTab(id) {
     await attachMirror(t);
     if (!t.loaded && (!t.host || hostConnected(t.host))) {
       t.loaded = true;
-      const msgs = await tapi(t).history.loadSession({ profileId: t.profileId, sessionId: t.sessionId, cwd: t.cwd });
+      // Chats eines Haupt-PCs: nur die letzten Nachrichten, ältere über „Ältere Nachrichten laden“ (über Fernzugriff
+      // dauerte der ganze Verlauf großer Chats sonst Minuten)
+      const r = await tapi(t).history.loadSession({ profileId: t.profileId, sessionId: t.sessionId, cwd: t.cwd, ...(t.host ? { turns: HISTORY_TURNS } : {}) });
+      const msgs = Array.isArray(r) ? r : Array.isArray(r?.msgs) ? r.msgs : [];
+      t.olderFrom = !Array.isArray(r) && r?.start > 0 ? r.start : null;
       const live = t.items; t.items = [];
       for (const m of msgs) ingest(t, m, true);
       if (msgs.length) t.items.push({ kind: 'sys', text: _('Bisheriger Verlauf – ab hier geht es weiter') });
@@ -1215,10 +1235,14 @@ function placeTool(el0, anchor, parent) {
   g.querySelector('.tg-body').append(el0);
   updateToolGroup(g);
 }
-function renderMessages() {
+// keepFromBottom: Abstand zum Ende beibehalten (nach dem Nachladen älterer Nachrichten), null = Stelle nicht ändern
+function renderMessages(keepFromBottom) {
   const t = currentTab(); if (!t) return;
   const box = $('#messages');
+  const keepTop = keepFromBottom === null ? box.scrollTop : null;
   const wrap = el('div', { class: 'msg-wrap' });
+  if (t.olderFrom != null) wrap.append(el('div', { class: 'older' }, el('button', { class: 'ghost', disabled: !!t.loadingOlder, onclick: () => loadOlder(t) },
+    t.loadingOlder ? _('Lade …') : '↑ ' + _('Ältere Nachrichten laden'))));
   const mode = toolView();
   for (const it of t.items) {
     if (it.kind === 'tool' && mode === 'hidden') { it.el = null; continue; }
@@ -1229,6 +1253,8 @@ function renderMessages() {
   t.typingEl = el('div', { class: 'typing', hidden: !(t.running && !t.streamItem) }, el('i'), el('i'), el('i'));
   wrap.append(t.typingEl);
   box.replaceChildren(wrap);
+  if (keepTop != null) { box.scrollTop = keepTop; return; }
+  if (typeof keepFromBottom === 'number') { const set = () => (box.scrollTop = box.scrollHeight - keepFromBottom); set(); requestAnimationFrame(set); return; }
   // nach dem Layout (Schriften, Markdown) noch einmal ganz nach unten
   box.scrollTop = box.scrollHeight;
   requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; setTimeout(() => (box.scrollTop = box.scrollHeight), 120); });
@@ -1576,7 +1602,7 @@ function ingest(t, m, fromHistory = false) {
           const rest = takeBash(t, block.text, add, Date.parse(m.timestamp) || null);
           if (hiddenUserText(rest)) continue;
           // Bilder derselben Nachricht (aus dem Verlauf) mit anzeigen
-          const images = c.filter(b => b.type === 'image' && b.source?.type === 'base64' && IMG_TYPES.includes(b.source.media_type)).map(b => `data:${b.source.media_type};base64,${b.source.data}`);
+          const images = c.filter(b => b.type === 'image' && b.source?.type === 'base64' && b.source.data && IMG_TYPES.includes(b.source.media_type)).map(b => `data:${b.source.media_type};base64,${b.source.data}`);
           add({ kind: 'me', text: rest, time: Date.parse(m.timestamp) || null, images });
         }
       }
@@ -2573,6 +2599,8 @@ function bindPane(root) {
   root.addEventListener('mousedown', () => focusPane(panes.indexOf(paneByRoot(root))), true);
   root.addEventListener('focusin', () => focusPane(panes.indexOf(paneByRoot(root))), true);
   q('messages').addEventListener('scroll', () => withPane(paneByRoot(root), updateBottomBtn), { passive: true });
+  // ganz oben angekommen: ältere Nachrichten eines Haupt-PC-Chats nachladen
+  q('messages').addEventListener('scroll', () => withPane(paneByRoot(root), () => { const t = currentTab(); if (t?.olderFrom != null && $('#messages').scrollTop < 60) loadOlder(t); }), { passive: true });
   q('btn-bottom').onclick = () => scrollToBottom();
   q('btn-empty-new').onclick = () => newChat();
   q('btn-send').onclick = sendMessage;

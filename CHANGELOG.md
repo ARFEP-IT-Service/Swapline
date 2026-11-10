@@ -7,6 +7,13 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.14.1] – 2026-11-10
+
+- Behoben: **Große Chats über Fernzugriff luden sehr lange** (Handy und anderer PC). Der Haupt-PC schickt den Verlauf
+  jetzt in Seiten: zuerst nur die letzten Nachrichten, ältere auf Wunsch („↑ Ältere Nachrichten laden“ oben im Chat oder
+  ganz nach oben scrollen). Bilder im Verlauf gehen dabei ohne Daten mit, lange Ausgaben und Werkzeug-Eingaben gekürzt.
+  Eigene Chats am PC laden weiterhin vollständig.
+
 ## [0.14.0] – 2026-11-09
 
 - Neu: **„!“-Befehle wie in der Claude CLI** – „!npm test“ im Eingabefeld führt den Befehl direkt im Ordner des Chats

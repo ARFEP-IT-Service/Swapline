@@ -233,6 +233,12 @@
   setLang('de'); translateStatic(); renderList();
   check('Zurück auf Deutsch', $('#search').placeholder === 'Suchen …' && $('#btn-settings').title === 'Einstellungen' && $('#seg [data-view="history"]').textContent === 'Verlauf');
 
+  // Haupt-PC-Chat mit älterem Verlauf: Knopf oben im Chat
+  t.olderFrom = 12; await openTab(t.id); renderMessages();
+  check('Ältere Nachrichten: Knopf oben im Chat', /Ältere Nachrichten laden/.test(document.querySelector('#messages .older button')?.textContent || ''));
+  t.olderFrom = null; renderMessages();
+  check('Ältere Nachrichten: ohne älteren Verlauf kein Knopf', !document.querySelector('#messages .older'));
+
   // „!“-Befehle: direkt im Ordner des Chats ausführen, Ausgabe als Karte, im Verlauf wieder als Karte
   const tb = makeTab({ title: 'Befehle', cwd: WORK }); tabs.push(tb); await openTab(tb.id);
   typeInto(input, '!echo swapline-bang');

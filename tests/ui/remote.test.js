@@ -41,6 +41,9 @@
   check('Nicht freigegebene Kanäle gehen nicht an den Haupt-PC', (await R('projects:add', { name: 'X' })) === false && (await R('profiles:add', { name: 'X' })) === false && (await R('ext:action', { profileId: 'test', action: 'install', id: 'a@b' })) === false);
   check('Unbekannter Haupt-PC abgelehnt', (await api.remote.call('gibtsnicht', 'history:list', ['test'])).length === 0);
   check('Verlauf über Haupt-PC lesbar', Array.isArray(await R('history:list', 'test')));
+  const page = await R('history:loadSession', { profileId: 'test', sessionId: '11111111-1111-4111-8111-111111111111', cwd: WORK, turns: 3 });
+  const full = await R('history:loadSession', { profileId: 'test', sessionId: '11111111-1111-4111-8111-111111111111', cwd: WORK });
+  check('Verlauf über Fernzugriff in Seiten (turns), ohne turns wie bisher', page && Array.isArray(page.msgs) && page.start === 0 && page.total === 1 && page.msgs.length === 1 && Array.isArray(full) && full.length === 1, JSON.stringify(page));
   check('Chat mit ungültigen Daten am Haupt-PC abgelehnt', (await R('session:send', { tab: { id: 'x' }, content: 'hi' })) === false);
   check('Antwort ohne offene Rückfrage abgelehnt', (await R('session:respond', { tabId: 'abcdefgh', requestId: 'y', response: { behavior: 'allow', updatedInput: {} } })) === false);
 

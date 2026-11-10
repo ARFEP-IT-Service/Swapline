@@ -597,6 +597,9 @@ const TR = {
   'Befehl nicht ausgeführt': 'Komut çalıştırılmadı',
   'Es läuft schon ein Befehl in diesem Chat': 'Bu sohbette zaten bir komut çalışıyor',
   '„!“-Befehle sind für dieses Gerät nicht freigegeben – am Haupt-PC in der Geräteliste „Alles erlauben“ einschalten.': '“!” komutlarına bu cihaz için izin verilmedi – ana bilgisayardaki cihaz listesinde “Her şeye izin ver” seçeneğini açın.',
+  'Ältere Nachrichten laden': 'Eski mesajları yükle',
+  'Ältere Nachrichten konnten nicht geladen werden': 'Eski mesajlar yüklenemedi',
+  'Lade …': 'Yükleniyor …',
 };
 
 if (typeof module !== 'undefined') module.exports = TR;

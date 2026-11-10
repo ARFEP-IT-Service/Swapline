@@ -772,13 +772,56 @@ handle('history:list', (_e, profileId) => {
   for (const h of list) if (h.cwd) rememberFolder(h.cwd); // Ordner aus Claude Codes eigenem Verlauf
   return list;
 });
-handle('history:loadSession', (_e, { profileId, sessionId, cwd } = {}) => {
+// turns (1–50): Verlauf in Seiten – nur die letzten `turns` eigenen Nachrichten samt Antworten, ältere mit before=<start>
+// nachladen. Antwort dann { msgs, start, total } statt der ganzen Liste (für Geräte über Fernzugriff: große Chats mit
+// Bildern und langen Ausgaben brauchten über Mobilfunk sonst Minuten).
+handle('history:loadSession', (_e, { profileId, sessionId, cwd, turns, before } = {}) => {
   const p = profileById(profileId);
-  if (!p) return [];
+  const paged = Number.isInteger(turns) && turns >= 1 && turns <= 50;
+  const empty = paged ? { msgs: [], start: 0, total: 0 } : [];
+  if (!p) return empty;
   const file = findSessionFile(p, sessionId, cwd);
-  if (!file) { if (sessionId && !UUID_RE.test(String(sessionId))) logError('history:loadSession abgelehnt: ungültige Session-ID'); return []; }
-  return loadTranscript(file);
+  if (!file) { if (sessionId && !UUID_RE.test(String(sessionId))) logError('history:loadSession abgelehnt: ungültige Session-ID'); return empty; }
+  const all = loadTranscript(file);
+  return paged ? pageTranscript(all, turns, before) : all;
 });
+// Eigene Nachricht (Beginn eines Abschnitts): Nutzer-Nachricht mit Text, nicht nur Werkzeug-Ergebnisse oder interne Hinweise
+const PAGE_HIDDEN = /^\s*<(command-|local-command|system-reminder|user-memory|task-notification)/;
+function isPrompt(m) {
+  if (m?.type !== 'user') return false;
+  const c = m.message?.content;
+  if (typeof c === 'string') return !!c.trim() && !PAGE_HIDDEN.test(c) && !c.startsWith('[Request interrupted');
+  return Array.isArray(c) && c.some(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim() && !PAGE_HIDDEN.test(b.text));
+}
+const PAGE_CUT = 4000, PAGE_MAX_MSGS = 600;
+const cutText = s => (typeof s === 'string' && s.length > PAGE_CUT ? s.slice(0, PAGE_CUT) + `\n… [${s.length - PAGE_CUT} more characters]` : s);
+// Für die Anzeige auf dem Gerät verkleinern: Bilder ohne Daten, lange Ergebnisse und Eingaben gekürzt, Denkblöcke weg
+function slimMessage(m) {
+  const c = m.message?.content;
+  if (!Array.isArray(c)) return m;
+  const content = c.filter(b => b && b.type !== 'thinking' && b.type !== 'redacted_thinking').map(b => {
+    if (b.type === 'image') return { type: 'image', source: { type: 'base64', media_type: b.source?.media_type || 'image/png', data: '' }, omitted: true };
+    if (b.type === 'tool_result') {
+      const r = Array.isArray(b.content) ? b.content.filter(x => x?.type === 'text').map(x => x.text).join('\n') : b.content;
+      return { ...b, content: cutText(typeof r === 'string' ? r : '') };
+    }
+    if (b.type === 'tool_use' && b.input && typeof b.input === 'object') {
+      return { ...b, input: Object.fromEntries(Object.entries(b.input).map(([k, v]) => [k, typeof v === 'string' ? cutText(v) : v])) };
+    }
+    return b;
+  });
+  return { ...m, message: { ...m.message, content } };
+}
+function pageTranscript(all, turns, before) {
+  const end = Number.isInteger(before) && before >= 0 && before <= all.length ? before : all.length;
+  let start = end, n = 0;
+  while (start > 0) {
+    start--;
+    if (isPrompt(all[start]) && ++n >= turns) break;
+  }
+  if (end - start > PAGE_MAX_MSGS) start = end - PAGE_MAX_MSGS; // ein Abschnitt mit sehr vielen Schritten: nur dessen Ende
+  return { msgs: all.slice(start, end).map(slimMessage), start, total: all.length };
+}
 
 // Tab-Daten aus der Oberfläche werden vollständig geprüft, bevor Claude gestartet wird
 function validTab(t) {

@@ -112,6 +112,7 @@ if (!filter || 'relay'.includes(filter)) { // Vermittler + Haupt-PC + Gerät üb
     results = JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'relay-check.js')], { encoding: 'utf8', timeout: 60000 }).stdout);
     results.push(...JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'relay-app-check.js')], { encoding: 'utf8', timeout: 90000 }).stdout)); // App „Swapline Relay“
     results.push(...JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'relay-update-check.js')], { encoding: 'utf8', timeout: 30000 }).stdout)); // eingebautes Update
+    results.push(...JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'history-page-check.js')], { encoding: 'utf8', timeout: 30000 }).stdout)); // Verlauf in Seiten (Fernzugriff)
   } catch (e) { results = [...(results || []), { name: 'Vermittler prüfen', ok: false, detail: e.message }]; }
   for (const r of results) {
     if (r.ok) passed++; else failed++;

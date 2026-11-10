@@ -616,4 +616,7 @@ const EN = {
   'Claude sieht die Ausgabe mit deiner nächsten Nachricht': 'Claude sees the output with your next message',
   '„!“-Befehle gehen nur auf PCs, nicht auf SSH-Servern': '“!” commands work only on PCs, not on SSH servers',
   'Befehl nicht ausgeführt': 'Command not run',
+  'Ältere Nachrichten laden': 'Load older messages',
+  'Ältere Nachrichten konnten nicht geladen werden': 'Could not load older messages',
+  'Lade …': 'Loading …',
 };
