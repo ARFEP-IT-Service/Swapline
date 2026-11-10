@@ -1551,6 +1551,9 @@ function textOf(content) {
 // Feste Texte, die Claude liest (Antworten auf Rückfragen, Platzhalter bei Anhängen): immer Englisch,
 // unabhängig von der Sprache der Oberfläche – die Oberfläche zeigt ihre eigenen, übersetzten Texte.
 const CLAUDE_TEXT = {
+  summary: 'Summarize this conversation so far for me, in the language I have been writing in. Use Markdown with these sections: '
+    + 'Goal; What was done (key steps and decisions); Changed files (paths); Commands and tests run, with results; Open points and next steps. '
+    + 'Be concise. Do not use any tools and do not change anything for this.',
   denied: 'The user declined this action.',
   planRevise: 'Please revise the plan: ',
   planRejected: 'The user rejected the plan.',
@@ -1922,6 +1925,9 @@ const LOCAL_COMMANDS = [
   { name: 'settings', description: N_('Einstellungen von Swapline'), run: () => openSettings() },
   { name: 'plugins', description: N_('Erweiterungen: Plugins installieren und verwalten'), run: () => openExtensions('installed') },
   { name: 'skills', description: N_('Skills und Befehle dieses Kontos anzeigen'), run: () => openExtensions('skills') },
+  { name: 'resume', description: N_('Frühere Sitzung fortsetzen (Verlauf)'), run: () => { view = 'history'; setSeg(); renderList(); $('#search')?.focus(); } },
+  { name: 'export', description: N_('Chat als Markdown-Datei speichern – mit allen Details'), run: () => exportChat() },
+  { name: 'summary', description: N_('Claude fasst den Chat zusammen (Ziel, Ergebnisse, Dateien, offene Punkte)'), run: () => summaryChat() },
 ];
 function commandList() {
   const t = currentTab();
@@ -2066,6 +2072,52 @@ function updateBashMode() {
 // Smileys → Emojis (src/renderer/emoji.js), abschaltbar in den Einstellungen
 const emojiOn = () => store?.settings?.emoji !== false;
 let lastEmoji = null; // letzte Umwandlung beim Tippen (Rücktaste macht sie rückgängig)
+// /export: ganzer Chat als Markdown (Nachrichten, Werkzeuge mit Eingabe und Ergebnis, Rückfragen, „!“-Befehle, Zeiten, Kosten)
+const fence = s => { const t = String(s ?? ''); const n = Math.max(3, ...(t.match(/`+/g) || []).map(x => x.length + 1)); return '`'.repeat(n) + '\n' + t + '\n' + '`'.repeat(n); };
+const stamp = ms => (ms ? new Date(ms).toLocaleString(locale()) : '');
+function chatMarkdown(t) {
+  const p = profileOf(t), out = [];
+  out.push('# ' + (t.title || _('Neuer Chat')), '');
+  out.push(`- ${_('Konto')}: ${p?.name || t.profileId || '–'}`, `- ${_('Ordner')}: ${t.cwd || '~'}`, `- ${_('Modell')}: ${t.modelName || t.model || _('Standard')}`,
+    `- ${_('Sitzung')}: ${t.sessionId || '–'}`, `- ${_('Exportiert')}: ${stamp(Date.now())} · Swapline ${VERSION}`, '', '---', '');
+  for (const it of t.items) {
+    switch (it.kind) {
+      case 'me': out.push(`### ${_('Du')}${it.from ? ' (' + it.from + ')' : ''}${it.time ? ' · ' + stamp(it.time) : ''}`, '', it.text || '', ''); break;
+      case 'ai': out.push(`### Claude${it.time ? ' · ' + stamp(it.time) : ''}`, '', it.text || '', ''); break;
+      case 'tool': {
+        const input = (it.name === 'Bash' || it.name === 'PowerShell') ? it.input?.command : JSON.stringify(it.input, null, 2);
+        out.push(`<details><summary>🔧 ${toolLabel(it.name)}: ${String(toolSummary(it.name, it.input) || '').replace(/[<>]/g, '')}</summary>`, '', fence(input));
+        if (it.result) out.push('', it.isError ? _('Fehler') + ':' : _('Ergebnis') + ':', '', fence(it.result));
+        out.push('', '</details>', '');
+        break;
+      }
+      case 'bash': out.push(`**! ${it.command}**${Number(it.code) ? ' (' + _('Beendet mit Code {n}', { n: it.code }) + ')' : ''}`, '', fence(it.output || ''), ''); break;
+      case 'perm': out.push(`> ❓ ${_('Darf Claude {tool} ausführen?', { tool: it.toolName })}`, '>', ...fence((it.toolName === 'Bash' || it.toolName === 'PowerShell') ? it.input?.command : JSON.stringify(it.input, null, 2)).split('\n').map(l => '> ' + l), `> ${it.answered || _('(offen)')}`, ''); break;
+      case 'question': out.push(`> ❓ ${(it.input?.questions || []).map(q => q.question).join(' · ')}`, `> ${it.answered || _('(offen)')}`, ''); break;
+      case 'plan': out.push(`> 📋 ${_('Plan')}`, '>', ...String(it.input?.plan || '').split('\n').map(l => '> ' + l), `> ${it.answered || _('(offen)')}`, ''); break;
+      case 'recap': out.push(`> ※ Recap: ${it.text}`, ''); break;
+      case 'sys': out.push(`*${it.text}*`, ''); break;
+      case 'result': out.push(`<sub>${it.text}</sub>`, ''); break;
+    }
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+async function exportChat(t = currentTab()) {
+  if (!t) return;
+  // Chats eines Haupt-PCs: erst den ganzen Verlauf holen
+  for (let i = 0; i < 200 && t.olderFrom != null; i++) { const before = t.olderFrom; await loadOlder(t); if (t.olderFrom === before) break; }
+  const r = await api.exportChat({ name: t.title || 'Chat', content: chatMarkdown(t) });
+  if (r?.ok) toast(_('Gespeichert: {p}', { p: r.path })); else if (r?.error) toast(r.error);
+}
+// /summary: Claude fasst zusammen (fester englischer Auftrag; die Sprechblase zeigt nur „/summary“)
+async function summaryChat(t = currentTab()) {
+  if (!t) return;
+  if (!t.sessionId && !t.items.some(x => x.kind === 'me')) return toast(_('Noch nichts zum Zusammenfassen'));
+  if (t.running) return toast(_('Bitte warten, bis Claude fertig ist'));
+  appendItem(t, { kind: 'me', text: '/summary', time: Date.now() });
+  t.running = true; t.updated = Date.now(); setTyping(t); updateComposer(); saveTabs(); renderList();
+  await claudeSend(t, CLAUDE_TEXT.summary);
+}
 const plainTab = t => ({ id: t.id, hostTab: t.hostTab, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode });
 
 function autosize() { const i = $('#input'); i.style.height = 'auto'; i.style.height = Math.min(220, i.scrollHeight) + 'px'; }

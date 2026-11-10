@@ -99,7 +99,7 @@ function uiLang() {
 const TR = require('./renderer/i18n-tr.js');
 const tr = (de, en, tk) => { const l = uiLang(); return l === 'en' ? en : l === 'tr' ? (tk ?? (Object.prototype.hasOwnProperty.call(TR, de) ? TR[de] : en)) : de; };
 // Gemeinsam mit dem Server-Dienst (server/): Nachrichten und Antworten prüfen, Startparameter, Verlauf lesen
-const { validContent, IMAGE_MEDIA, claudeArgs, checkResponse, encodeCwd, readHead, parseSessionHead, listSessions, loadTranscript, transcriptFromText, pageTranscript, readImage, fetchWebImage } = require('./chat-core');
+const { validContent, IMAGE_MEDIA, claudeArgs, checkResponse, encodeCwd, readHead, parseSessionHead, listSessions, loadTranscript, transcriptFromText, pageTranscript, readImage, fetchWebImage, IMAGE_EXT, serverImageScript, serverImageResult } = require('./chat-core');
 const listHistory = (profile, limit = 200) => listSessions(path.join(profile.configDir, 'projects'), tr('(ohne Titel)', '(untitled)'), limit);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
@@ -709,6 +709,16 @@ handle('files:image', (_e, { cwd, path: file } = {}) => {
   return readImage(file, dir, [...allowedFolders(), ...(dir ? [dir] : [])]);
 });
 handle('web:image', (_e, url) => fetchWebImage(url));
+// /export: Chat als Markdown speichern – Ziel wählt der Nutzer im Speichern-Dialog (keine Netzwerkpfade)
+handle('chat:export', async (_e, { name, content } = {}) => {
+  if (typeof content !== 'string' || content.length > 50e6) return { error: tr('Ungültig', 'Invalid') };
+  const file = (cleanName(String(name || ''), 'Chat').replace(/[\\/:*?]/g, '-').trim() || 'Chat') + '.md';
+  const r = await dialog.showSaveDialog(win, { title: tr('Chat exportieren', 'Export chat'), defaultPath: path.join(app.getPath('documents'), file), filters: [{ name: 'Markdown', extensions: ['md'] }] });
+  if (r.canceled || !r.filePath) return { cancelled: true };
+  if (isUnc(r.filePath)) return { error: tr('Netzwerkpfade sind nicht erlaubt', 'Network paths are not allowed') };
+  fs.writeFileSync(r.filePath, content, 'utf8');
+  return { ok: true, path: r.filePath };
+});
 
 // Tab-Daten aus der Oberfläche werden vollständig geprüft, bevor Claude gestartet wird
 function validTab(t) {
@@ -1075,7 +1085,7 @@ function hostTabId(dev, id) {
 }
 // Gerät → SSH-Server dieses PCs: nur mit Freigabe „SSH-Server“ und nur Chat-Kanäle. Chat-IDs des Geräts werden wie bei
 // eigenen Chats auf Haupt-PC-IDs abgebildet, damit die Ausgabe von Claude beim Gerät ankommt.
-const SERVER_CALLS = new Set(['store:get', 'profiles:status', 'history:list', 'history:search', 'history:loadSession', 'session:send', 'session:pending',
+const SERVER_CALLS = new Set(['store:get', 'profiles:status', 'history:list', 'history:search', 'history:loadSession', 'session:send', 'session:pending', 'files:image', 'web:image',
   'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass']);
 async function serverCall(dev, a) {
   if (!dev.allowServers) notShared();
@@ -1825,6 +1835,17 @@ async function serverProjectEdit(srv, ch, a) {
   pushRemoteStatus();
   return serverStore(sshServers().find(x => x.id === srv.id) || srv);
 }
+// Bild-Datei auf einem SSH-Server (für die Anzeige im Chat): gleiche Regeln wie lokal – nur Bilder bis 10 MB, deren echter
+// Pfad in einem Server-Ordner oder im Home-Verzeichnis liegt; geprüft auf dem Server (realpath), Inhalt hier (sniffImage)
+async function sshImage(srv, cwd, file) {
+  if (typeof file !== 'string' || !file.trim() || file.length > 1000 || /[\0\n\r]/.test(file)) return { error: 'ungültig' };
+  if (!IMAGE_EXT[path.posix.extname(file).toLowerCase()]) return { error: 'kein Bild' };
+  const folders = serverFolders(srv);
+  const dir = typeof cwd === 'string' && folders.some(f => cwd === f || cwd.startsWith(f.replace(/\/$/, '') + '/')) ? cwd : '';
+  const r = await sshRun(srv, serverImageScript(folders, dir, file), 60000, 16 * 1024 * 1024);
+  const res = serverImageResult(r.out, file);
+  return res.error === 'keine Antwort' && r.code ? { error: sshError(r) } : res;
+}
 // dev: Aufruf kommt von einem Gerät (über „server:call“) – „Alles erlauben“ dann nach dessen Freigabe statt Dialog an diesem PC
 async function sshDispatch(srv, ch, args, dev) {
   const bypassOk = () => (dev ? !!dev.allowBypass : confirmBypass());
@@ -1868,6 +1889,8 @@ async function sshDispatch(srv, ch, args, dev) {
       return H.get(ch)({}, ...args);
     case 'session:confirmBypass': return bypassOk();
     case 'task:readOutput': return { error: tr('Auf Servern nicht verfügbar', 'Not available on servers') };
+    case 'files:image': return sshImage(srv, a0?.cwd, a0?.path);
+    case 'web:image': return fetchWebImage(typeof a0 === 'string' ? a0 : a0?.url);
     case 'tabs:list': return [];
     case 'session:attach': return false;
     default: return false;

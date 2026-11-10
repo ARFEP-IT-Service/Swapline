@@ -213,6 +213,27 @@ function sniffImage(b) {
   return null;
 }
 
+// Bild auf einem SSH-Server: Shell-Skript für den Server – prüft dort den echten Pfad (realpath) gegen die Server-Ordner
+// und das Home-Verzeichnis und gibt „D:<base64>“ oder „E:<Grund>“ aus. Die Prüfung des Inhalts folgt beim Empfänger.
+const shq = v => "'" + String(v).replace(/'/g, "'\\''") + "'";
+function serverImageScript(folders, cwd, file) {
+  const target = file.startsWith('~/') ? '"$HOME"/' + shq(file.slice(2)) : shq(file);
+  return 'cd ' + (cwd ? shq(cwd) : '"$HOME"') + ' 2>/dev/null || cd; f=$(realpath -e -- ' + target + ' 2>/dev/null) || { echo E:nicht gefunden; exit 0; }; ok=; '
+    + 'for r in ' + folders.map(shq).join(' ') + ' "$HOME"; do r=$(realpath -e -- "$r" 2>/dev/null) || continue; case "$f/" in "$r"/*) ok=1;; esac; done; '
+    + '[ -n "$ok" ] || { echo E:nicht freigegeben; exit 0; }; [ -f "$f" ] || { echo E:nicht gefunden; exit 0; }; '
+    + '[ "$(stat -c %s -- "$f")" -le ' + IMAGE_MAX + ' ] || { echo E:zu groß; exit 0; }; printf D:; base64 -w0 -- "$f"';
+}
+// Antwort des Skripts → { media, data } oder { error }
+function serverImageResult(out, file) {
+  const media = IMAGE_EXT[path.posix.extname(file).toLowerCase()];
+  const o = String(out || '').trim();
+  if (o.startsWith('E:')) return { error: o.slice(2) };
+  if (!o.startsWith('D:')) return { error: 'keine Antwort' };
+  const data = o.slice(2);
+  if (!media || !/^[A-Za-z0-9+/]*=*$/.test(data) || sniffImage(Buffer.from(data, 'base64')) !== media) return { error: 'kein Bild' };
+  return { media, data };
+}
+
 // Öffentliche Adresse? Bilder aus dem Internet holt der Haupt-PC nie aus dem eigenen Netz (Router, NAS …)
 function publicIp(ip) {
   const net = require('node:net');
@@ -262,4 +283,4 @@ function fetchWebImage(url, redirects = 3) {
 }
 
 module.exports = { same, claudeArgs, checkResponse, encodeCwd, readHead, readTail, listSessions, parseSessionHead, loadTranscript, transcriptFromText,
-  isPrompt, slimMessage, pageTranscript, IMAGE_MEDIA, validContent, readImage, sniffImage, publicIp, fetchWebImage };
+  isPrompt, slimMessage, pageTranscript, IMAGE_MEDIA, validContent, readImage, sniffImage, publicIp, fetchWebImage, IMAGE_EXT, IMAGE_MAX, serverImageScript, serverImageResult };

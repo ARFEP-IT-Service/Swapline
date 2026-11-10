@@ -7,6 +7,17 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.18.0] – 2026-11-10
+
+- Neu: **/resume** öffnet den Verlauf, um eine frühere Sitzung fortzusetzen (wie in der Claude CLI).
+- Neu: **/export** speichert den Chat als Markdown-Datei – Nachrichten, Werkzeug-Aufrufe mit Eingabe und Ergebnis,
+  Rückfragen mit Antwort, „!“-Befehle, Zeiten und Kosten; bei Chats eines Haupt-PCs wird vorher der ganze Verlauf geladen.
+- Neu: **/summary** – Claude fasst den Chat zusammen (Ziel, was gemacht wurde, geänderte Dateien, Befehle und Tests,
+  offene Punkte), ohne etwas zu ändern.
+- Neu: **Bilder auch in Chats auf SSH-Servern** (z. B. VPS) – am PC und auf Geräten, denen der PC seine SSH-Server
+  weiterreicht. Gleiche Regeln: nur echte Bilder bis 10 MB, deren echter Pfad auf dem Server in einem Server-Ordner oder im
+  Home-Verzeichnis liegt (geprüft auf dem Server, Inhalt beim Empfänger).
+
 ## [0.17.1] – 2026-11-10
 
 - Behoben: **Bilder aus dem Internet** ließen sich nicht laden („nicht erreichbar“) – die Prüfung auf öffentliche Adressen

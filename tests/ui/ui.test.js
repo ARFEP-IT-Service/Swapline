@@ -247,6 +247,26 @@
   t.items.push({ kind: 'me', text: 'Alt ;) <3', time: Date.now() }); renderMessages();
   check('Smileys: eigene Nachrichten mit Emojis angezeigt', [...document.querySelectorAll('#messages .msg.me .bubble')].some(b => b.textContent.includes('Alt 😉 ❤️')));
 
+  // /export, /summary, /resume
+  const te = makeTab({ title: 'Export', cwd: WORK }); tabs.push(te); await openTab(te.id);
+  te.items.push({ kind: 'me', text: 'Bitte testen', time: Date.now() }, { kind: 'ai', text: 'Mache ich.', time: Date.now() },
+    { kind: 'tool', id: 'x1', name: 'Bash', input: { command: 'npm test' }, result: '42 passed' },
+    { kind: 'perm', requestId: 'p9', toolName: 'Bash', input: { command: 'git push' }, answered: '✓ Erlaubt' },
+    { kind: 'bash', id: 'b9', command: 'git status', output: 'clean ``` mit Backticks', code: 0, state: 'done' }, { kind: 'result', text: '✓ 3.2 s · $0.012' });
+  const mdOut = chatMarkdown(te);
+  check('/export: Markdown mit Nachrichten, Werkzeug (Eingabe + Ergebnis), Rückfrage, „!“-Befehl, Kosten',
+    /^# Export/.test(mdOut) && /### Du/.test(mdOut) && /### Claude/.test(mdOut) && /npm test/.test(mdOut) && /42 passed/.test(mdOut) && /git push[\s\S]*✓ Erlaubt/.test(mdOut) && /\*\*! git status\*\*/.test(mdOut) && /\$0\.012/.test(mdOut), mdOut.slice(0, 300));
+  check('/export: Backticks in Ausgaben brechen den Code-Block nicht', /````\nclean ``` mit Backticks\n````/.test(mdOut));
+  const sentSum = [], origSend2 = claudeSend;
+  claudeSend = (_t, content) => { sentSum.push(content); return Promise.resolve(true); };
+  typeInto(input, '/summary'); key(input, 'Enter');
+  await until(() => sentSum.length > 0, 3000);
+  check('/summary: fester Auftrag an Claude, Sprechblase zeigt „/summary“', /Summarize this conversation/.test(sentSum[0] || '') && te.items.at(-1)?.text === '/summary', JSON.stringify(sentSum));
+  claudeSend = origSend2; te.running = false;
+  typeInto(input, '/resume'); key(input, 'Enter');
+  check('/resume: Verlauf wird geöffnet', $('#seg [data-view="history"]').classList.contains('active'));
+  view = 'chats'; setSeg(); renderList();
+
   // Rückfragen nach Risiko: kritisch rot, Vorsicht orange, normal ohne Hinweis
   await openTab(t.id);
   ingest(t, { type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'git push --force' } } });

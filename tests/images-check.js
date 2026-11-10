@@ -32,6 +32,25 @@ const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: 
       check('Bilder: Verknüpfung nach außen abgelehnt', c.readImage('link.png', d, [d]).error === 'nicht freigegeben');
     } catch { /* Windows ohne Rechte für Verknüpfungen: Fall entfällt */ }
 
+    // SSH-Server: das Skript, das Swapline dort ausführt – hier mit einer lokalen Bash (Git Bash bzw. Linux)
+    const bash = process.platform === 'win32' ? ['C:\\Program Files\\Git\\bin\\bash.exe'].find(f => fs.existsSync(f)) : '/bin/bash';
+    if (bash) {
+      const { execFileSync } = require('node:child_process');
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'swapline-ssh-home-'));
+      const posix = p => (process.platform === 'win32' ? execFileSync(bash, ['-c', 'cygpath -u ' + JSON.stringify(p)], { encoding: 'utf8' }).trim() : p);
+      fs.mkdirSync(path.join(home, 'bilder')); fs.writeFileSync(path.join(home, 'bilder', 'qr.png'), png); fs.writeFileSync(path.join(home, 'notiz.png'), 'text');
+      const run = (folders, cwd, file) => c.serverImageResult(execFileSync(bash, ['-c', c.serverImageScript(folders, cwd, file)], { encoding: 'utf8', env: { ...process.env, HOME: posix(home) } }), file);
+      const proj = posix(d);
+      const okHome = run([proj], '', '~/bilder/qr.png');
+      const okProj = run([proj], proj, 'out/chart.png');
+      const outside = run([proj], proj, posix(path.join(other, 'fremd.png')));
+      const fake = run([proj], '', '~/notiz.png');
+      check('Bilder per SSH: Server-Ordner und Home ja, außerhalb und Fälschung nein', okHome.media === 'image/png' && okProj.media === 'image/png' && outside.error === 'nicht freigegeben' && fake.error === 'kein Bild',
+        JSON.stringify([okHome.error, okProj.error, outside, fake]));
+      check('Bilder per SSH: Anführungszeichen im Pfad können nichts ausführen', run([proj], proj, "x'; touch pwned; '.png").error === 'nicht gefunden' && !fs.existsSync(path.join(d, 'pwned')));
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+
     check('Bilder: öffentliche und private Adressen', c.publicIp('8.8.8.8') && c.publicIp('2001:4860:4860::8888')
       && !c.publicIp('192.168.178.1') && !c.publicIp('10.0.0.1') && !c.publicIp('127.0.0.1') && !c.publicIp('100.64.1.2') && !c.publicIp('169.254.1.1')
       && !c.publicIp('::1') && !c.publicIp('fd00::1') && !c.publicIp('::ffff:192.168.0.1'));

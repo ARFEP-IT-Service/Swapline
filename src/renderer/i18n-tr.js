@@ -622,6 +622,21 @@ const TR = {
   'nicht anzeigbar ({e})': 'gösterilemiyor ({e})',
   'nicht anzeigbar': 'gösterilemiyor',
   'Smileys in Emojis umwandeln (:D → 😄, ;) → 😉, <3 → ❤️)': 'Gülen yüzleri emojiye dönüştür (:D → 😄, ;) → 😉, <3 → ❤️)',
+  'Frühere Sitzung fortsetzen (Verlauf)': 'Önceki oturuma devam et (geçmiş)',
+  'Chat als Markdown-Datei speichern – mit allen Details': 'Sohbeti tüm ayrıntılarıyla Markdown dosyası olarak kaydet',
+  'Claude fasst den Chat zusammen (Ziel, Ergebnisse, Dateien, offene Punkte)': 'Claude sohbeti özetler (hedef, sonuçlar, dosyalar, açık noktalar)',
+  'Konto': 'Hesap',
+  'Ordner': 'Klasör',
+  'Sitzung': 'Oturum',
+  'Exportiert': 'Dışa aktarıldı',
+  'Du': 'Sen',
+  '(offen)': '(açık)',
+  'Plan': 'Plan',
+  'Gespeichert: {p}': 'Kaydedildi: {p}',
+  'Noch nichts zum Zusammenfassen': 'Henüz özetlenecek bir şey yok',
+  'Ungültig': 'Geçersiz',
+  'Chat exportieren': 'Sohbeti dışa aktar',
+  'Netzwerkpfade sind nicht erlaubt': 'Ağ yollarına izin verilmez',
 };
 
 if (typeof module !== 'undefined') module.exports = TR;
