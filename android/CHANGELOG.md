@@ -3,6 +3,15 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.8.0] – 2026-11-10
+
+- Neu: **SSH-Server des Haupt-PCs** (z. B. ein VPS) erscheinen als eigene Einträge in der Auswahl oben („VPS · PC-Name“):
+  neue Chats, Verlauf, Antworten und Rückfragen wie gewohnt – die Verbindung baut der Haupt-PC auf. Braucht Swapline am PC
+  ab 0.15.0 und dort für dieses Gerät die Freigabe „SSH-Server“.
+- Neu: **Rückfragen nach Risiko eingefärbt** – kritische Befehle rot, heikle orange, mit kurzem Grund (gleiche Regeln wie
+  am PC).
+- Neu: **Tabellen** in Antworten von Claude werden als Tabelle angezeigt (seitlich scrollbar), statt als Textzeilen mit „|“.
+
 ## [0.7.1] – 2026-11-10
 
 - Behoben: **Große Chats brauchten beim Öffnen sehr lange** (über Mobilfunk teils Minuten) – die App lädt jetzt nur die

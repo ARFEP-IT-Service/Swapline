@@ -52,6 +52,8 @@ data class HistoryEntry(val sessionId: String, val title: String, val cwd: Strin
 data class ModelOpt(val value: String, val name: String, val description: String)
 // /-Befehle und Skills eines Kontos (vom Haupt-PC, wie die Auswahl im Eingabefeld am PC)
 data class CmdOpt(val name: String, val description: String, val hint: String)
+// SSH-Server des Haupt-PCs (nur mit Freigabe „SSH-Server“ am PC) – Chats laufen über den Haupt-PC
+data class ServerRef(val id: String, val name: String, val color: String)
 
 data class HostStore(
     val profiles: List<Profile>,
@@ -68,6 +70,7 @@ data class HostStore(
     val newChats: Boolean,
     val reach: List<String> = emptyList(),   // Adressen, unter denen der Haupt-PC erreichbar ist (geprüft)
     val relay: de.arfep.swapline.net.RelayRoute? = null, // Vermittler (falls am PC eingerichtet)
+    val servers: List<ServerRef> = emptyList(),
 )
 
 private fun JsonObject.s(k: String, max: Int = 500) = (str(k) ?: "").take(max)
@@ -102,6 +105,10 @@ object Parse {
                 if (a != null && de.arfep.swapline.net.PairLinks.validAddress(a) && p != null && p in 1..65535 && h != null && Regex("^[0-9a-f]{16}$").matches(h) && k != null && Regex("^[0-9a-f]{64}$").matches(k))
                     de.arfep.swapline.net.RelayRoute(a, p, h, k) else null
             },
+            servers = o["servers"].objects().mapNotNull {
+                val id = it.str("id")?.takeIf { s -> Regex("^[A-Za-z0-9_-]{1,40}$").matches(s) } ?: return@mapNotNull null
+                ServerRef(id, it.s("name", 40).ifBlank { "Server" }, color(it.s("color", 7)))
+            }.take(20),
         )
     }
 
@@ -127,7 +134,9 @@ object Parse {
     }
 }
 
-class HostState(record: HostRecord) {
+// parent/serverId: SSH-Server eines Haupt-PCs – eigener Eintrag in der App, alle Aufrufe gehen als „server:call“ über
+// die Verbindung des Haupt-PCs
+class HostState(record: HostRecord, val parent: HostState? = null, val serverId: String? = null) {
     var record by mutableStateOf(record)
     var state by mutableStateOf(LinkState.OFF)
     var error by mutableStateOf<String?>(null)
@@ -141,8 +150,16 @@ class HostState(record: HostRecord) {
     val commands = HashMap<String, List<CmdOpt>>()
     lateinit var link: HostLink
 
-    val connected get() = state == LinkState.CONNECTED
+    val connected get() = (parent?.state ?: state) == LinkState.CONNECTED
     val id get() = record.id
+
+    suspend fun call(ch: String, vararg args: JsonElement): JsonElement =
+        if (serverId == null) link.call(ch, *args) else link.call("server:call", serverArgs(ch, args))
+    suspend fun callWithin(timeout: Long, ch: String, vararg args: JsonElement): JsonElement =
+        if (serverId == null) link.callWithin(timeout, ch, *args) else link.callWithin(timeout, "server:call", serverArgs(ch, args))
+    private fun serverArgs(ch: String, args: Array<out JsonElement>) = buildJsonObject {
+        put("server", serverId); put("ch", ch); put("args", JsonArray(args.toList()))
+    }
 }
 
 // Liegt ein Ordner im Projektordner (auch Unterordner)? Windows-Pfade ohne Groß-/Kleinschreibung

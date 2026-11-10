@@ -126,6 +126,27 @@ class LinkTest {
         catch (e: LinkException) { assertEquals("relay", e.reason) }
     }
 
+    // SSH-Server des Haupt-PCs: eigener Eintrag, Aufrufe gehen als „server:call“ über dieselbe Verbindung
+    @Test fun serverCallsGoThroughHost() = runBlocking {
+        val p = pairOk("Server")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val link = HostLink(scope, { _, _ -> }, { _, _ -> })
+        link.use(Target("127.0.0.1", port, p.deviceId, p.key))
+        withTimeout(15_000) { while (link.state != LinkState.CONNECTED) delay(20) }
+        val rec = de.arfep.swapline.model.HostRecord("h1", "PC", "127.0.0.1", port, p.deviceId, "", "PC")
+        val parent = de.arfep.swapline.model.HostState(rec).also { it.link = link; it.state = LinkState.CONNECTED }
+        val srv = de.arfep.swapline.model.HostState(rec.copy(id = "h1~s1"), parent = parent, serverId = "s1").also { it.link = link }
+        assertTrue(srv.connected)
+        val r = srv.call("history:list", JsonPrimitive("server")).jsonObject
+        assertEquals("s1", r["server"]!!.jsonPrimitive.content)
+        assertEquals("history:list", r["ch"]!!.jsonPrimitive.content)
+        assertEquals("[\"server\"]", r["args"].toString())
+        // der Haupt-PC selbst: direkt, ohne Umweg
+        assertEquals("[\"x\"]", (parent.call("echo", JsonPrimitive("x")) as JsonObject)["args"].toString())
+        link.close()
+        scope.cancel()
+    }
+
     @Test fun imageMessagesPassHostValidation() = runBlocking {
         val p = pairOk("Bilder")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

@@ -93,6 +93,9 @@ import de.arfep.swapline.model.Chat
 import de.arfep.swapline.model.ClaudeText
 import de.arfep.swapline.model.CmdOpt
 import de.arfep.swapline.model.Item
+import de.arfep.swapline.model.Risk
+import de.arfep.swapline.model.RiskLevel
+import de.arfep.swapline.model.Risks
 import de.arfep.swapline.model.SysCode
 import de.arfep.swapline.model.prim
 import de.arfep.swapline.model.toolSummary
@@ -346,7 +349,10 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
         }
         is Item.Tool -> ToolRow(it)
         is Item.Bash -> BashRow(model, chat, it)
-        is Item.Perm -> Card(done = it.answer != null) {
+        is Item.Perm -> {
+          val risk = remember(it.requestId) { Risks.of(it.toolName, it.input) }
+          Card(done = it.answer != null, color = when (risk.level) { RiskLevel.CRITICAL -> Danger; RiskLevel.MEDIUM -> Warn; else -> Accent }) {
+            if (it.answer == null && risk.level != RiskLevel.NORMAL) RiskBadge(risk)
             Text(tr("Darf Claude ${it.toolName} ausführen?", "Allow Claude to run ${it.toolName}?", "Claude ${it.toolName} çalıştırabilir mi?"), fontWeight = FontWeight.SemiBold)
             if (it.description.isNotBlank()) Text(it.description, fontSize = 13.sp, color = cs.onSurfaceVariant)
             Spacer(Modifier.height(6.dp))
@@ -361,6 +367,7 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
                     OutlinedButton(onClick = { model.allow(chat, it, true) }) { Text(tr("Immer erlauben", "Always allow")) }
                 OutlinedButton(onClick = { model.deny(chat, it, ClaudeText.DENIED, Answer(AnswerKind.DENIED)) }) { Text(tr("Ablehnen", "Decline"), color = Danger) }
             }
+          }
         }
         is Item.Question -> QuestionCard(model, chat, it)
         is Item.Plan -> PlanCard(model, chat, it)
@@ -381,10 +388,36 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
 }
 
 @Composable
-private fun Card(done: Boolean = false, content: @Composable () -> Unit) {
+private fun Card(done: Boolean = false, color: Color = Accent, content: @Composable () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(cs.surfaceContainer, RoundedCornerShape(14.dp))
-        .border(1.dp, if (done) cs.outlineVariant else Accent.copy(alpha = 0.6f), RoundedCornerShape(14.dp)).padding(12.dp)) { content() }
+        .border(if (!done && color != Accent) 2.dp else 1.dp, if (done) cs.outlineVariant else color.copy(alpha = if (color == Accent) 0.6f else 1f), RoundedCornerShape(14.dp)).padding(12.dp)) { content() }
+}
+
+// Einstufung der Rückfrage: kritisch rot, Vorsicht orange, mit Grund
+@Composable
+private fun RiskBadge(risk: Risk) {
+    val critical = risk.level == RiskLevel.CRITICAL
+    val why = when (risk.reason) {
+        "delete" -> if (critical) tr("löscht rekursiv oder erzwungen", "deletes recursively or forcibly") else tr("löscht Dateien", "deletes files")
+        "git" -> if (critical) tr("überschreibt den Git-Verlauf oder verwirft Änderungen", "rewrites Git history or discards changes")
+            else tr("ändert den Git-Verlauf oder das Repository auf dem Server", "changes Git history or the repository on the server")
+        "script" -> tr("lädt ein Skript aus dem Netz und führt es aus", "downloads a script and runs it")
+        "system" -> tr("greift ins System ein (Admin-Rechte, Datenträger, Neustart)", "changes the system (admin rights, disks, restart)")
+        "database" -> tr("löscht Datenbank-Inhalte", "deletes database contents")
+        "publish" -> tr("veröffentlicht etwas (z. B. npm publish)", "publishes something (e.g. npm publish)")
+        "secret" -> tr("betrifft Zugangsdaten oder Systemdateien", "touches credentials or system files")
+        "install" -> tr("installiert Pakete", "installs packages")
+        "network" -> tr("greift aufs Netz zu", "accesses the network")
+        "process" -> tr("beendet Prozesse oder Dienste", "stops processes or services")
+        "permissions" -> tr("ändert Dateirechte", "changes file permissions")
+        "config" -> tr("ändert Projekt- oder Werkzeug-Einstellungen", "changes project or tool settings")
+        else -> ""
+    }
+    val c = if (critical) Danger else Warn
+    Text((if (critical) tr("⚠ Kritisch", "⚠ Critical") else tr("Vorsicht", "Caution")) + (if (why.isNotEmpty()) " – $why" else ""),
+        Modifier.padding(bottom = 6.dp).background(c.copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+        color = c, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
 }
 
 // „!“-Befehl: Befehl, Status, Ausgabe und Hinweis, dass Claude sie mit der nächsten Nachricht sieht

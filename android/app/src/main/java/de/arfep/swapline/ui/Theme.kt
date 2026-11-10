@@ -29,6 +29,7 @@ fun tr(de: String, en: String, tk: String? = null): String = when (Locale.getDef
 
 val Accent = Color(0xFF1581FF)
 val Danger = Color(0xFFE5484D)
+val Warn = Color(0xFFF59E0B)
 val Ok = Color(0xFF30A46C)
 
 private val Dark = darkColorScheme(

@@ -96,7 +96,11 @@ class AppModel(context: Context, private val notifier: Notifier) {
         loadChats()
     }
 
-    fun host(id: String) = hosts.firstOrNull { it.id == id }
+    // SSH-Server der Haupt-PCs (eigene Einträge, ID „<Haupt-PC>~<Server>“)
+    val servers = mutableStateListOf<HostState>()
+    fun host(id: String) = hosts.firstOrNull { it.id == id } ?: servers.firstOrNull { it.id == id }
+    // Haupt-PC und seine SSH-Server: Chats, deren Ereignisse über diese Verbindung kommen
+    private fun viaHost(c: Chat, h: HostState) = c.hostId == h.id || servers.any { it.id == c.hostId && it.parent === h }
     fun chat(id: String) = chats.firstOrNull { it.id == id }
 
     // ---------- Speicher ----------
@@ -187,7 +191,8 @@ class AppModel(context: Context, private val notifier: Notifier) {
     // Nur auf dem Handy entfernen; am Haupt-PC bleibt das Gerät in der Geräteliste, bis es dort entfernt wird
     fun removeHost(h: HostState) {
         h.link.close()
-        chats.removeAll { it.hostId == h.id }
+        chats.removeAll { viaHost(it, h) }
+        servers.removeAll { it.parent === h }
         hosts.remove(h)
         saveHosts(); saveChats()
     }
@@ -195,8 +200,9 @@ class AppModel(context: Context, private val notifier: Notifier) {
     private fun onState(h: HostState, s: LinkState, detail: String?) {
         val changed = h.state != s
         // Verbindung weg: was jetzt passiert, kommt nicht an – alle Chats dieses Haupt-PCs später neu laden
-        if (h.state == LinkState.CONNECTED && s != LinkState.CONNECTED) for (c in chats) if (c.hostId == h.id) { c.stale = true; c.attached = false }
+        if (h.state == LinkState.CONNECTED && s != LinkState.CONNECTED) for (c in chats) if (viaHost(c, h)) { c.stale = true; c.attached = false }
         h.state = s
+        for (x in servers) if (x.parent === h) x.state = s
         if (changed) notifier.status()
         if (s == LinkState.CONNECTED) { h.error = null; refresh(h) }
         else if (detail != null) h.error = detail
@@ -206,13 +212,13 @@ class AppModel(context: Context, private val notifier: Notifier) {
         when (kind) {
             "claude" -> {
                 val o = data as? JsonObject ?: return
-                val chat = chats.firstOrNull { it.hostId == h.id && it.id == o.str("tabId") } ?: return
+                val chat = chats.firstOrNull { viaHost(it, h) && it.id == o.str("tabId") } ?: return
                 val msg = o["msg"] as? JsonObject ?: return
                 val notice = chat.ingest(msg)
                 updateLive(chat)
                 if (notice != null) {
                     if (msg.str("type") == "result" || notice != Notice.DONE) saveChats()
-                    if (visibleChatId != chat.id || !foreground) { chat.unread = true; notifier.notify(chat, h, notice) }
+                    if (visibleChatId != chat.id || !foreground) { chat.unread = true; notifier.notify(chat, host(chat.hostId) ?: h, notice) }
                 }
             }
             "tabs" -> setOpenTabs(h, Parse.openTabs(data))
@@ -232,24 +238,26 @@ class AppModel(context: Context, private val notifier: Notifier) {
         }
     }
 
-    fun refresh(h: HostState) = scope.launch {
+    fun refresh(h: HostState): kotlinx.coroutines.Job = scope.launch {
         for (c in chats) if (c.hostId == h.id && c.mirror) c.attached = false // nach (Wieder-)Verbindung neu beitreten
-        runCatching { setOpenTabs(h, Parse.openTabs(h.link.call("tabs:list"))) }
+        runCatching { setOpenTabs(h, Parse.openTabs(h.call("tabs:list"))) }
         refreshStore(h).join()
         loadHistory(h)
         // allen offenen Chats wieder beitreten (nicht nur dem sichtbaren), sonst fehlen deren Ereignisse und Hinweise
         for (c in chats.toList()) if (c.hostId == h.id && c.mirror && !c.attached && c.id != visibleChatId) attach(h, c)
         chat(visibleChatId ?: "")?.takeIf { it.hostId == h.id }?.let { open(it) }
+        if (h.parent == null) for (x in servers.toList()) if (x.parent === h) refresh(x)
     }
 
     private suspend fun attach(h: HostState, c: Chat) {
-        val r = runCatching { h.link.call("session:attach", buildJsonObject { put("tabId", c.id); put("hostTab", c.hostTab) }) }.getOrNull()
+        val r = runCatching { h.call("session:attach", buildJsonObject { put("tabId", c.id); put("hostTab", c.hostTab) }) }.getOrNull()
         if (r is JsonObject) { c.attached = true; c.running = (r["running"] as? JsonPrimitive)?.booleanOrNull == true }
     }
 
     private fun refreshStore(h: HostState) = scope.launch {
-        val st = runCatching { Parse.store(h.link.call("store:get")) }.getOrNull() ?: return@launch
+        val st = runCatching { Parse.store(h.call("store:get")) }.getOrNull() ?: return@launch
         h.store = st
+        if (h.parent == null) syncServers(h, st.servers)
         // Adressen vom Haupt-PC (Heimnetz, öffentliche IP …) übernehmen; selbst eingetragene bleiben dahinter erhalten
         // Vermittler vom PC übernehmen (eingerichtet, geändert oder entfernt)
         val curRelay = relayOf(h.record)
@@ -263,10 +271,27 @@ class AppModel(context: Context, private val notifier: Notifier) {
         if (h.projectFilter != null && st.projects.none { it.id == h.projectFilter }) h.projectFilter = null
     }
 
+    // SSH-Server eines Haupt-PCs als eigene Einträge: neue anlegen, umbenannte nachführen, entfernte (Freigabe weg) löschen
+    private fun syncServers(h: HostState, list: List<ServerRef>) {
+        val ids = list.map { "${h.id}~${it.id}" }.toSet()
+        servers.filter { it.parent === h && it.id !in ids }.forEach { gone -> servers.remove(gone) }
+        for (r in list) {
+            val id = "${h.id}~${r.id}"
+            val name = r.name + " · " + h.record.name
+            val x = servers.firstOrNull { it.id == id }
+            if (x != null) { if (x.record.name != name) x.record = x.record.copy(name = name); continue }
+            val s = HostState(h.record.copy(id = id, name = name, color = r.color), parent = h, serverId = r.id)
+            s.link = h.link
+            s.state = h.state
+            servers.add(s)
+            if (h.connected) refresh(s)
+        }
+    }
+
     fun loadHistory(h: HostState) = scope.launch {
         val pid = h.profileId ?: return@launch
         h.historyLoading = true
-        h.history = runCatching { Parse.history(h.link.call("history:list", JsonPrimitive(pid))) }.getOrDefault(h.history)
+        h.history = runCatching { Parse.history(h.call("history:list", JsonPrimitive(pid))) }.getOrDefault(h.history)
         h.historyLoading = false
     }
 
@@ -280,7 +305,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
     }
 
     private suspend fun fetchModels(h: HostState, profileId: String): List<ModelOpt> {
-        val r = runCatching { h.link.call("profiles:models", buildJsonObject { put("id", profileId) }) }.getOrNull()
+        val r = runCatching { h.call("profiles:models", buildJsonObject { put("id", profileId) }) }.getOrNull()
         val cmds = Parse.commands(r)
         if (cmds.isNotEmpty()) h.commands[profileId] = cmds
         return Parse.models(r).also { if (it.isNotEmpty()) h.models[profileId] = it }
@@ -311,13 +336,13 @@ class AppModel(context: Context, private val notifier: Notifier) {
             val wasStale = c.stale
             c.loaded = true
             // nur die letzten Nachrichten (große Chats brauchten über Mobilfunk sonst Minuten); ältere per loadOlder()
-            val r = runCatching { h.link.call("history:loadSession", buildJsonObject {
+            val r = runCatching { h.call("history:loadSession", buildJsonObject {
                 put("profileId", c.profileId); put("sessionId", c.sessionId); put("cwd", c.cwd); put("turns", c.loadedTurns)
             }) }.getOrNull()
             val msgs = (r as? JsonArray) ?: ((r as? JsonObject)?.get("msgs") as? JsonArray) // ältere Haupt-PCs: ganze Liste
             c.olderFrom = ((r as? JsonObject)?.get("start") as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it > 0 }
             // offene Rückfragen (ältere Haupt-PCs ohne diese Abfrage: einfach ohne)
-            val pend = runCatching { h.link.call("session:pending", buildJsonObject { put("tabId", c.id) }) }.getOrNull() as? JsonObject
+            val pend = runCatching { h.call("session:pending", buildJsonObject { put("tabId", c.id) }) }.getOrNull() as? JsonObject
             pend?.get("running")?.let { r -> (r as? JsonPrimitive)?.booleanOrNull?.let { c.running = it } }
             val requests = pend?.get("requests") as? JsonArray
             if (msgs != null) {
@@ -349,7 +374,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
         // Dokumente zuerst auf den Haupt-PC (je bis 25 MB, über Mobilfunk evtl. langsam) – Claude bekommt die Pfade
         val paths = mutableListOf<String>()
         for ((name, data) in docs) {
-            val r = runCatching { h.link.callWithin(10 * 60_000L, "files:upload", buildJsonObject { put("name", name); put("data", data) }) }
+            val r = runCatching { h.callWithin(10 * 60_000L, "files:upload", buildJsonObject { put("name", name); put("data", data) }) }
             val p = (r.getOrNull() as? JsonObject)?.str("path")
             if (p == null) {
                 c.running = false
@@ -362,7 +387,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
             paths += p
         }
         val content = messageContent(text, images, paths)
-        val ok = runCatching { h.link.call("session:send", buildJsonObject { put("tab", tabJson(c)); put("content", content) }) }
+        val ok = runCatching { h.call("session:send", buildJsonObject { put("tab", tabJson(c)); put("content", content) }) }
         val sent = ok.getOrNull().let { it is JsonPrimitive && it.booleanOrNull == true }
         if (!sent) {
             c.running = false
@@ -375,7 +400,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
     fun respond(c: Chat, item: Item, response: JsonObject, answer: Answer) = scope.launch {
         val h = host(c.hostId) ?: return@launch
         val rid = requestIdOf(item) ?: return@launch
-        val r = runCatching { h.link.call("session:respond", buildJsonObject { put("tabId", c.id); put("requestId", rid); put("response", response) }) }.getOrNull()
+        val r = runCatching { h.call("session:respond", buildJsonObject { put("tabId", c.id); put("requestId", rid); put("response", response) }) }.getOrNull()
         if (r is JsonPrimitive && r.booleanOrNull == true) { c.setAnswer(item, answer); updateLive(c) }
     }
 
@@ -399,7 +424,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
     // Ausgabe einer Hintergrund-Aufgabe (letzte 64 KB, vom Haupt-PC geprüft: nur von Claude gemeldete Ausgabedateien)
     suspend fun taskOutput(c: Chat, file: String): String {
         val h = host(c.hostId) ?: return ""
-        val r = runCatching { h.link.call("task:readOutput", JsonPrimitive(file)) }
+        val r = runCatching { h.call("task:readOutput", JsonPrimitive(file)) }
         val o = r.getOrNull() as? JsonObject ?: return r.exceptionOrNull()?.message ?: ""
         return o.str("error") ?: (o.str("text").orEmpty().ifEmpty { de.arfep.swapline.ui.tr("(noch keine Ausgabe)", "(no output yet)") } +
             if ((o["truncated"] as? JsonPrimitive)?.booleanOrNull == true) de.arfep.swapline.ui.tr("\n… (gekürzt, letzte 64 KB)", "\n… (truncated, last 64 KB)") else "")
@@ -410,7 +435,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
         val h = host(c.hostId) ?: return false
         if (command.isBlank()) return false
         if (c.title.isBlank()) c.title = ("!" + command).replace(Regex("\\s+"), " ").take(60)
-        val r = runCatching { h.link.call("session:bash", buildJsonObject { put("tab", tabJson(c)); put("command", command) }) }
+        val r = runCatching { h.call("session:bash", buildJsonObject { put("tab", tabJson(c)); put("command", command) }) }
         val v = r.getOrNull()
         val ok = v is JsonPrimitive && v.booleanOrNull == true
         if (!ok) c.ingest(buildJsonObject { put("type", "app_error"); put("message", r.exceptionOrNull()?.message ?: (v as? JsonObject)?.str("error")
@@ -420,7 +445,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
         return ok
     }
 
-    fun bashStop(c: Chat) = scope.launch { runCatching { host(c.hostId)?.link?.call("session:bashStop", JsonPrimitive(c.id)) } }
+    fun bashStop(c: Chat) = scope.launch { runCatching { host(c.hostId)?.call("session:bashStop", JsonPrimitive(c.id)) } }
 
     // Ältere Nachrichten des Chats vom Haupt-PC nachladen (vor die angezeigten)
     fun loadOlder(c: Chat) = scope.launch {
@@ -428,7 +453,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
         if (c.loadingOlder) return@launch
         val h = host(c.hostId) ?: return@launch
         c.loadingOlder = true
-        val r = runCatching { h.link.call("history:loadSession", buildJsonObject {
+        val r = runCatching { h.call("history:loadSession", buildJsonObject {
             put("profileId", c.profileId); put("sessionId", c.sessionId); put("cwd", c.cwd); put("turns", OLDER_TURNS); put("before", from)
         }) }.getOrNull() as? JsonObject
         val msgs = r?.get("msgs") as? JsonArray
@@ -440,11 +465,11 @@ class AppModel(context: Context, private val notifier: Notifier) {
         c.loadingOlder = false
     }
 
-    fun interrupt(c: Chat) = scope.launch { runCatching { host(c.hostId)?.link?.call("session:interrupt", JsonPrimitive(c.id)) } }
+    fun interrupt(c: Chat) = scope.launch { runCatching { host(c.hostId)?.call("session:interrupt", JsonPrimitive(c.id)) } }
 
     // Eigener Chat: Claude-Prozess am Haupt-PC beenden. Beigetretener Chat: nur austreten, er läuft am Haupt-PC weiter.
     fun close(c: Chat) = scope.launch {
-        runCatching { host(c.hostId)?.link?.call("session:close", JsonPrimitive(c.id)) }
+        runCatching { host(c.hostId)?.call("session:close", JsonPrimitive(c.id)) }
         chats.remove(c)
         if (visibleChatId == c.id) visibleChatId = null
         notifier.clear(c)
@@ -456,7 +481,7 @@ class AppModel(context: Context, private val notifier: Notifier) {
         if (c.mirror) return@launch
         c.model = model; c.effort = effort; c.permissionMode = mode
         saveChats()
-        runCatching { host(c.hostId)?.link?.call("session:restart", JsonPrimitive(c.id)) }
+        runCatching { host(c.hostId)?.call("session:restart", JsonPrimitive(c.id)) }
     }
 
     // Netz gewechselt (z. B. WLAN → Mobilfunk): bestehende Verbindungen laufen über das alte Netz ins Leere – neu verbinden

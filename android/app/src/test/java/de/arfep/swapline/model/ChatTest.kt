@@ -241,9 +241,24 @@ class ChatTest {
         assertEquals(HISTORY_TURNS, c.loadedTurns)
     }
 
+    @Test fun serversFromHostStore() {
+        val st = Parse.store(json.parseToJsonElement("""{"profiles":[{"id":"p","name":"P"}],"servers":[{"id":"s1a2","name":"VPS","color":"#22C55E"},{"id":"../x","name":"böse"},{"name":"ohne id"}]}"""))!!
+        assertEquals(listOf(ServerRef("s1a2", "VPS", "#22C55E")), st.servers)
+        assertTrue(Parse.store(json.parseToJsonElement("""{"profiles":[]}"""))!!.servers.isEmpty())
+    }
+
     @Test fun commandsFromHost() {
         val cmds = Parse.commands(json.parseToJsonElement("""{"models":[],"commands":[{"name":"review","description":"Code prüfen","argumentHint":"[datei]"},{"name":"bad name"},{"description":"ohne Name"}]}"""))
         assertEquals(listOf(CmdOpt("review", "Code prüfen", "[datei]")), cmds)
+    }
+
+    @Test fun markdownTable() {
+        val b = parseMarkdown("Vorher\n\n| Name | Wert |\n|:-----|-----:|\n| a \\| b | **1** |\n| c |\n\nNachher")
+        assertEquals(Block.Para("Vorher"), b[0])
+        assertEquals(Block.Table(listOf("Name", "Wert"), listOf('l', 'r'), listOf(listOf("a | b", "**1**"), listOf("c", ""))), b[1])
+        assertEquals(Block.Para("Nachher"), b[2])
+        // keine Trennzeile: bleibt normaler Text
+        assertEquals(listOf(Block.Para("a | b\nc | d")), parseMarkdown("a | b\nc | d"))
     }
 
     @Test fun markdownBlocks() {

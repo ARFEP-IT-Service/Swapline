@@ -35,6 +35,7 @@ const host = remote.createHost({
       return ok;
     }
     if (ch === 'big') return 'x'.repeat(Number(args[0]) || 0);
+    if (ch === 'server:call') return { server: args[0]?.server, ch: args[0]?.ch, args: args[0]?.args }; // SSH-Server des Haupt-PCs: Aufruf so zurück, wie er ankam
     // Beispieldaten für einen Rauchtest der App (Emulator: Adresse des PCs aus Sicht des Emulators)
     if (ch === 'store:get') return { profiles: [{ id: 'p1', name: 'Testkonto', color: '#1581FF' }], activeProfileId: 'p1',
       projects: [{ id: 'w', name: 'Webseite', color: '#F59E0B', cwd: 'C:\\Projekte\\web' }], projectGroups: [], settings: { model: '', effort: '', permissionMode: 'default' },

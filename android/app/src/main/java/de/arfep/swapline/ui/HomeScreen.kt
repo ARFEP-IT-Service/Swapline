@@ -73,7 +73,7 @@ fun StatusDot(state: LinkState, busy: Boolean = false) {
 }
 
 fun stateText(h: HostState) = when (h.state) {
-    LinkState.CONNECTED -> if (h.link.via == "relay") tr("verbunden über Vermittler", "connected via relay") else tr("verbunden", "connected")
+    LinkState.CONNECTED -> if (h.parent != null) tr("SSH-Server über den Haupt-PC", "SSH server via the host PC") else if (h.link.via == "relay") tr("verbunden über Vermittler", "connected via relay") else tr("verbunden", "connected")
     LinkState.CONNECTING -> tr("verbinde …", "connecting …")
     LinkState.RECONNECTING -> tr("nicht erreichbar – neuer Versuch …", "unreachable – retrying …")
     LinkState.OFF -> tr("getrennt", "disconnected")
@@ -87,7 +87,8 @@ private sealed class Row_ {
 
 @Composable
 fun HomeScreen(model: AppModel, hostId: String?, onHost: (String) -> Unit, onOpen: (Chat) -> Unit, onDevices: () -> Unit, onPair: () -> Unit, onNewChat: (HostState) -> Unit, onSettings: () -> Unit) {
-    val h = model.hosts.firstOrNull { it.id == hostId } ?: model.hosts.firstOrNull()
+    val h = model.host(hostId ?: "") ?: model.hosts.firstOrNull()
+    val all = model.hosts.flatMap { x -> listOf(x) + model.servers.filter { it.parent === x } }
     var tab by rememberSaveable { mutableStateOf(0) }
     var hostMenu by remember { mutableStateOf(false) }
 
@@ -106,11 +107,13 @@ fun HomeScreen(model: AppModel, hostId: String?, onHost: (String) -> Unit, onOpe
                                     Text(stateText(h), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                            if (model.hosts.size > 1) Icon(Icons.Default.ArrowDropDown, null)
+                            if (all.size > 1) Icon(Icons.Default.ArrowDropDown, null)
                         }
                         DropdownMenu(hostMenu, { hostMenu = false }) {
-                            for (x in model.hosts) DropdownMenuItem(
+                            for (x in all) DropdownMenuItem(
                                 text = { Text(x.record.name) },
+                                // SSH-Server eingerückt unter ihrem Haupt-PC
+                                modifier = if (x.parent != null) Modifier.padding(start = 16.dp) else Modifier,
                                 leadingIcon = { StatusDot(x.state, model.chats.any { it.hostId == x.id && it.running }) },
                                 onClick = { hostMenu = false; onHost(x.id) })
                         }

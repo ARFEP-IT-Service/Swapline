@@ -1,8 +1,10 @@
 // Schlanke Markdown-Anzeige für Antworten von Claude: Absätze, Überschriften, Listen, Zitate, Code-Blöcke,
-// **fett**, *kursiv*, `Code` und Links (nur https, öffnen im Browser).
+// Tabellen (horizontal scrollbar), **fett**, *kursiv*, `Code` und Links (nur https, öffnen im Browser).
 package de.arfep.swapline.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +48,8 @@ sealed class Block {
     data class Bullet(val marker: String, val text: String, val indent: Int) : Block()
     data class Quote(val text: String) : Block()
     data class Code(val lang: String, val code: String) : Block()
+    // align je Spalte: 'l', 'c' oder 'r' (aus der Trennzeile :--, :-:, --:)
+    data class Table(val header: List<String>, val align: List<Char>, val rows: List<List<String>>) : Block()
     data object Rule : Block()
 }
 
@@ -68,6 +72,23 @@ fun parseMarkdown(src: String): List<Block> {
             i++
             continue
         }
+        // Tabelle: Kopfzeile mit |, darunter die Trennzeile (|---|:--:|)
+        if (line.contains('|') && i + 1 < lines.size && TABLE_SEP.matches(lines[i + 1])) {
+            val header = cells(line)
+            val align = cells(lines[i + 1]).map { c -> val t = c.trim(); if (t.startsWith(":") && t.endsWith(":")) 'c' else if (t.endsWith(":")) 'r' else 'l' }
+            if (header.size >= 1 && align.size == header.size) {
+                flush()
+                val rows = mutableListOf<List<String>>()
+                i += 2
+                while (i < lines.size && lines[i].contains('|') && lines[i].isNotBlank()) {
+                    val r = cells(lines[i])
+                    rows += List(header.size) { k -> r.getOrElse(k) { "" } }
+                    i++
+                }
+                out += Block.Table(header, align, rows)
+                continue
+            }
+        }
         val h = Regex("^(#{1,6})\\s+(.*)$").find(line)
         val b = Regex("^(\\s*)([-*+]|\\d+[.)])\\s+(.*)$").find(line)
         when {
@@ -81,6 +102,26 @@ fun parseMarkdown(src: String): List<Block> {
         i++
     }
     flush()
+    return out
+}
+
+private val TABLE_SEP = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)*\\|?\\s*$")
+
+// Zellen einer Tabellenzeile: äußere | weg, an | trennen („\|“ bleibt als Zeichen im Text)
+private fun cells(line: String): List<String> {
+    var t = line.trim()
+    if (t.startsWith("|")) t = t.substring(1)
+    if (t.endsWith("|") && !t.endsWith("\\|")) t = t.dropLast(1)
+    val out = mutableListOf<String>()
+    val cur = StringBuilder()
+    var k = 0
+    while (k < t.length) {
+        val c = t[k]
+        if (c == '\\' && k + 1 < t.length && t[k + 1] == '|') { cur.append('|'); k += 2; continue }
+        if (c == '|') { out += cur.toString().trim(); cur.clear() } else cur.append(c)
+        k++
+    }
+    out += cur.toString().trim()
     return out
 }
 
@@ -118,7 +159,32 @@ fun Markdown(text: String, modifier: Modifier = Modifier) {
             }
             is Block.Quote -> Text(inline(b.text, codeBg, cs.primary), Modifier.padding(start = 8.dp), color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             is Block.Code -> CodeBlock(b.code, b.lang)
+            is Block.Table -> TableBlock(b, codeBg)
             Block.Rule -> Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).size(1.dp).background(cs.outlineVariant))
+        }
+    }
+}
+
+// Tabelle: Spaltenbreite nach dem längsten Inhalt (begrenzt), seitlich scrollbar, Kopfzeile hervorgehoben
+@Composable
+private fun TableBlock(t: Block.Table, codeBg: androidx.compose.ui.graphics.Color) {
+    val cs = MaterialTheme.colorScheme
+    val widths = remember(t) {
+        t.header.indices.map { c -> ((listOf(t.header[c]) + t.rows.map { it[c] }).maxOf { it.length } * 7.5f + 20f).coerceIn(56f, 260f).dp }
+    }
+    val shape = RoundedCornerShape(8.dp)
+    Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+        Column(Modifier.border(1.dp, cs.outlineVariant, shape).clip(shape)) {
+            (listOf(t.header) + t.rows).forEachIndexed { r, row ->
+                Row(Modifier.background(if (r == 0) cs.surfaceContainerHighest else if (r % 2 == 0) cs.surfaceContainer else androidx.compose.ui.graphics.Color.Transparent)) {
+                    row.forEachIndexed { c, cell ->
+                        Text(inline(cell, codeBg, cs.primary), Modifier.width(widths[c]).padding(horizontal = 8.dp, vertical = 6.dp),
+                            fontWeight = if (r == 0) FontWeight.SemiBold else null, fontSize = 13.sp,
+                            textAlign = when (t.align[c]) { 'c' -> androidx.compose.ui.text.style.TextAlign.Center; 'r' -> androidx.compose.ui.text.style.TextAlign.End; else -> androidx.compose.ui.text.style.TextAlign.Start })
+                    }
+                }
+                if (r < t.rows.size) Box(Modifier.width(widths.fold(0.dp) { a, w -> a + w }).size(height = 1.dp, width = widths.fold(0.dp) { a, w -> a + w }).background(cs.outlineVariant))
+            }
         }
     }
 }
