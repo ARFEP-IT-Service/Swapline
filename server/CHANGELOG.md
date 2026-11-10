@@ -3,6 +3,10 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC, der Android-App und
 Swapline Relay. Tags: `server-v<Version>`.
 
+## [0.2.1] – 2026-11-10
+
+- Behoben: Bilder aus dem Internet ließen sich nicht laden („nicht erreichbar“) – gleicher Fehler wie in Swapline 0.17.0.
+
 ## [0.2.0] – 2026-11-10
 
 - Neu: Bilder in Antworten von Claude für das Handy – Bild-Dateien aus den freigegebenen Ordnern und dem Home-Verzeichnis

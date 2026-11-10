@@ -240,7 +240,7 @@ function fetchWebImage(url, redirects = 3) {
     dns.lookup(u.hostname, { all: true }, (err, addrs) => {
       if (err || !addrs?.length) return resolve({ error: 'Adresse nicht gefunden' });
       if (!addrs.every(a => publicIp(a.address))) return resolve({ error: 'keine öffentliche Adresse' });
-      const req = https.get(u, { headers: { 'User-Agent': 'Swapline', Accept: 'image/*' }, timeout: 15000, lookup: (h, o, cb) => cb(null, addrs[0].address, addrs[0].family) }, res => {
+      const req = https.get(u, { headers: { 'User-Agent': 'Swapline (+https://github.com/ARFEP-IT-Service/Swapline)', Accept: 'image/*' }, timeout: 15000, lookup: (h, o, cb) => (o?.all ? cb(null, addrs) : cb(null, addrs[0].address, addrs[0].family)) }, res => {
         if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects > 0) {
           res.resume();
           return resolve(fetchWebImage(new URL(res.headers.location, u).href, redirects - 1));

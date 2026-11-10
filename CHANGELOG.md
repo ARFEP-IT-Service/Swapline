@@ -7,6 +7,11 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.17.1] – 2026-11-10
+
+- Behoben: **Bilder aus dem Internet** ließen sich nicht laden („nicht erreichbar“) – die Prüfung auf öffentliche Adressen
+  lieferte der Verbindung die Adresse im falschen Format (neuere Node-Versionen fragen alle Adressen auf einmal ab).
+
 ## [0.17.0] – 2026-11-10
 
 - Neu: **Smileys werden zu Emojis** – „:D“ → 😄, „;)“ → 😉, „;D“ → 😜, „<3“ → ❤️ u. a., sobald danach ein Leerzeichen
