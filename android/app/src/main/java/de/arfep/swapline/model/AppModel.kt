@@ -63,6 +63,10 @@ class AppModel(context: Context, private val notifier: Notifier) {
     var liveEnabled by mutableStateOf(prefs.getBoolean("liveStatus", true))
         private set
     fun changeLive(on: Boolean) { liveEnabled = on; prefs.edit().putBoolean("liveStatus", on).apply(); refreshLive() }
+    // Smileys → Emojis beim Tippen und Senden (wie am PC)
+    var emojiEnabled by mutableStateOf(prefs.getBoolean("emoji", true))
+        private set
+    fun changeEmoji(on: Boolean) { emojiEnabled = on; prefs.edit().putBoolean("emoji", on).apply() }
 
     // Live-Status zeigen, solange Claude arbeitet – nicht für den Chat, den man gerade offen vor sich hat
     fun updateLive(c: Chat) {

@@ -205,7 +205,17 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
             BgTaskBar(model, chat)
             var commands by remember(chat.id) { mutableStateOf<List<CmdOpt>>(emptyList()) }
             LaunchedEffect(chat.id, h?.connected) { if (h?.connected == true) commands = model.commands(h, chat.profileId) }
-            Composer(text, { text = it }, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly, commands = commands) {
+            var lastEmoji by remember(chat.id) { mutableStateOf<Pair<String, String>?>(null) } // (umgewandelt, vorher)
+            val onText: (String) -> Unit = { v ->
+                val undo = lastEmoji
+                lastEmoji = null
+                text = when {
+                    undo != null && v == undo.first.dropLast(1) -> undo.second.dropLast(1) // Rücktaste direkt danach
+                    model.emojiEnabled && !v.startsWith("!") && v.length == text.length + 1 && v.startsWith(text) -> emojifyTyped(v)?.also { lastEmoji = it to v } ?: v
+                    else -> v
+                }
+            }
+            Composer(text, onText, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly, commands = commands) {
                 val t = text.trim()
                 if (t.isEmpty() && attachments.isEmpty()) return@Composer
                 // „!befehl“: direkt am Haupt-PC ausführen (wie in der Claude CLI)
@@ -216,9 +226,10 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                 }
                 val imgs = attachments.filter { it.isImage }.map { it.data }
                 val docs = attachments.filter { !it.isImage }.map { it.name to it.data }
+                val out = if (model.emojiEnabled) emojify(t) else t
                 text = ""
                 attachments.clear()
-                scope.launch { model.send(chat, t, imgs, docs); list.scrollToItem(0) }
+                scope.launch { model.send(chat, out, imgs, docs); list.scrollToItem(0) }
             }
         }
     }
@@ -328,7 +339,7 @@ private fun ItemView(model: AppModel, chat: Chat, it: Item) {
             if (it.from.isNotEmpty()) Text(it.from, fontSize = 11.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp, bottom = 2.dp))
             Surface(color = Accent, contentColor = Color.White, shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp), modifier = Modifier.widthIn(max = 320.dp)) {
                 SelectionContainer {
-                    Text(listOfNotNull(it.text.takeIf { t -> t.isNotBlank() && t != ClaudeText.SEE_IMAGE && t != ClaudeText.SEE_IMAGES },
+                    Text(listOfNotNull(it.text.takeIf { t -> t.isNotBlank() && t != ClaudeText.SEE_IMAGE && t != ClaudeText.SEE_IMAGES }?.let { t -> if (model.emojiEnabled) emojify(t) else t },
                         if (it.images > 0) "📷 " + if (it.images == 1) tr("1 Bild", "1 image") else tr("${it.images} Bilder", "${it.images} images", "${it.images} görsel") else null,
                         it.files.takeIf { f -> f.isNotEmpty() }?.joinToString("\n") { f -> "📎 $f" }).joinToString("\n"),
                         Modifier.padding(horizontal = 14.dp, vertical = 9.dp))

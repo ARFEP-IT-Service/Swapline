@@ -85,6 +85,9 @@ fun SettingsScreen(model: AppModel, onBack: () -> Unit, onHosts: () -> Unit) {
                 SpeechStatus.NONE -> tr("nicht eingerichtet – antippen zum Einrichten", "not set up – tap to set up")
             }, warn = speech == SpeechStatus.NONE) { openVoiceInputSettings(ctx) }
 
+            Section(tr("Eingabe", "Input"))
+            SwitchRow(tr("Smileys in Emojis umwandeln", "Turn smileys into emojis"), ":D → 😄   ;) → 😉   <3 → ❤️", model.emojiEnabled, model::changeEmoji)
+
             Section(tr("Berechtigungen", "Permissions"))
             val perms = buildList {
                 add(Triple(tr("Mikrofon", "Microphone"), tr("zum Diktieren", "for dictation"), Manifest.permission.RECORD_AUDIO))

@@ -3,6 +3,11 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.10.0] – 2026-11-10
+
+- Neu: **Smileys werden zu Emojis** (wie am PC) – beim Tippen nach dem Leerzeichen und beim Senden; direkt danach löschen
+  stellt den Smiley wieder her. Abschaltbar unter Einstellungen → Eingabe.
+
 ## [0.9.0] – 2026-11-10
 
 - Neu: **Bilder in Antworten von Claude** – Bild-Dateien, auf die Claude verweist, kommen vom Haupt-PC (bzw. Swapline

@@ -238,4 +238,5 @@ internal val TR_TEXTS: Map<String, String> = hashMapOf(
     "nicht anzeigbar" to "gösterilemiyor",
     "nicht verbunden" to "bağlı değil",
     "nicht verfügbar" to "kullanılamıyor",
+    "Smileys in Emojis umwandeln" to "Gülen yüzleri emojiye dönüştür",
 )
