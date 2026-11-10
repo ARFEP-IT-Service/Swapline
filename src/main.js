@@ -66,7 +66,7 @@ function getStore() {
   return s;
 }
 // Was Geräte im Fernzugriff vom Stand sehen – ändert es sich, holen sie den Stand neu (statt erst beim Neuverbinden)
-const deviceSig = s => JSON.stringify([s.profiles?.map(p => [p.id, p.name, p.color]), s.projects, s.projectGroups, s.favorites, s.remoteHost?.devices?.map(d => [d.id, d.allowBypass, d.allowProjects, d.scope])]);
+const deviceSig = s => JSON.stringify([s.profiles?.map(p => [p.id, p.name, p.color]), s.projects, s.projectGroups, s.favorites, s.remoteHost?.devices?.map(d => [d.id, d.allowBypass, d.allowProjects, d.allowServers, d.scope]), s.sshServers?.map(x => [x.id, x.name, x.color])]);
 let deviceSigTimer = null;
 function updateStore(fn) {
   const s = getStore(), before = deviceSig(s);
@@ -1203,6 +1203,8 @@ function remoteStoreFor(dev) {
     settings: { model: v.model ?? s.settings.model ?? '', effort: v.effort ?? s.settings.effort ?? '', permissionMode: v.permissionMode ?? s.settings.permissionMode ?? 'default' },
     allowedFolders: limited ? projectFolders(dev) : allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass, canEditProjects: !!dev.allowProjects,
     reach: { addresses: reachAddresses(), port: remoteHost?.port || null, relay: relayReach() },
+    // SSH-Server dieses PCs (nur mit Freigabe „SSH-Server“): das Gerät nutzt sie über „server:call“, die Verbindung baut dieser PC auf
+    servers: dev.allowServers ? sshServers().map(x => ({ id: x.id, name: cleanName(x.name, 'Server'), color: x.color || '#0EA5E9' })) : [],
   };
 }
 const setView = (dev, patch) => saveDevices(getDevices().map(d => (d.id === dev.id ? { ...d, view: { ...d.view, ...patch } } : d)));
@@ -1211,6 +1213,48 @@ function hostTabId(dev, id) {
   const h = 'r' + dev.id + id;
   remoteTabs.set(h, { deviceId: dev.id, tabId: id });
   return h;
+}
+// Gerät → SSH-Server dieses PCs: nur mit Freigabe „SSH-Server“ und nur Chat-Kanäle. Chat-IDs des Geräts werden wie bei
+// eigenen Chats auf Haupt-PC-IDs abgebildet, damit die Ausgabe von Claude beim Gerät ankommt.
+const SERVER_CALLS = new Set(['store:get', 'profiles:status', 'history:list', 'history:search', 'history:loadSession', 'session:send', 'session:pending',
+  'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass']);
+async function serverCall(dev, a) {
+  if (!dev.allowServers) notShared();
+  const srv = sshServers().find(x => x.id === a?.server);
+  const ch = a?.ch, args = Array.isArray(a?.args) ? a.args : [];
+  if (!srv || !SERVER_CALLS.has(ch)) return false;
+  const a0 = args[0];
+  const idOf = id => hostTabId(dev, id);
+  switch (ch) {
+    case 'session:send': {
+      const id = idOf(a0?.tab?.id);
+      if (!id) return false;
+      const ok = await sshDispatch(srv, ch, [{ ...a0, tab: { ...a0.tab, id } }], dev);
+      if (ok) pushAttached(id, { type: 'swapline_user', content: userEcho(a0.content), from: dev.name });
+      return ok;
+    }
+    case 'session:respond': { const id = idOf(a0?.tabId); return id ? sshDispatch(srv, ch, [{ ...a0, tabId: id }], dev) : false; }
+    case 'session:interrupt': case 'session:restart': case 'session:close': {
+      const id = idOf(a0);
+      if (!id) return false;
+      const r = await sshDispatch(srv, ch, [id], dev);
+      if (ch === 'session:close') remoteTabs.delete(id);
+      return r;
+    }
+    case 'session:pending': {
+      const id = idOf(a0?.tabId);
+      const s = id && sessions.get(id);
+      if (!s?.tab.ssh) return { running: false, requests: [] };
+      return { running: !!s.busy, requests: [...s.pending].slice(0, 20).map(([rid, p]) => ({ type: 'control_request', request_id: rid,
+        request: { subtype: 'can_use_tool', tool_name: p.toolName, input: p.input, permission_suggestions: p.suggestions, description: p.description || '' } })) };
+    }
+    case 'session:confirmBypass': return !!dev.allowBypass;
+    default: {
+      const v = await sshDispatch(srv, ch, args, dev);
+      if (ch === 'store:get' && v && typeof v === 'object') { const c = cleanHostStore(v); c.allowBypass = !!dev.allowBypass; delete c.reach; return c; }
+      return v;
+    }
+  }
 }
 const notAllowed = () => { throw new Error(tr('Auf dem Haupt-PC nicht erlaubt (nur Chats)', 'Not allowed on the host PC (chats only)')); };
 const notShared = () => { throw new Error(tr('Für dieses Gerät nicht freigegeben', 'Not shared with this device')); };
@@ -1419,6 +1463,7 @@ async function hostDispatch(dev, ch, args) {
       const id = hostTabId(dev, t.id);
       return id ? call(ch, { tab: { ...t, id, sessionId: null, permissionMode: 'default' }, command: a0.command }) : false;
     }
+    case 'server:call': return serverCall(dev, a0);
     case 'session:bashStop': { const id = attachOf.get(dev.id + ':' + a0) || hostTabId(dev, a0); return id ? call(ch, id) : false; }
     case 'session:respond': { const id = attachOf.get(dev.id + ':' + a0?.tabId) || hostTabId(dev, a0?.tabId); return id ? call(ch, { ...a0, tabId: id }) : false; }
     case 'session:interrupt': { const id = attachOf.get(dev.id + ':' + a0) || hostTabId(dev, a0); return id ? call(ch, id) : false; }
@@ -1490,7 +1535,7 @@ const remoteHosts = () => getStore().remoteHosts || [];
 const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
 const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach', 'session:pending', 'files:upload',
-  'session:send', 'session:bash', 'session:bashStop', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
+  'session:send', 'session:bash', 'session:bashStop', 'server:call', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
   'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate', 'projects:remove', 'projects:groupRemove']);
 const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
 function connectHost(h) {
@@ -1598,7 +1643,7 @@ function remoteInfo() {
       publicAddress: publicAt ? { address: publicAddr?.address || null, found: !!publicAddr } : null,
       relay: { enabled: !!cfg.relay?.enabled, address: cfg.relay?.address || '', port: cfg.relay?.port || RELAY_DEFAULT_PORT, hasSecret: !!cfg.relay?.secretEnc,
         state: relayLink?.state || 'off', detail: relayLink?.detail || '' },
-      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowProjects: !!d.allowProjects, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
+      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowProjects: !!d.allowProjects, allowServers: !!d.allowServers, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
     hosts: [
       ...remoteHosts().map(h => ({ id: h.id, kind: 'swapline', name: h.name, address: String(h.address || '').split(',')[0], port: h.port, relay: !!h.relay, via: clients.get(h.id)?.via || '', color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
@@ -1693,11 +1738,12 @@ handle('remote:pairStart', () => {
   return { ...p, link, qr: pairQr(link) };
 });
 handle('remote:pairCancel', () => { remoteHost?.cancelPairing(); return true; });
-handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, scope } = {}) => {
+handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, allowServers, scope } = {}) => {
   if (!getDevices().some(d => d.id === id)) return remoteInfo();
   const patch = {};
   if (allowBypass !== undefined) { if (typeof allowBypass !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowBypass = allowBypass; }
   if (allowProjects !== undefined) { if (typeof allowProjects !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowProjects = allowProjects; }
+  if (allowServers !== undefined) { if (typeof allowServers !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowServers = allowServers; }
   if (scope !== undefined) { const sc = cleanScope(scope); if (!sc) return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.scope = sc; }
   saveDevices(getDevices().map(d => (d.id === id ? { ...d, ...patch } : d)));
   // Freigabe verkleinert: laufende Chats des Geräts beenden, die nicht mehr freigegeben sind
@@ -1706,7 +1752,7 @@ handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, scope } = {}) 
     const sess = sessions.get(k);
     if (v.deviceId !== id || !sess) continue;
     const t = sess.tab;
-    const ok = profileAllowed(dev, t.profileId) && (!contentLimited(dev) || (t.sessionId ? sessionAllowed(dev, t.profileId, t.sessionId) : folderAllowed(dev, t.cwd)));
+    const ok = t.ssh ? !!dev.allowServers && sshServers().some(x => x.id === t.ssh.id) : profileAllowed(dev, t.profileId) && (!contentLimited(dev) || (t.sessionId ? sessionAllowed(dev, t.profileId, t.sessionId) : folderAllowed(dev, t.cwd)));
     if (!ok) { stopSession(k); remoteTabs.delete(k); }
   }
   for (const [k, hostTab] of [...attachOf]) if (k.startsWith(id + ':') && !openTabsFor(dev).some(t => t.id === hostTab)) detach(id, k.slice(id.length + 1));
@@ -1913,7 +1959,9 @@ async function serverProjectEdit(srv, ch, a) {
   pushRemoteStatus();
   return serverStore(sshServers().find(x => x.id === srv.id) || srv);
 }
-async function sshDispatch(srv, ch, args) {
+// dev: Aufruf kommt von einem Gerät (über „server:call“) – „Alles erlauben“ dann nach dessen Freigabe statt Dialog an diesem PC
+async function sshDispatch(srv, ch, args, dev) {
+  const bypassOk = () => (dev ? !!dev.allowBypass : confirmBypass());
   const a0 = args[0];
   switch (ch) {
     case 'store:get': return serverStore(srv);
@@ -1933,14 +1981,16 @@ async function sshDispatch(srv, ch, args) {
       return (await serverHistory(srv)).filter(h => hit.has(h.sessionId)).map(h => ({ ...h, hits: 1, snippet: '', when: h.mtime }));
     }
     case 'history:loadSession': {
-      if (!UUID_RE.test(a0?.sessionId || '')) return [];
+      const paged = Number.isInteger(a0?.turns) && a0.turns >= 1 && a0.turns <= 50;
+      if (!UUID_RE.test(a0?.sessionId || '')) return paged ? { msgs: [], start: 0, total: 0 } : [];
       const r = await sshRun(srv, 'cat "$HOME"/.claude/projects/*/' + a0.sessionId + '.jsonl 2>/dev/null | head -c 50000000', 60000);
-      return transcriptFromText(r.out);
+      const all = transcriptFromText(r.out);
+      return paged ? pageTranscript(all, a0.turns, a0.before) : all;
     }
     case 'session:send': {
       const tab = serverTab(srv, a0?.tab);
       if (!tab || !validContent(a0?.content)) return false;
-      if (tab.permissionMode === 'bypassPermissions' && !confirmBypass()) return false;
+      if (tab.permissionMode === 'bypassPermissions' && !bypassOk()) return false;
       let sess = sessions.get(tab.id);
       if (!sess) { try { sess = startSession(tab); } catch (e) { send(tab.id, { type: 'app_error', message: e.message }); return false; } }
       sess.busy = true;
@@ -1950,7 +2000,7 @@ async function sshDispatch(srv, ch, args) {
     case 'session:respond': case 'session:interrupt': case 'session:restart': case 'session:close':
       if (!sessions.get(typeof a0 === 'string' ? a0 : a0?.tabId)?.tab.ssh && ch !== 'session:close' && ch !== 'session:restart') return false;
       return H.get(ch)({}, ...args);
-    case 'session:confirmBypass': return confirmBypass();
+    case 'session:confirmBypass': return bypassOk();
     case 'task:readOutput': return { error: tr('Auf Servern nicht verfügbar', 'Not available on servers') };
     case 'tabs:list': return [];
     case 'session:attach': return false;

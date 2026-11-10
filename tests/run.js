@@ -94,6 +94,16 @@ if (!filter || 'i18n'.includes(filter)) { // npm test -- i18n: nur diese Prüfun
   }
 }
 
+if (!filter || 'risk'.includes(filter)) { // Einstufung von Rückfragen (dieselben Fälle prüft RiskTest in der Handy-App)
+  console.log('\nrisk');
+  const { permRisk } = require(path.join(root, 'src', 'renderer', 'risk.js'));
+  const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'risk-cases.json'), 'utf8'));
+  const bad = cases.filter(c => { const r = permRisk(c.tool, c.input); return r.level !== c.level || r.reason !== c.reason; });
+  const ok = !bad.length;
+  if (ok) passed++; else failed++;
+  console.log(`  ${ok ? '✓' : '✕'} Rückfragen: ${cases.length} Fälle richtig eingestuft (kritisch, Vorsicht, normal)${ok ? '' : '\n      ' + bad.map(c => JSON.stringify(c.input)).join('\n      ')}`);
+}
+
 if (!filter || 'upnp'.includes(filter)) { // öffentliche Adresse per UPnP (nachgebauter Router, ohne Netz)
   console.log('\nupnp');
   let results;

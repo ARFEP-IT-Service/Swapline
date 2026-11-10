@@ -7,6 +7,17 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.15.0] – 2026-11-10
+
+- Neu: **SSH-Server für Geräte** – Handys (und andere Geräte) können die SSH-Server dieses PCs nutzen, z. B. einen VPS:
+  Chats, Verlauf und Rückfragen laufen über diesen PC, der die SSH-Verbindung aufbaut. Freigabe je Gerät in der
+  Geräteliste („SSH-Server“, standardmäßig aus); „Alles erlauben“ richtet sich auch hier nach der Gerätefreigabe statt
+  nach einem Dialog am PC. Der PC muss dafür an sein.
+- Neu: **Rückfragen nach Risiko eingefärbt** – „Darf Claude … ausführen?“ ist bei kritischen Befehlen rot (z. B. rm -rf,
+  git push --force, git reset --hard, sudo, Skript aus dem Netz ausführen, DROP TABLE, Zugangsdaten wie .ssh/.env), bei
+  heiklen orange (Dateien löschen, Pakete installieren, Netzzugriff, git push, Prozesse beenden, Rechte ändern), jeweils
+  mit kurzem Grund. Nur eine Anzeige-Hilfe – erlaubt wird weiter nur per Klick.
+
 ## [0.14.1] – 2026-11-10
 
 - Behoben: **Große Chats über Fernzugriff luden sehr lange** (Handy und anderer PC). Der Haupt-PC schickt den Verlauf

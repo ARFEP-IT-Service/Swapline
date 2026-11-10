@@ -233,6 +233,16 @@
   setLang('de'); translateStatic(); renderList();
   check('Zurück auf Deutsch', $('#search').placeholder === 'Suchen …' && $('#btn-settings').title === 'Einstellungen' && $('#seg [data-view="history"]').textContent === 'Verlauf');
 
+  // Rückfragen nach Risiko: kritisch rot, Vorsicht orange, normal ohne Hinweis
+  await openTab(t.id);
+  ingest(t, { type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'git push --force' } } });
+  ingest(t, { type: 'control_request', request_id: 'r2', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm install x' } } });
+  ingest(t, { type: 'control_request', request_id: 'r3', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'npm test' } } });
+  const cards = [...document.querySelectorAll('#messages .card')].slice(-3);
+  check('Rückfrage kritisch: rot mit Grund', cards[0]?.classList.contains('risk-critical') && /Kritisch.*Git-Verlauf/.test(cards[0].querySelector('.risk-badge')?.textContent || ''), cards[0]?.className);
+  check('Rückfrage Vorsicht: orange mit Grund', cards[1]?.classList.contains('risk-medium') && /Vorsicht.*Pakete/.test(cards[1].querySelector('.risk-badge')?.textContent || ''), cards[1]?.className);
+  check('Rückfrage normal: kein Hinweis', cards[2] && !cards[2].className.includes('risk-') && !cards[2].querySelector('.risk-badge'));
+
   // Haupt-PC-Chat mit älterem Verlauf: Knopf oben im Chat
   t.olderFrom = 12; await openTab(t.id); renderMessages();
   check('Ältere Nachrichten: Knopf oben im Chat', /Ältere Nachrichten laden/.test(document.querySelector('#messages .older button')?.textContent || ''));

@@ -90,6 +90,23 @@
   check('„!“-Befehl vom Gerät mit Freigabe läuft am Haupt-PC', (await R('session:bash', { tab: bangTab, command: 'echo remote-bang' })) === true);
   check('„!“-Befehl vom Gerät nur in freigegebenen Ordnern', (await R('session:bash', { tab: { ...bangTab, id: 'bangtab2', cwd: 'C:\\Windows' }, command: 'echo nein' })) === false);
 
+  try {
+  // SSH-Server des Haupt-PCs für Geräte: nur mit Freigabe „SSH-Server“ (Adresse aus dem Dokumentationsbereich, nie erreichbar)
+  const srvInfo = await api.remote.ssh.add({ name: 'VPS', user: 'dev', host: '192.0.2.10', port: 22, folders: ['/srv/app'] });
+  const srvId = srvInfo.hosts.find(x => x.kind === 'ssh')?.id.slice(4);
+  const raw = (ch, a0) => api.remote.call(hostId, 'server:call', [{ server: srvId, ch, args: [a0] }]);
+  check('SSH-Server: ohne Freigabe nicht beim Gerät', !!srvId && JSON.stringify((await api.remote.info()).host.devices[0]).includes('"allowServers":false'));
+  await api.remote.deviceSet({ id: devId, allowServers: true });
+  check('SSH-Server: Freigabe in der Geräteliste', (await api.remote.info()).host.devices[0].allowServers === true);
+  check('SSH-Server: nur Chat-Kanäle, unbekannter Server abgelehnt', (await api.remote.call(hostId, 'server:call', [{ server: 'gibtsnicht', ch: 'store:get', args: [] }])) === false
+    && (await raw('ssh:terminal', {})) === false && (await raw('task:readOutput', 'x')) === false);
+  check('SSH-Server: „Alles erlauben“ nach Gerätefreigabe statt Dialog am PC', (await raw('session:confirmBypass', 'abcdefgh')) === true);
+  check('SSH-Server: Ordner außerhalb der Server-Ordner abgelehnt', (await raw('session:send', { tab: { id: 'srvtab01', cwd: '/etc', sessionId: null, model: '', effort: '', permissionMode: 'default' }, content: 'hi' })) === false);
+  await api.remote.deviceSet({ id: devId, allowServers: false });
+  check('SSH-Server: Freigabe entzogen → abgelehnt', (await raw('session:confirmBypass', 'abcdefgh')) === false);
+  await api.remote.ssh.remove(srvId);
+  } catch (e) { check('SSH-Server-Test', false, e.stack || e.message); }
+
   // Projekte und Ordner am Haupt-PC vom Gerät aus (nur mit Freigabe, Ordner nur freigegebene, nie löschen)
   const activeBefore = (await api.getStore()).activeProjectId;
   check('Projekt anlegen ohne Freigabe abgelehnt', (await R('projects:add', { name: 'Neu', cwd: WORK })) === false);

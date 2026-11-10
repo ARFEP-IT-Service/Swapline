@@ -1397,8 +1397,25 @@ function renderBash(t, it) {
 }
 const truncate = (s, n) => (s && s.length > n ? s.slice(0, n) + '\n' + _('… ({n} Zeichen gekürzt)', { n: s.length - n }) : s);
 
+// Einstufung der Rückfrage (src/renderer/risk.js): Text zum Grund
+const RISK_REASON = {
+  delete: [N_('löscht rekursiv oder erzwungen'), N_('löscht Dateien')],
+  git: [N_('überschreibt den Git-Verlauf oder verwirft Änderungen'), N_('ändert den Git-Verlauf oder das Repository auf dem Server')],
+  script: [N_('lädt ein Skript aus dem Netz und führt es aus')], system: [N_('greift ins System ein (Admin-Rechte, Datenträger, Neustart)')],
+  database: [N_('löscht Datenbank-Inhalte')], publish: [N_('veröffentlicht etwas (z. B. npm publish)')], secret: [N_('betrifft Zugangsdaten oder Systemdateien')],
+  install: [null, N_('installiert Pakete')], network: [null, N_('greift aufs Netz zu')], process: [null, N_('beendet Prozesse oder Dienste')],
+  permissions: [null, N_('ändert Dateirechte')], config: [null, N_('ändert Projekt- oder Werkzeug-Einstellungen')],
+};
+function riskBadge(risk) {
+  if (risk.level === 'normal') return null;
+  const r = RISK_REASON[risk.reason] || [];
+  const why = (risk.level === 'critical' ? r[0] : r[1]) || r[0] || r[1];
+  return el('div', { class: 'risk-badge ' + risk.level }, (risk.level === 'critical' ? _('⚠ Kritisch') : _('Vorsicht')) + (why ? ' – ' + _(why) : ''));
+}
 function renderPerm(t, it) {
-  const card = el('div', { class: 'card' + (it.answered ? ' done' : '') },
+  const risk = permRisk(it.toolName, it.input);
+  const card = el('div', { class: 'card' + (it.answered ? ' done' : '') + (risk.level !== 'normal' ? ' risk-' + risk.level : '') },
+    it.answered ? null : riskBadge(risk),
     el('h4', {}, TOOL_LABEL[it.toolName] ? _('Darf Claude „{tool}“ ausführen?', { tool: toolLabel(it.toolName) }) : _('Darf Claude {tool} ausführen?', { tool: it.toolName })),
     it.description ? el('div', { class: 'muted' }, it.description) : null,
     el('pre', {}, (it.toolName === 'Bash' || it.toolName === 'PowerShell') ? it.input?.command : it.input?.file_path ? it.input.file_path + (it.input.new_string != null ? '\n\n− ' + (it.input.old_string || '') + '\n+ ' + it.input.new_string : '') : JSON.stringify(it.input, null, 2)));
@@ -2496,12 +2513,15 @@ function drawRemote() {
       bypass.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBypass: bypass.checked }); drawRemote(); };
       const projAllow = el('input', { type: 'checkbox', checked: d.allowProjects });
       projAllow.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowProjects: projAllow.checked }); drawRemote(); };
+      const srvAllow = el('input', { type: 'checkbox', checked: d.allowServers });
+      srvAllow.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowServers: srvAllow.checked }); drawRemote(); };
       return el('div', { class: 'dev-row' }, el('span', { class: 'dot' + (d.connected ? ' on' : '') }),
         el('div', { class: 'grow' }, el('b', {}, d.name), el('small', {}, d.connected ? _('verbunden') : d.lastSeen ? _('zuletzt {t}', { t: new Date(d.lastSeen).toLocaleString(locale()) }) : _('noch nie verbunden'), d.lastAddress ? ' · ' + d.lastAddress : ''),
           el('small', {}, _('Freigabe: {s}', { s: scopeText(d.scope) }))),
         el('button', { class: 'ghost', onclick: () => openScopeEditor(d) }, _('Freigabe …')),
         el('label', { class: 'row', title: _('Darf Chats mit „Alles erlauben“ (--dangerously-skip-permissions) starten') }, bypass, _('„Alles erlauben“')),
         el('label', { class: 'row', title: _('Darf auf diesem PC Projekte und Ordner anlegen und umbenennen (nicht löschen)') }, projAllow, _('Projekte anlegen')),
+        el('label', { class: 'row', title: _('Darf die SSH-Server dieses PCs nutzen (Chats laufen über diesen PC, der PC muss an sein)') }, srvAllow, _('SSH-Server')),
         el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Gerät „{name}“ entfernen? Es kann sich danach nicht mehr verbinden.', { name: d.name }))) return; remoteState = await api.remote.deviceRemove(d.id); drawRemote(); } }, _('Entfernen')));
     }),
   ];

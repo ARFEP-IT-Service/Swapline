@@ -550,3 +550,10 @@ button.link:hover { color: var(--accent); }
 
 /* Chats eines Haupt-PCs: ältere Nachrichten nachladen */
 .older { display: flex; justify-content: center; margin: 4px 0 12px; }
+
+/* Rückfragen: kritisch rot, Vorsicht orange (Einstufung in risk.js) */
+.card.risk-critical { border-color: var(--risk); box-shadow: 0 0 0 1px var(--risk) inset, var(--shadow); }
+.card.risk-medium { border-color: var(--warn); }
+.risk-badge { display: inline-block; margin: 0 0 6px; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.risk-badge.critical { background: color-mix(in srgb, var(--risk) 16%, transparent); color: var(--risk); }
+.risk-badge.medium { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
