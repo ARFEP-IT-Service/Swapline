@@ -1,0 +1,15 @@
+[
+  { "in": "Danke :D", "out": "Danke 😄" },
+  { "in": ";D super", "out": "😜 super" },
+  { "in": "ok ;) und :( und :'(", "out": "ok 😉 und 🙁 und 😢" },
+  { "in": "Ich <3 das XD", "out": "Ich ❤️ das 😆" },
+  { "in": "Daumen :+1:", "out": "Daumen 👍" },
+  { "in": "https://example.com/:D", "out": "https://example.com/:D" },
+  { "in": "Uhrzeit 10:30 und a:D", "out": "Uhrzeit 10:30 und a:D" },
+  { "in": "Code `x = :D` bleibt", "out": "Code `x = :D` bleibt" },
+  { "in": "```\nreturn :P\n```\ndanach :P", "out": "```\nreturn :P\n```\ndanach 😛" },
+  { "in": "Schritt 8) und Variante B)", "out": "Schritt 8) und Variante B)" },
+  { "in": ":Dx und x:D", "out": ":Dx und x:D" },
+  { "in": "Zeilen\n:)\nweiter", "out": "Zeilen\n🙂\nweiter" },
+  { "in": "Pfad C:/Windows und :/", "out": "Pfad C:/Windows und 😕" }
+]

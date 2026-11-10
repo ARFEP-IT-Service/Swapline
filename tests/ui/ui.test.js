@@ -233,6 +233,20 @@
   setLang('de'); translateStatic(); renderList();
   check('Zurück auf Deutsch', $('#search').placeholder === 'Suchen …' && $('#btn-settings').title === 'Einstellungen' && $('#seg [data-view="history"]').textContent === 'Verlauf');
 
+  // Smileys → Emojis beim Tippen (Leerzeichen), Rücktaste macht es rückgängig; Anzeige eigener Nachrichten
+  await openTab(t.id);
+  input.value = 'Danke :D '; input.setSelectionRange(9, 9);
+  input.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: ' ', bubbles: true }));
+  check('Smileys: „:D“ + Leerzeichen → 😄', input.value === 'Danke 😄 ', input.value);
+  key(input, 'Backspace');
+  check('Smileys: Rücktaste direkt danach stellt „:D“ wieder her', input.value === 'Danke :D ', input.value);
+  input.value = '`x :D `'; input.setSelectionRange(7, 7);
+  input.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: ' ', bubbles: true }));
+  check('Smileys: in Code nicht', input.value === '`x :D `', input.value);
+  input.value = '';
+  t.items.push({ kind: 'me', text: 'Alt ;) <3', time: Date.now() }); renderMessages();
+  check('Smileys: eigene Nachrichten mit Emojis angezeigt', [...document.querySelectorAll('#messages .msg.me .bubble')].some(b => b.textContent.includes('Alt 😉 ❤️')));
+
   // Rückfragen nach Risiko: kritisch rot, Vorsicht orange, normal ohne Hinweis
   await openTab(t.id);
   ingest(t, { type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'git push --force' } } });

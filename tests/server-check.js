@@ -88,7 +88,7 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
 
     // „!“-Befehle: mit Freigabe, Ausgabe geht mit der nächsten Nachricht an Claude
     check('Server: „!“-Befehl', (await client.call('session:bash', [{ tab, command: 'echo bang-ok' }])) === true);
-    await until(() => events.some(e => e.msg?.type === 'swapline_bash' && e.msg.state === 'done'));
+    await until(() => events.some(e => e.msg?.type === 'swapline_bash' && e.msg.state === 'done'), 30000); // PowerShell startet auf GitHub-Windows langsam
     check('Server: „!“-Ausgabe im Chat', /bang-ok/.test(events.find(e => e.msg?.type === 'swapline_bash' && e.msg.state === 'done')?.msg.output || ''));
     events.length = 0;
     await client.call('session:send', [{ tab, content: 'Weiter' }]);

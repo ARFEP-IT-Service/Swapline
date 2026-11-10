@@ -621,6 +621,7 @@ const TR = {
   'Bild von {host} laden': '{host} adresinden görseli yükle',
   'nicht anzeigbar ({e})': 'gösterilemiyor ({e})',
   'nicht anzeigbar': 'gösterilemiyor',
+  'Smileys in Emojis umwandeln (:D → 😄, ;) → 😉, <3 → ❤️)': 'Gülen yüzleri emojiye dönüştür (:D → 😄, ;) → 😉, <3 → ❤️)',
 };
 
 if (typeof module !== 'undefined') module.exports = TR;

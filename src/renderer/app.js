@@ -1347,7 +1347,7 @@ function renderItem(t, it) {
     case 'me': return el('div', {}, el('div', { class: 'msg me' }, el('div', { class: 'bubble' },
       it.images?.length ? el('div', { class: 'bubble-imgs' }, it.images.map(src => el('img', { src, alt: _('Bild') }))) : null,
       it.files?.length ? el('div', { class: 'bubble-files' }, it.files.map(n => el('span', {}, '📄 ' + n))) : null,
-      it.text)),
+      emojiOn() ? emojify(it.text) : it.text)),
       it.time ? el('div', { class: 'msg-time' }, msgTime(it.time) + (it.from ? ' · ' + _('von {name}', { name: it.from }) : '')) : null);
     case 'ai': {
       const b = el('div', { class: 'bubble md' + (it.streaming ? ' streaming' : ''), html: md(it.streaming ? streamingMarkdown(it.text) : it.text) });
@@ -2016,6 +2016,7 @@ async function sendMessage() {
   if (!text && !attachments.length) return;
   // „!befehl“: direkt im Ordner des Chats ausführen (wie in der Claude CLI); die Ausgabe bekommt Claude mit der nächsten Nachricht
   if (text.startsWith('!') && !attachments.length) return runBang(t, text);
+  if (emojiOn()) text = emojify(text);
   const st = status[tk(t)];
   if (st && !st.loggedIn) {
     if (st.claudeMissing) { toast(_('Claude Code nicht gefunden – bitte installieren oder Pfad in den Einstellungen angeben')); return openSettings(); }
@@ -2062,6 +2063,9 @@ function updateBashMode() {
   const input = $('#input');
   input?.closest('footer')?.classList.toggle('bash-mode', input.value.startsWith('!'));
 }
+// Smileys → Emojis (src/renderer/emoji.js), abschaltbar in den Einstellungen
+const emojiOn = () => store?.settings?.emoji !== false;
+let lastEmoji = null; // letzte Umwandlung beim Tippen (Rücktaste macht sie rückgängig)
 const plainTab = t => ({ id: t.id, hostTab: t.hostTab, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode });
 
 function autosize() { const i = $('#input'); i.style.height = 'auto'; i.style.height = Math.min(220, i.scrollHeight) + 'px'; }
@@ -2372,6 +2376,8 @@ function openSettings() {
     store.bypassAcknowledged ? el('div', { class: 'row' },
       el('span', { class: 'hint', style: 'flex:1' }, _('Die Warnung zu „Alles erlauben“ wurde bestätigt und erscheint nicht mehr.')),
       el('button', { class: 'ghost', onclick: async e => { store = await api.resetBypassWarning(); e.target.closest('.row').remove(); toast(_('Warnung erscheint beim nächsten Mal wieder')); } }, _('Wieder anzeigen'))) : null,
+    (() => { const cb = el('input', { type: 'checkbox', checked: emojiOn() }); cb.onchange = async () => { store = await api.setSettings({ emoji: cb.checked }); renderMessages(); };
+      return el('label', { class: 'row', style: 'margin:6px 0 10px' }, cb, _('Smileys in Emojis umwandeln (:D → 😄, ;) → 😉, <3 → ❤️)')); })(),
     el('label', { class: 'field' }, el('span', {}, _('Werkzeug-Aufrufe im Chat (Befehle, Lesen, Bearbeiten …)')), sel('toolView', [['all', _('Alle anzeigen')], ['compact', _('Kompakt – zu einer Zeile zusammengefasst')], ['hidden', _('Ausblenden – nur Nachrichten und Antworten')]])),
     el('label', { class: 'field' }, el('span', {}, _('Benachrichtigung bei fertiger Antwort')), sel('notify', [['background', _('Wenn der Chat nicht im Blick ist (Standard)')], ['always', _('Immer')], ['off', _('Aus')]])),
     el('div', { class: 'row' },
@@ -2676,6 +2682,23 @@ function bindPane(root) {
   q('btn-stop').onclick = () => { const t = currentTab(); if (t) tapi(t).session.interrupt(t.id); };
   q('input').addEventListener('input', autosize);
   q('input').addEventListener('input', updateBashMode);
+  q('input').addEventListener('input', e => {
+    const input = e.target;
+    if (!emojiOn() || input.value.startsWith('!') || !/^insert/.test(e.inputType || '')) return;
+    const r = emojifyAtCursor(input.value, input.selectionStart);
+    if (!r) return;
+    input.value = r.text; input.setSelectionRange(r.cursor, r.cursor);
+    lastEmoji = { ...r.undo, text: r.text, cursor: r.cursor };
+  });
+  q('input').addEventListener('keydown', e => {
+    const input = e.target, u = lastEmoji;
+    if (e.key !== 'Backspace' || !u || input.value !== u.text || input.selectionStart !== u.cursor || input.selectionEnd !== u.cursor) { if (e.key.length === 1 || e.key === 'Backspace') lastEmoji = null; return; }
+    e.preventDefault();
+    input.value = u.text.slice(0, u.start) + u.original + u.text.slice(u.start + u.emoji.length);
+    const c = u.start + u.original.length + 1;
+    input.setSelectionRange(c, c);
+    lastEmoji = null;
+  });
   q('input').addEventListener('input', () => { cmdState.index = cmdState.open ? cmdState.index : 0; updateCommandPopup(); });
   q('input').addEventListener('blur', () => setTimeout(closeCommandPopup, 150));
   // Diktieren: Eingabefeld fokussieren, dann startet Windows die Spracheingabe (wie Windows + H) – der Text erscheint

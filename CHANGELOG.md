@@ -7,6 +7,13 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.17.0] – 2026-11-10
+
+- Neu: **Smileys werden zu Emojis** – „:D“ → 😄, „;)“ → 😉, „;D“ → 😜, „<3“ → ❤️ u. a., sobald danach ein Leerzeichen
+  getippt oder gesendet wird; die Rücktaste direkt danach stellt den Smiley wieder her. Nur einzeln stehende Smileys, nie
+  in Code; Uhrzeiten, Adressen und Aufzählungen wie „8)“ bleiben. Eigene ältere Nachrichten werden ebenso angezeigt.
+  Abschaltbar in den Einstellungen.
+
 ## [0.16.0] – 2026-11-10
 
 - Neu: **Bilder in Antworten von Claude** – verweist Claude auf eine Bilddatei (`![Diagramm](out/chart.png)`, auch absolute

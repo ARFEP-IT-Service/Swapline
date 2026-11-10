@@ -549,6 +549,7 @@ handle('settings:set', (_e, patch) => {
     else if (k === 'notifyStay' && NOTIFYSTAY.includes(v)) ok.notifyStay = v;
     else if (k === 'updateMode' && UPDATE_MODES.includes(v)) ok.updateMode = v;
     else if (k === 'language' && LANGS.includes(v)) ok.language = v;
+    else if (k === 'emoji' && typeof v === 'boolean') ok.emoji = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
       ok.permissionMode = v;

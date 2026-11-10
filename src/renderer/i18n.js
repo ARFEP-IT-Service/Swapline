@@ -640,4 +640,5 @@ const EN = {
   'Bild von {host} laden': 'Load image from {host}',
   'nicht anzeigbar ({e})': 'cannot be shown ({e})',
   'nicht anzeigbar': 'cannot be shown',
+  'Smileys in Emojis umwandeln (:D → 😄, ;) → 😉, <3 → ❤️)': 'Turn smileys into emojis (:D → 😄, ;) → 😉, <3 → ❤️)',
 };

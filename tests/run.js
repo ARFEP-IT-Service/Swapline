@@ -105,6 +105,15 @@ if (!filter || 'server'.includes(filter)) { // Swapline Server (server/): echter
   }
 }
 
+if (!filter || 'emoji'.includes(filter)) { // Smileys → Emojis (dieselben Fälle prüft EmojiTest in der Handy-App)
+  console.log('\nemoji');
+  const { emojify } = require(path.join(root, 'src', 'renderer', 'emoji.js'));
+  const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'emoji-cases.json'), 'utf8'));
+  const bad = cases.filter(c => emojify(c.in) !== c.out);
+  if (!bad.length) passed++; else failed++;
+  console.log(`  ${!bad.length ? '✓' : '✕'} Smileys: ${cases.length} Fälle (Code, Uhrzeiten, URLs und Aufzählungen bleiben)${!bad.length ? '' : '\n      ' + bad.map(c => JSON.stringify(c.in) + ' → ' + JSON.stringify(emojify(c.in))).join('\n      ')}`);
+}
+
 if (!filter || 'risk'.includes(filter)) { // Einstufung von Rückfragen (dieselben Fälle prüft RiskTest in der Handy-App)
   console.log('\nrisk');
   const { permRisk } = require(path.join(root, 'src', 'renderer', 'risk.js'));
