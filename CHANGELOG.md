@@ -7,6 +7,16 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.16.0] – 2026-11-10
+
+- Neu: **Bilder in Antworten von Claude** – verweist Claude auf eine Bilddatei (`![Diagramm](out/chart.png)`, auch absolute
+  Pfade), erscheint das Bild im Chat; Klick zeigt es groß. Geladen wird nur, was eine echte Bilddatei (png, jpg, gif,
+  webp, ≤ 10 MB) im Ordner des Chats oder in freigegebenen Ordnern ist – andere Dateien nie. Bilder aus dem Internet erst
+  nach Klick („Bild von … laden“), geholt vom Hauptprozess: nur https, nie aus dem eigenen Netz, ohne Cookies.
+- Neu: Bilder, die Claude liest (z. B. Screenshots mit „Read“), erscheinen als Vorschau in der Werkzeug-Karte.
+- Geräte (Handy, anderer PC) bekommen Bilder über den Fernzugriff mit denselben Prüfungen (eingeschränkte Geräte nur aus
+  ihren Projektordnern).
+
 ## [0.15.0] – 2026-11-10
 
 - Neu: **SSH-Server für Geräte** – Handys (und andere Geräte) können die SSH-Server dieses PCs nutzen, z. B. einen VPS:

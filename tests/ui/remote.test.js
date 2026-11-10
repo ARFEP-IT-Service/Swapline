@@ -43,6 +43,9 @@
   check('Verlauf über Haupt-PC lesbar', Array.isArray(await R('history:list', 'test')));
   const page = await R('history:loadSession', { profileId: 'test', sessionId: '11111111-1111-4111-8111-111111111111', cwd: WORK, turns: 3 });
   const full = await R('history:loadSession', { profileId: 'test', sessionId: '11111111-1111-4111-8111-111111111111', cwd: WORK });
+  const img = await R('files:image', { cwd: WORK, path: 'probe.png' });
+  const imgOut = await R('files:image', { cwd: WORK, path: ['C:', 'Windows', 'win.ini'].join(String.fromCharCode(92)) });
+  check('Bilder über Fernzugriff: Datei aus dem Projektordner ja, anderes nein', img?.media === 'image/png' && !!img.data && !!imgOut?.error, JSON.stringify(imgOut));
   check('Verlauf über Fernzugriff in Seiten (turns), ohne turns wie bisher', page && Array.isArray(page.msgs) && page.start === 0 && page.total === 1 && page.msgs.length === 1 && Array.isArray(full) && full.length === 1, JSON.stringify(page));
   check('Chat mit ungültigen Daten am Haupt-PC abgelehnt', (await R('session:send', { tab: { id: 'x' }, content: 'hi' })) === false);
   check('Antwort ohne offene Rückfrage abgelehnt', (await R('session:respond', { tabId: 'abcdefgh', requestId: 'y', response: { behavior: 'allow', updatedInput: {} } })) === false);

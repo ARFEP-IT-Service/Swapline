@@ -618,6 +618,9 @@ const TR = {
   'beendet Prozesse oder Dienste': 'işlemleri veya hizmetleri sonlandırır',
   'ändert Dateirechte': 'dosya izinlerini değiştirir',
   'ändert Projekt- oder Werkzeug-Einstellungen': 'proje veya araç ayarlarını değiştirir',
+  'Bild von {host} laden': '{host} adresinden görseli yükle',
+  'nicht anzeigbar ({e})': 'gösterilemiyor ({e})',
+  'nicht anzeigbar': 'gösterilemiyor',
 };
 
 if (typeof module !== 'undefined') module.exports = TR;

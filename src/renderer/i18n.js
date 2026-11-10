@@ -637,4 +637,7 @@ const EN = {
   'beendet Prozesse oder Dienste': 'stops processes or services',
   'ändert Dateirechte': 'changes file permissions',
   'ändert Projekt- oder Werkzeug-Einstellungen': 'changes project or tool settings',
+  'Bild von {host} laden': 'Load image from {host}',
+  'nicht anzeigbar ({e})': 'cannot be shown ({e})',
+  'nicht anzeigbar': 'cannot be shown',
 };

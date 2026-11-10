@@ -99,7 +99,7 @@ function uiLang() {
 const TR = require('./renderer/i18n-tr.js');
 const tr = (de, en, tk) => { const l = uiLang(); return l === 'en' ? en : l === 'tr' ? (tk ?? (Object.prototype.hasOwnProperty.call(TR, de) ? TR[de] : en)) : de; };
 // Gemeinsam mit dem Server-Dienst (server/): Nachrichten und Antworten prüfen, Startparameter, Verlauf lesen
-const { validContent, IMAGE_MEDIA, claudeArgs, checkResponse, encodeCwd, readHead, parseSessionHead, listSessions, loadTranscript, transcriptFromText, pageTranscript } = require('./chat-core');
+const { validContent, IMAGE_MEDIA, claudeArgs, checkResponse, encodeCwd, readHead, parseSessionHead, listSessions, loadTranscript, transcriptFromText, pageTranscript, readImage, fetchWebImage } = require('./chat-core');
 const listHistory = (profile, limit = 200) => listSessions(path.join(profile.configDir, 'projects'), tr('(ohne Titel)', '(untitled)'), limit);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
@@ -700,6 +700,14 @@ handle('history:loadSession', (_e, { profileId, sessionId, cwd, turns, before } 
   return paged ? pageTranscript(all, turns, before) : all;
 });
 // Eigene Nachricht (Beginn eines Abschnitts): Nutzer-Nachricht mit Text, nicht nur Werkzeug-Ergebnisse oder interne Hinweise
+
+// Bilder in Antworten von Claude: Bild-Dateien nur aus freigegebenen Ordnern (und dem Ordner des Chats, wenn erlaubt),
+// Bilder aus dem Internet nur auf Klick, nur https und öffentliche Adressen (src/chat-core.js)
+handle('files:image', (_e, { cwd, path: file } = {}) => {
+  const dir = typeof cwd === 'string' && cwd && isAllowedCwd(cwd) ? cwd : '';
+  return readImage(file, dir, [...allowedFolders(), ...(dir ? [dir] : [])]);
+});
+handle('web:image', (_e, url) => fetchWebImage(url));
 
 // Tab-Daten aus der Oberfläche werden vollständig geprüft, bevor Claude gestartet wird
 function validTab(t) {
@@ -1314,6 +1322,13 @@ async function hostDispatch(dev, ch, args) {
       return id ? call(ch, { tab: { ...t, id, sessionId: null, permissionMode: 'default' }, command: a0.command }) : false;
     }
     case 'server:call': return serverCall(dev, a0);
+    // Bilder: eingeschränkte Geräte nur aus ihren Projektordnern
+    case 'files:image': {
+      const roots = contentLimited(dev) ? projectFolders(dev) : allowedFolders();
+      const cwd = typeof a0?.cwd === 'string' && a0.cwd && (contentLimited(dev) ? folderAllowed(dev, a0.cwd) : isAllowedCwd(a0.cwd)) ? a0.cwd : '';
+      return readImage(a0?.path, cwd, [...roots, ...(cwd ? [cwd] : [])]);
+    }
+    case 'web:image': return fetchWebImage(typeof a0 === 'string' ? a0 : a0?.url);
     case 'session:bashStop': { const id = attachOf.get(dev.id + ':' + a0) || hostTabId(dev, a0); return id ? call(ch, id) : false; }
     case 'session:respond': { const id = attachOf.get(dev.id + ':' + a0?.tabId) || hostTabId(dev, a0?.tabId); return id ? call(ch, { ...a0, tabId: id }) : false; }
     case 'session:interrupt': { const id = attachOf.get(dev.id + ':' + a0) || hostTabId(dev, a0); return id ? call(ch, id) : false; }
@@ -1385,7 +1400,7 @@ const remoteHosts = () => getStore().remoteHosts || [];
 const clients = new Map(); // Haupt-PC-ID -> Verbindung (je gekoppeltem Haupt-PC eine)
 // Kanäle, die die Oberfläche für Chats eines Haupt-PCs aufrufen darf (der Haupt-PC prüft zusätzlich selbst)
 const REMOTE_CALLS = new Set(['store:get', 'profiles:status', 'profiles:models', 'history:list', 'history:loadSession', 'history:search', 'tabs:list', 'session:attach', 'session:pending', 'files:upload',
-  'session:send', 'session:bash', 'session:bashStop', 'server:call', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
+  'session:send', 'session:bash', 'session:bashStop', 'server:call', 'files:image', 'web:image', 'session:respond', 'session:interrupt', 'session:restart', 'session:close', 'session:confirmBypass', 'task:readOutput',
   'projects:add', 'projects:update', 'projects:groupAdd', 'projects:groupUpdate', 'projects:remove', 'projects:groupRemove']);
 const REMOTE_FALLBACK = { 'store:get': null, 'tabs:list': [], 'session:attach': false, 'history:list': [], 'history:loadSession': [], 'history:search': [], 'task:readOutput': { error: 'offline' }, 'profiles:status': { loggedIn: false }, 'profiles:models': null };
 function connectHost(h) {

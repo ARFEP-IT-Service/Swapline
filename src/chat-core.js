@@ -180,5 +180,86 @@ function validContent(c) {
       && typeof b.source.data === 'string' && b.source.data.length <= 7e6 && /^[A-Za-z0-9+/]+=*$/.test(b.source.data)));
 }
 
+// ---------- Bilder in Antworten von Claude anzeigen ----------
+const IMAGE_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+const IMAGE_MAX = 10 * 1024 * 1024;
+// Pfad aus der Antwort (absolut oder relativ zum Ordner des Chats) → { media, data } – nur Bilddateien (Endung und Inhalt)
+// bis 10 MB, deren echter Pfad (ohne Verknüpfungen) in einem der erlaubten Ordner liegt. Sonst { error }.
+function readImage(file, cwd, roots) {
+  if (typeof file !== 'string' || !file.trim() || file.length > 1000 || file.includes('\0')) return { error: 'ungültig' };
+  let f = file.trim().replace(/^file:\/\/\/?/i, '');
+  try { f = decodeURIComponent(f); } catch {}
+  if (/^(\\\\|\/\/)/.test(f)) return { error: 'Netzwerkpfad' }; // UNC würde eine Anmeldung am fremden Rechner auslösen
+  const media = IMAGE_EXT[path.extname(f).toLowerCase()];
+  if (!media) return { error: 'kein Bild' };
+  const base = typeof cwd === 'string' && cwd && path.isAbsolute(cwd) ? cwd : null;
+  if (!path.isAbsolute(f) && !base) return { error: 'kein Ordner' };
+  let real;
+  try { real = fs.realpathSync(path.resolve(base || '', f)); } catch { return { error: 'nicht gefunden' }; }
+  const inside = r => { try { const b = fs.realpathSync(r); const rel = path.relative(b, real); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); } catch { return false; } };
+  if (!(roots || []).some(r => typeof r === 'string' && r && inside(r))) return { error: 'nicht freigegeben' };
+  let st; try { st = fs.statSync(real); } catch { return { error: 'nicht gefunden' }; }
+  if (!st.isFile() || st.size > IMAGE_MAX) return { error: 'zu groß' };
+  const buf = fs.readFileSync(real);
+  if (sniffImage(buf) !== media && !(media === 'image/jpeg' && sniffImage(buf) === 'image/jpeg')) return { error: 'kein Bild' };
+  return { media, data: buf.toString('base64') };
+}
+// Bildtyp am Inhalt erkennen (Endung allein reicht nicht)
+function sniffImage(b) {
+  if (b.length > 8 && b[0] === 0x89 && b.toString('latin1', 1, 4) === 'PNG') return 'image/png';
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length > 6 && b.toString('latin1', 0, 4) === 'GIF8') return 'image/gif';
+  if (b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+// Öffentliche Adresse? Bilder aus dem Internet holt der Haupt-PC nie aus dem eigenen Netz (Router, NAS …)
+function publicIp(ip) {
+  const net = require('node:net');
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return !(a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) || a >= 224);
+  }
+  if (net.isIPv6(ip)) {
+    const x = ip.toLowerCase();
+    if (x.startsWith('::ffff:')) return publicIp(x.slice(7));
+    return !(x === '::' || x === '::1' || /^f[cd]/.test(x) || /^fe[89ab]/.test(x) || x.startsWith('ff'));
+  }
+  return false;
+}
+// Bild aus dem Internet (nur auf Klick): nur https, nur öffentliche Adressen (auch nach Umleitungen), ohne Cookies,
+// höchstens 10 MB und nur echte Bilder → { media, data } oder { error }
+function fetchWebImage(url, redirects = 3) {
+  const https = require('node:https');
+  const dns = require('node:dns');
+  return new Promise(resolve => {
+    let u;
+    try { u = new URL(url); } catch { return resolve({ error: 'ungültige Adresse' }); }
+    if (u.protocol !== 'https:' || u.username || u.password) return resolve({ error: 'nur https' });
+    dns.lookup(u.hostname, { all: true }, (err, addrs) => {
+      if (err || !addrs?.length) return resolve({ error: 'Adresse nicht gefunden' });
+      if (!addrs.every(a => publicIp(a.address))) return resolve({ error: 'keine öffentliche Adresse' });
+      const req = https.get(u, { headers: { 'User-Agent': 'Swapline', Accept: 'image/*' }, timeout: 15000, lookup: (h, o, cb) => cb(null, addrs[0].address, addrs[0].family) }, res => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects > 0) {
+          res.resume();
+          return resolve(fetchWebImage(new URL(res.headers.location, u).href, redirects - 1));
+        }
+        if (res.statusCode !== 200) { res.resume(); return resolve({ error: 'HTTP ' + res.statusCode }); }
+        const chunks = []; let n = 0;
+        res.on('data', c => { n += c.length; if (n > IMAGE_MAX) req.destroy(); else chunks.push(c); });
+        res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          const media = sniffImage(buf);
+          resolve(media && n <= IMAGE_MAX ? { media, data: buf.toString('base64') } : { error: 'kein Bild' });
+        });
+        res.on('error', () => resolve({ error: 'abgebrochen' }));
+      });
+      req.on('timeout', () => req.destroy());
+      req.on('error', () => resolve({ error: 'nicht erreichbar' }));
+    });
+  });
+}
+
 module.exports = { same, claudeArgs, checkResponse, encodeCwd, readHead, readTail, listSessions, parseSessionHead, loadTranscript, transcriptFromText,
-  isPrompt, slimMessage, pageTranscript, IMAGE_MEDIA, validContent };
+  isPrompt, slimMessage, pageTranscript, IMAGE_MEDIA, validContent, readImage, sniffImage, publicIp, fetchWebImage };

@@ -111,6 +111,12 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     check('Server: Verlauf und Seiten', hist.some(h => h.sessionId === sid && !('file' in h)) && page.start === 2 && page.msgs.length === 2 && page.total === 4, JSON.stringify(page).slice(0, 120));
     check('Server: ungültige Session-ID → leer', (await client.call('history:loadSession', [{ sessionId: '../x', turns: 2 }])).msgs.length === 0);
 
+    // Bilder: aus freigegebenen Ordnern, nur echte Bilder
+    fs.writeFileSync(path.join(work, 'shot.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+    const im = await client.call('files:image', [{ cwd: work, path: 'shot.png' }]);
+    const imBad = await client.call('files:image', [{ cwd: work, path: path.join(process.env.SWAPLINE_SERVER_DIR, 'config.json') }]);
+    check('Server: Bilder aus dem Projektordner, keine anderen Dateien', im.media === 'image/png' && !!imBad.error, JSON.stringify(imBad));
+
     // Upload und gesperrte Kanäle
     const up = await client.call('files:upload', [{ name: '../böse name.txt', data: Buffer.from('Inhalt').toString('base64') }]);
     check('Server: Upload in eigenen Ordner, Name bereinigt', up.path.startsWith(path.join(process.env.SWAPLINE_SERVER_DIR, 'uploads')) && !up.name.includes('/') && fs.readFileSync(up.path, 'utf8') === 'Inhalt', up.path);

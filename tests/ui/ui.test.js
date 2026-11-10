@@ -243,6 +243,24 @@
   check('Rückfrage Vorsicht: orange mit Grund', cards[1]?.classList.contains('risk-medium') && /Vorsicht.*Pakete/.test(cards[1].querySelector('.risk-badge')?.textContent || ''), cards[1]?.className);
   check('Rückfrage normal: kein Hinweis', cards[2] && !cards[2].className.includes('risk-') && !cards[2].querySelector('.risk-badge'));
 
+  try {
+  // Bilder in Antworten: Datei aus dem Ordner des Chats (probe.png legt run.js an), Internet nur auf Klick, http nie
+  const ti = makeTab({ title: 'Bilder', cwd: WORK }); tabs.push(ti); await openTab(ti.id);
+  ingest(ti, { type: 'assistant', message: { content: [{ type: 'text', text: 'Hier:\n\n![Probe](probe.png)\n\n![Web](https://example.com/a.png)\n\n![Alt](http://example.com/b.png)\n\n![Fremd](C:\\Windows\\win.png)' }] } });
+  const loaded = await until(() => /^data:image\/png;base64,/.test(document.querySelector('#messages img.md-img')?.src || ''), 8000);
+  check('Bilder: Datei aus dem Ordner des Chats wird angezeigt', loaded);
+  check('Bilder: Internet-Bild nur als Knopf (nichts geladen)', /example\.com/.test(document.querySelector('#messages .img-load')?.textContent || '') && ![...document.querySelectorAll('#messages img')].some(i => /example\.com/.test(i.src)));
+  await until(() => !!document.querySelector('#messages .img-missing'), 5000);
+  check('Bilder: http-Bilder verworfen, Datei außerhalb abgelehnt', ![...document.querySelectorAll('#messages img')].some(i => /b\.png/.test(i.dataset.src || i.src)) && /Fremd/.test(document.querySelector('#messages .img-missing')?.textContent || ''), JSON.stringify([...document.querySelectorAll('#messages .md img, #messages .img-missing, #messages .img-load')].map(x => x.outerHTML.slice(0, 140))));
+  document.querySelector('#messages img.md-img')?.click();
+  check('Bilder: Klick zeigt das Bild groß', !!document.querySelector('.modal.image-view img'));
+  $('#modal-root').replaceChildren();
+  ingest(ti, { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'readimg', name: 'Read', input: { file_path: WORK + '\\probe.png' } }] } });
+  ingest(ti, { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'readimg', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' } }] }] } });
+  renderMessages();
+  check('Bilder: Bild, das Claude liest, als Vorschau in der Werkzeug-Karte', !!document.querySelector('#messages .tool .t-thumbs img'));
+  } catch (e) { check('Bilder-Test', false, e.stack || e.message); }
+
   // Haupt-PC-Chat mit älterem Verlauf: Knopf oben im Chat
   t.olderFrom = 12; await openTab(t.id); renderMessages();
   check('Ältere Nachrichten: Knopf oben im Chat', /Ältere Nachrichten laden/.test(document.querySelector('#messages .older button')?.textContent || ''));

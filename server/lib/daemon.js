@@ -269,6 +269,11 @@ function startDaemon({ port } = {}) {
           return { text: buf.toString('utf8'), truncated: start > 0 };
         } catch (e) { return { error: e.message }; }
       }
+      case 'files:image': {
+        const cwd = typeof a0?.cwd === 'string' && a0.cwd && cwdAllowed(a0.cwd) ? a0.cwd : '';
+        return core.readImage(a0?.path, cwd, [...cfg.folders, HOME]);
+      }
+      case 'web:image': return core.fetchWebImage(typeof a0 === 'string' ? a0 : a0?.url);
       case 'server:call': case 'projects:add': case 'projects:update': case 'projects:remove': return notAllowed();
       default: return notAllowed();
     }

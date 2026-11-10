@@ -557,3 +557,12 @@ button.link:hover { color: var(--accent); }
 .risk-badge { display: inline-block; margin: 0 0 6px; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
 .risk-badge.critical { background: color-mix(in srgb, var(--risk) 16%, transparent); color: var(--risk); }
 .risk-badge.medium { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+
+/* Bilder in Antworten (Datei oder auf Klick aus dem Internet) und in Werkzeug-Karten */
+.md img.md-img { display: block; max-width: 100%; max-height: 420px; border-radius: 10px; border: 1px solid var(--line); margin: .5em 0; cursor: zoom-in; }
+.md .img-load { margin: .4em 0; font-size: 12.5px; }
+.md .img-missing { display: inline-block; color: var(--muted); font-size: 12.5px; }
+.tool .t-thumbs { display: flex; gap: 4px; flex: none; }
+.tool .t-thumbs img { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); cursor: zoom-in; }
+.modal.image-view { max-width: 92vw; width: auto; }
+.modal.image-view img { display: block; max-width: 88vw; max-height: 78vh; margin: 0 auto; border-radius: 8px; }

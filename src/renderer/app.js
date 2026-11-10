@@ -36,15 +36,28 @@ const ICONS = {
 };
 
 marked.setOptions({ gfm: true, breaks: true });
+// Bilder: Ziel nicht als src (der Browser lädt nichts selbst), sondern als data-src für hydrateImages – auch Windows-Pfade,
+// die DOMPurify als unbekanntes Schema verwerfen würde
+const escAttr = v => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+marked.use({ renderer: { image({ href, text }) {
+  const src = String(href || '').trim();
+  if (/^data:image\//i.test(src)) return false; // eingebettete Bilder wie bisher
+  return `<img data-src="${escAttr(src.slice(0, 1000))}" alt="${escAttr(text)}">`;
+} } });
 // Links in Claude-Antworten: nur https (öffnet im Browser). file:, UNC (//host), relative und andere
-// Ziele werden entfernt. Bilder nur als data:-URL – keine Remote- oder Datei-Bilder.
+// Ziele werden entfernt. Bilder: data:-URL direkt; Datei- und Internet-Bilder lädt nie der Browser, sondern sie werden
+// als data-src gemerkt und über den Hauptprozess geprüft nachgeladen (hydrateImages).
 DOMPurify.addHook('afterSanitizeAttributes', node => {
   if (node.hasAttribute('href')) {
     const href = node.getAttribute('href').trim();
     if (/^https:\/\/[^/\\]/i.test(href)) { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
     else { node.removeAttribute('href'); node.setAttribute('title', _('Link entfernt: {href}', { href: href.slice(0, 120) })); }
   }
-  if (node.tagName === 'IMG' && !/^data:image\//i.test(node.getAttribute('src') || '')) node.remove();
+  if (node.tagName === 'IMG' && !/^data:image\//i.test(node.getAttribute('src') || '')) {
+    const src = (node.getAttribute('src') || node.getAttribute('data-src') || '').trim();
+    if (!src || /^(javascript|vbscript|data|blob):/i.test(src)) node.remove();
+    else { node.setAttribute('data-src', src.slice(0, 1000)); node.removeAttribute('src'); }
+  }
   for (const attr of ['src', 'srcset', 'action', 'formaction', 'xlink:href', 'poster', 'background']) {
     if ((node.tagName !== 'IMG' || attr !== 'src') && node.hasAttribute(attr)) node.removeAttribute(attr);
   }
@@ -258,6 +271,7 @@ function tapi(x) {
       interrupt: id => call('session:interrupt', id), restart: id => call('session:restart', id), close: id => call('session:close', id),
       confirmBypass: id => call('session:confirmBypass', id),
     },
+    images: { file: (cwd, path) => call('files:image', { cwd, path }), web: url => call('web:image', url) },
     history: { list: pid => call('history:list', pid), loadSession: d => call('history:loadSession', d), search: (pid, q) => call('history:search', { profileId: pid, query: q }) },
     profiles: { status: id => call('profiles:status', id), models: (id, refresh) => call('profiles:models', { id, refresh }) },
     readTaskOutput: f => call('task:readOutput', f),
@@ -1290,7 +1304,39 @@ function updateAiBubble(it) {
   if (!b) return;
   b.innerHTML = md(it.streaming ? streamingMarkdown(it.text) : it.text);
   b.classList.toggle('streaming', !!it.streaming);
-  if (!it.streaming) enhanceCode(b);
+  if (!it.streaming) { enhanceCode(b); const t = tabs.find(x => x.items.includes(it)); if (t) hydrateImages(t, b); }
+}
+// Bilder in Antworten: Dateien (absolut oder relativ zum Ordner des Chats) gleich laden, Internet-Bilder erst auf Klick
+// (sonst erfährt eine fremde Seite, wann der Chat geöffnet wird). Geladen wird immer über den Haupt-PC (geprüft).
+const imageCache = new Map();
+function hydrateImages(t, root) {
+  for (const img of root.querySelectorAll('img[data-src]')) {
+    // marked kodiert Pfade (z. B. \ → %5C, Leerzeichen → %20) – für die Prüfung im Hauptprozess zurückwandeln
+    let src = img.dataset.src; if (/%[0-9a-f]{2}/i.test(src)) try { src = decodeURI(src); } catch {}
+    const alt = img.getAttribute('alt') || '';
+    const key = (t.host || '') + '|' + (t.cwd || '') + '|' + src;
+    const show = url => { img.src = url; img.classList.add('md-img'); img.onclick = () => showImage(url, alt); };
+    const fail = why => img.replaceWith(el('span', { class: 'img-missing' }, '🖼 ' + (alt || src.split(/[\\/]/).pop()) + ' – ' + why));
+    const load = async web => {
+      const r = await (web ? tapi(t).images.web(src) : tapi(t).images.file(t.cwd || '', src)).catch(() => null);
+      if (!r?.data || !IMG_TYPES.includes(r.media)) return fail(r?.error ? _('nicht anzeigbar ({e})', { e: r.error }) : _('nicht anzeigbar'));
+      const url = `data:${r.media};base64,${r.data}`;
+      imageCache.set(key, url); if (imageCache.size > 60) imageCache.delete(imageCache.keys().next().value);
+      show(url);
+    };
+    if (imageCache.has(key)) { show(imageCache.get(key)); continue; }
+    if (/^https:\/\//i.test(src)) {
+      let host = ''; try { host = new URL(src).hostname; } catch {}
+      const btn = el('button', { class: 'ghost img-load', title: src }, '🖼 ' + _('Bild von {host} laden', { host }));
+      btn.onclick = () => { btn.replaceWith(img); load(true); };
+      img.replaceWith(btn);
+    } else if (/^[a-z][a-z0-9+.-]*:/i.test(src) && !/^[a-z]:[\\/]/i.test(src) && !/^file:/i.test(src)) img.remove(); // http:, ftp: … nie
+    else load(false);
+  }
+}
+// Bild groß anzeigen
+function showImage(url, alt) {
+  modal('image-view', alt || _('Bild'), el('img', { src: url, alt: alt || '' }));
 }
 function setTyping(t) {
   if (t.typingEl && shownInPane(t.id)) t.typingEl.hidden = !(t.running && !t.streamItem);
@@ -1305,7 +1351,7 @@ function renderItem(t, it) {
       it.time ? el('div', { class: 'msg-time' }, msgTime(it.time) + (it.from ? ' · ' + _('von {name}', { name: it.from }) : '')) : null);
     case 'ai': {
       const b = el('div', { class: 'bubble md' + (it.streaming ? ' streaming' : ''), html: md(it.streaming ? streamingMarkdown(it.text) : it.text) });
-      if (!it.streaming) enhanceCode(b);
+      if (!it.streaming) { enhanceCode(b); hydrateImages(t, b); }
       // Fußzeile: Uhrzeit + Kopieren (kopiert den Text der Antwort als Markdown)
       return el('div', { class: 'ai-block' }, el('div', { class: 'msg ai' }, b),
         el('div', { class: 'ai-foot' },
@@ -1359,7 +1405,8 @@ function renderTool(it) {
     el('summary', {},
       el('span', { class: 't-state ' + state }, state === 'ok' ? '✓' : state === 'err' ? '✕' : ''),
       el('span', { class: 't-name' }, toolLabel(it.name)),
-      el('span', { class: 't-sum' }, toolSummary(it.name, it.input))));
+      el('span', { class: 't-sum' }, toolSummary(it.name, it.input)),
+      it.images?.length ? el('span', { class: 't-thumbs' }, it.images.map(u => el('img', { src: u, alt: '', onclick: e => { e.preventDefault(); e.stopPropagation(); showImage(u); } }))) : null));
   if (it.name === 'TodoWrite' && Array.isArray(it.input?.todos)) {
     d.open = true;
     d.append(el('ul', { class: 'todo-list' }, it.input.todos.map(x =>
@@ -1612,6 +1659,8 @@ function ingest(t, m, fromHistory = false) {
           const tool = [...t.items].reverse().find(x => x.kind === 'tool' && x.id === block.tool_use_id);
           if (tool) {
             tool.result = textOf(block.content) || _('(keine Ausgabe)');
+            if (Array.isArray(block.content)) tool.images = block.content.filter(x => x?.type === 'image' && x.source?.type === 'base64' && x.source.data && IMG_TYPES.includes(x.source.media_type))
+              .slice(0, 4).map(x => `data:${x.source.media_type};base64,${x.source.data}`);
             tool.isError = !!block.is_error;
             if (!fromHistory) refreshItem(t, tool);
           }

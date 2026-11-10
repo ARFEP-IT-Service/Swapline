@@ -12,7 +12,9 @@
   check('window.open liefert kein Fenster', !window.open('file:///C:/Windows/'));
   const div = document.createElement('div');
   div.innerHTML = md('[a](file:///C:/x) [b](//host/share) [c](../x) [d](https://arfep.de) ![i](https://example.com/a.png)');
-  check('DOMPurify: nur https-Links bleiben, Bilder entfernt', JSON.stringify([...div.querySelectorAll('a')].map(a => a.getAttribute('href'))) === JSON.stringify([null, null, null, 'https://arfep.de']) && !div.querySelector('img'), div.innerHTML);
+  check('DOMPurify: nur https-Links bleiben, Bilder laden nichts von selbst', JSON.stringify([...div.querySelectorAll('a')].map(a => a.getAttribute('href'))) === JSON.stringify([null, null, null, 'https://arfep.de']) && [...div.querySelectorAll('img')].every(i => !i.hasAttribute('src')), div.innerHTML);
+  div.innerHTML = md('<img src="https://example.com/x.png" onerror="alert(1)"> <img src="javascript:alert(1)"> <img src="file:///C:/x.png">');
+  check('DOMPurify: eingeschleuste Bilder ohne src und ohne Ereignisse', [...div.querySelectorAll('img')].every(i => !i.hasAttribute('src') && !i.hasAttribute('onerror')) && !/javascript:/i.test(div.innerHTML), div.innerHTML);
   div.innerHTML = md('<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" srcset="//host/s/a.png"> <span style="background:url(//host/s/a)">x</span>');
   check('DOMPurify: srcset und style entfernt', !/srcset|style/.test(div.innerHTML), div.innerHTML);
   const loads = src => new Promise(res => { const i = new Image(); i.onload = () => res(true); i.onerror = () => res(false); i.src = src; });

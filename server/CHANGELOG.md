@@ -3,6 +3,11 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC, der Android-App und
 Swapline Relay. Tags: `server-v<Version>`.
 
+## [0.2.0] – 2026-11-10
+
+- Neu: Bilder in Antworten von Claude für das Handy – Bild-Dateien aus den freigegebenen Ordnern und dem Home-Verzeichnis
+  (nur echte Bilder, ≤ 10 MB), Bilder aus dem Internet nur auf Tippen (https, öffentliche Adressen).
+
 ## [0.1.0] – 2026-11-10
 
 Erste Version.
