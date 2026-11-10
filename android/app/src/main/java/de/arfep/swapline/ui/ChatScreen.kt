@@ -177,6 +177,8 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
         Column(Modifier.fillMaxSize().padding(pad).imePadding()) {
             Box(Modifier.weight(1f)) {
                 // umgekehrte Liste: neueste unten, bleibt beim Eintreffen neuer Nachrichten unten
+                val images = remember(chat.id) { ImageSource { src, web -> model.loadImage(chat, src, web) } }
+                androidx.compose.runtime.CompositionLocalProvider(LocalImages provides images) {
                 LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (chat.running) item(key = "typing") { Typing() }
                     items(items.size, key = { items.size - 1 - it }) { i ->
@@ -193,6 +195,7 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                             }
                         }
                     }
+                }
                 }
                 val atBottom = list.firstVisibleItemIndex == 0
                 if (!atBottom) SmallFloatingActionButton(onClick = { scope.launch { list.animateScrollToItem(0) } }, Modifier.align(Alignment.BottomEnd).padding(12.dp)) {
@@ -454,6 +457,10 @@ private fun ToolRow(it: Item.Tool) {
             Spacer(Modifier.width(6.dp))
             Text(toolSummary(it.name, it.input), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = cs.onSurfaceVariant, fontFamily = FontFamily.Monospace)
             if (it.result == null) androidx.compose.material3.CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        }
+        // Bilder, die Claude gelesen hat: immer sichtbar, Antippen zeigt sie groß
+        if (it.images.isNotEmpty()) Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (b in it.images) Base64Thumb(b, Modifier.size(72.dp))
         }
         AnimatedVisibility(open) {
             Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

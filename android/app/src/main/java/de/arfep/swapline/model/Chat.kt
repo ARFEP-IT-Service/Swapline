@@ -24,7 +24,7 @@ data class Answer(val kind: AnswerKind, val detail: String = "")
 sealed class Item {
     data class Me(val text: String, val time: Long?, val from: String = "", val images: Int = 0, val files: List<String> = emptyList()) : Item()
     data class Ai(val text: String, val time: Long?, val streaming: Boolean = false) : Item()
-    data class Tool(val id: String, val name: String, val input: JsonElement, val result: String? = null, val isError: Boolean = false) : Item()
+    data class Tool(val id: String, val name: String, val input: JsonElement, val result: String? = null, val isError: Boolean = false, val images: List<String> = emptyList()) : Item()
     data class Perm(val requestId: String, val toolName: String, val input: JsonElement, val description: String, val suggestions: JsonElement?, val answer: Answer? = null) : Item()
     data class Question(val requestId: String, val input: JsonObject, val answer: Answer? = null) : Item()
     data class Plan(val requestId: String, val input: JsonObject, val answer: Answer? = null) : Item()
@@ -350,7 +350,12 @@ class Chat(
                                 tasks.values.firstOrNull { it.toolUseId == id }?.let { t -> tasks[t.id] = t.copy(output = out) }
                             }
                             val tool = items.lastOrNull { it is Item.Tool && it.id == id } as? Item.Tool ?: continue
-                            replace(tool, tool.copy(result = textOf(block["content"]).ifEmpty { "" }, isError = block.bool("is_error")))
+                            // Bilder im Ergebnis (z. B. Claude liest einen Screenshot): base64, höchstens 4
+                            val imgs = (block["content"] as? JsonArray).orEmpty().mapNotNull { b ->
+                                val src = ((b as? JsonObject)?.takeIf { it.str("type") == "image" }?.get("source") as? JsonObject) ?: return@mapNotNull null
+                                src.str("data")?.takeIf { it.isNotEmpty() && src.str("type") == "base64" && src.str("media_type") in setOf("image/png", "image/jpeg", "image/gif", "image/webp") }
+                            }.take(4)
+                            replace(tool, tool.copy(result = textOf(block["content"]).ifEmpty { "" }, isError = block.bool("is_error"), images = imgs))
                         }
                         "text" -> if (fromHistory) {
                             val text = takeBash(block.str("text").orEmpty(), timeOf(m))

@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.9.0] – 2026-11-10
+
+- Neu: **Bilder in Antworten von Claude** – Bild-Dateien, auf die Claude verweist, kommen vom Haupt-PC (bzw. Swapline
+  Server) und erscheinen im Chat; Bilder aus dem Internet erst nach Tippen. Antippen zeigt das Bild groß. Braucht
+  Swapline am PC ab 0.16.0 bzw. Swapline Server ab 0.2.0.
+- Neu: Bilder, die Claude liest (z. B. Screenshots), als Vorschau in der Werkzeug-Karte.
+
 ## [0.8.0] – 2026-11-10
 
 - Neu: **SSH-Server des Haupt-PCs** (z. B. ein VPS) erscheinen als eigene Einträge in der Auswahl oben („VPS · PC-Name“):

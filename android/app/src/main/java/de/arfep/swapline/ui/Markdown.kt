@@ -50,6 +50,7 @@ sealed class Block {
     data class Code(val lang: String, val code: String) : Block()
     // align je Spalte: 'l', 'c' oder 'r' (aus der Trennzeile :--, :-:, --:)
     data class Table(val header: List<String>, val align: List<Char>, val rows: List<List<String>>) : Block()
+    data class Image(val alt: String, val src: String) : Block()
     data object Rule : Block()
 }
 
@@ -89,6 +90,9 @@ fun parseMarkdown(src: String): List<Block> {
                 continue
             }
         }
+        // Bild in eigener Zeile: ![Beschreibung](Pfad oder https-Adresse)
+        val img = IMAGE_LINE.find(line)
+        if (img != null) { flush(); out += Block.Image(img.groupValues[1], img.groupValues[2]); i++; continue }
         val h = Regex("^(#{1,6})\\s+(.*)$").find(line)
         val b = Regex("^(\\s*)([-*+]|\\d+[.)])\\s+(.*)$").find(line)
         when {
@@ -105,6 +109,7 @@ fun parseMarkdown(src: String): List<Block> {
     return out
 }
 
+private val IMAGE_LINE = Regex("^\\s*!\\[([^\\]]*)]\\(<?([^)\\s>]+)>?(?:\\s+\"[^\"]*\")?\\)\\s*$")
 private val TABLE_SEP = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)*\\|?\\s*$")
 
 // Zellen einer Tabellenzeile: äußere | weg, an | trennen („\|“ bleibt als Zeichen im Text)
@@ -125,7 +130,7 @@ private fun cells(line: String): List<String> {
     return out
 }
 
-private val INLINE = Regex("`([^`]+)`|\\*\\*(.+?)\\*\\*|__(.+?)__|(?<![*\\w])\\*(?!\\s)(.+?)(?<!\\s)\\*(?!\\*)|\\[([^\\]]+)]\\((https://[^)\\s]+)\\)")
+private val INLINE = Regex("!\\[([^\\]]*)]\\([^)\\s]+\\)|`([^`]+)`|\\*\\*(.+?)\\*\\*|__(.+?)__|(?<![*\\w])\\*(?!\\s)(.+?)(?<!\\s)\\*(?!\\*)|\\[([^\\]]+)]\\((https://[^)\\s]+)\\)")
 
 fun inline(text: String, codeBg: androidx.compose.ui.graphics.Color, link: androidx.compose.ui.graphics.Color): AnnotatedString = buildAnnotatedString {
     var pos = 0
@@ -133,10 +138,11 @@ fun inline(text: String, codeBg: androidx.compose.ui.graphics.Color, link: andro
         append(text.substring(pos, m.range.first))
         val g = m.groupValues
         when {
-            g[1].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg, fontSize = 13.sp)) { append(g[1]) }
-            g[2].isNotEmpty() || g[3].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(g[2].ifEmpty { g[3] }) }
-            g[4].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[4]) }
-            g[5].isNotEmpty() -> withLink(LinkAnnotation.Url(g[6], TextLinkStyles(SpanStyle(color = link, textDecoration = TextDecoration.Underline)))) { append(g[5]) }
+            m.value.startsWith("![") -> append("🖼 " + g[1].ifBlank { "" }.trim())
+            g[2].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg, fontSize = 13.sp)) { append(g[2]) }
+            g[3].isNotEmpty() || g[4].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(g[3].ifEmpty { g[4] }) }
+            g[5].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[5]) }
+            g[6].isNotEmpty() -> withLink(LinkAnnotation.Url(g[7], TextLinkStyles(SpanStyle(color = link, textDecoration = TextDecoration.Underline)))) { append(g[6]) }
         }
         pos = m.range.last + 1
     }
@@ -160,6 +166,7 @@ fun Markdown(text: String, modifier: Modifier = Modifier) {
             is Block.Quote -> Text(inline(b.text, codeBg, cs.primary), Modifier.padding(start = 8.dp), color = cs.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             is Block.Code -> CodeBlock(b.code, b.lang)
             is Block.Table -> TableBlock(b, codeBg)
+            is Block.Image -> MdImage(b.alt, b.src)
             Block.Rule -> Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).size(1.dp).background(cs.outlineVariant))
         }
     }

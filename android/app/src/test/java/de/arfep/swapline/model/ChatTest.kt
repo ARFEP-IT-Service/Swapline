@@ -252,6 +252,22 @@ class ChatTest {
         assertEquals(listOf(CmdOpt("review", "Code prüfen", "[datei]")), cmds)
     }
 
+    @Test fun markdownImages() {
+        val b = parseMarkdown("Hier:\n![Diagramm](out/chart.png)\n![](https://example.com/a.png \"Titel\")\nText mit ![klein](x.png) mitten drin")
+        assertEquals(Block.Para("Hier:"), b[0])
+        assertEquals(Block.Image("Diagramm", "out/chart.png"), b[1])
+        assertEquals(Block.Image("", "https://example.com/a.png"), b[2])
+        assertEquals(Block.Para("Text mit ![klein](x.png) mitten drin"), b[3])
+        assertEquals("Text mit 🖼 klein mitten drin", de.arfep.swapline.ui.inline((b[3] as Block.Para).text, androidx.compose.ui.graphics.Color.Gray, androidx.compose.ui.graphics.Color.Blue).text)
+    }
+
+    @Test fun toolResultWithImage() {
+        val c = chat()
+        c.ingest(j("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"shot.png"}}]}}"""))
+        c.ingest(j("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"r1","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"image","source":{"type":"base64","media_type":"image/svg+xml","data":"PHN2Zz4="}}]}]}}"""))
+        assertEquals(listOf("iVBORw0KGgo="), (c.items.single() as Item.Tool).images)
+    }
+
     @Test fun markdownTable() {
         val b = parseMarkdown("Vorher\n\n| Name | Wert |\n|:-----|-----:|\n| a \\| b | **1** |\n| c |\n\nNachher")
         assertEquals(Block.Para("Vorher"), b[0])

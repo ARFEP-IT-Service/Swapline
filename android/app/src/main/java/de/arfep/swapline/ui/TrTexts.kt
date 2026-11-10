@@ -235,4 +235,7 @@ internal val TR_TEXTS: Map<String, String> = hashMapOf(
     "beendet Prozesse oder Dienste" to "işlemleri veya hizmetleri sonlandırır",
     "ändert Dateirechte" to "dosya izinlerini değiştirir",
     "ändert Projekt- oder Werkzeug-Einstellungen" to "proje veya araç ayarlarını değiştirir",
+    "nicht anzeigbar" to "gösterilemiyor",
+    "nicht verbunden" to "bağlı değil",
+    "nicht verfügbar" to "kullanılamıyor",
 )

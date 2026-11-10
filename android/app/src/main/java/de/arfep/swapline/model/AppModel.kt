@@ -465,6 +465,25 @@ class AppModel(context: Context, private val notifier: Notifier) {
         c.loadingOlder = false
     }
 
+    // Bild für die Anzeige im Chat: Datei vom Haupt-PC (relativ zum Ordner des Chats) oder aus dem Internet (nur auf Tippen)
+    private val imageCache = object : LinkedHashMap<String, androidx.compose.ui.graphics.ImageBitmap>(32, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, androidx.compose.ui.graphics.ImageBitmap>?) = size > 30
+    }
+    suspend fun loadImage(c: Chat, src: String, web: Boolean): Pair<androidx.compose.ui.graphics.ImageBitmap?, String?> {
+        val key = c.hostId + "|" + c.cwd + "|" + src
+        synchronized(imageCache) { imageCache[key] }?.let { return it to null }
+        val h = host(c.hostId) ?: return null to de.arfep.swapline.ui.tr("nicht verbunden", "not connected")
+        val r = runCatching {
+            if (web) h.callWithin(60_000L, "web:image", JsonPrimitive(src))
+            else h.call("files:image", buildJsonObject { put("cwd", c.cwd); put("path", src) })
+        }
+        val o = r.getOrNull() as? JsonObject ?: return null to (r.exceptionOrNull()?.message ?: de.arfep.swapline.ui.tr("nicht verfügbar", "not available"))
+        val data = o.str("data") ?: return null to o.str("error")
+        val bmp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { de.arfep.swapline.ui.decodeImage(data) } ?: return null to null
+        synchronized(imageCache) { imageCache[key] = bmp }
+        return bmp to null
+    }
+
     fun interrupt(c: Chat) = scope.launch { runCatching { host(c.hostId)?.call("session:interrupt", JsonPrimitive(c.id)) } }
 
     // Eigener Chat: Claude-Prozess am Haupt-PC beenden. Beigetretener Chat: nur austreten, er läuft am Haupt-PC weiter.
