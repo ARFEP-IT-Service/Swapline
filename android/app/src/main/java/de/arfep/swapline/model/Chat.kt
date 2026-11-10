@@ -62,6 +62,9 @@ object ClaudeText {
     const val SEE_IMAGES = "See attached images."
     const val SEE_FILE = "See attached file."
     const val ATTACHED_FILES = "Attached files:"
+    const val SUMMARY = "Summarize this conversation so far for me, in the language I have been writing in. Use Markdown with these sections: " +
+        "Goal; What was done (key steps and decisions); Changed files (paths); Commands and tests run, with results; Open points and next steps. " +
+        "Be concise. Do not use any tools and do not change anything for this."
 }
 
 // Verlauf in Seiten: beim Öffnen die letzten 3 eigenen Nachrichten samt Antworten, „Ältere Nachrichten laden“ je 5 weitere

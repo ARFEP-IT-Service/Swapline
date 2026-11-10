@@ -239,4 +239,13 @@ internal val TR_TEXTS: Map<String, String> = hashMapOf(
     "nicht verbunden" to "bağlı değil",
     "nicht verfügbar" to "kullanılamıyor",
     "Smileys in Emojis umwandeln" to "Gülen yüzleri emojiye dönüştür",
+    "Frühere Sitzung fortsetzen (Verlauf)" to "Önceki oturuma devam et (geçmiş)",
+    "Chat als Markdown-Datei speichern – mit allen Details" to "Sohbeti tüm ayrıntılarıyla Markdown dosyası olarak kaydet",
+    "Claude fasst den Chat zusammen (Ziel, Ergebnisse, Dateien, offene Punkte)" to "Claude sohbeti özetler (hedef, sonuçlar, dosyalar, açık noktalar)",
+    "Gespeichert" to "Kaydedildi",
+    "Speichern fehlgeschlagen" to "Kaydetme başarısız",
+    "Sitzung" to "Oturum",
+    "Exportiert" to "Dışa aktarıldı",
+    "(offen)" to "(açık)",
+    "Du" to "Sen",
 )

@@ -46,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,6 +91,8 @@ fun HomeScreen(model: AppModel, hostId: String?, onHost: (String) -> Unit, onOpe
     val h = model.host(hostId ?: "") ?: model.hosts.firstOrNull()
     val all = model.hosts.flatMap { x -> listOf(x) + model.servers.filter { it.parent === x } }
     var tab by rememberSaveable { mutableStateOf(0) }
+    // aus einem Chat mit /resume: gleich den Verlauf zeigen
+    LaunchedEffect(model.wantHistory, h?.id) { if (model.wantHistory && h != null) { tab = 1; model.loadHistory(h); model.wantHistory = false } }
     var hostMenu by remember { mutableStateOf(false) }
 
     Scaffold(

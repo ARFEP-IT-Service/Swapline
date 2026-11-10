@@ -3,6 +3,11 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.11.0] – 2026-11-10
+
+- Neu: **/resume** (Verlauf öffnen), **/export** (Chat mit allen Details als Markdown-Datei speichern) und **/summary**
+  (Claude fasst den Chat zusammen) – stehen in der „/“-Auswahl oben.
+
 ## [0.10.0] – 2026-11-10
 
 - Neu: **Smileys werden zu Emojis** (wie am PC) – beim Tippen nach dem Leerzeichen und beim Senden; direkt danach löschen

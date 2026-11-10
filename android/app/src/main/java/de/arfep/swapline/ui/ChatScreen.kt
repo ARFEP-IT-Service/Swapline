@@ -79,6 +79,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -205,6 +206,18 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
             BgTaskBar(model, chat)
             var commands by remember(chat.id) { mutableStateOf<List<CmdOpt>>(emptyList()) }
             LaunchedEffect(chat.id, h?.connected) { if (h?.connected == true) commands = model.commands(h, chat.profileId) }
+            // Befehle der App (wie am PC): vor denen des Kontos
+            val local = listOf(CmdOpt("resume", tr("Frühere Sitzung fortsetzen (Verlauf)", "Resume an earlier session (history)"), ""),
+                CmdOpt("export", tr("Chat als Markdown-Datei speichern – mit allen Details", "Save the chat as a Markdown file – with all details"), ""),
+                CmdOpt("summary", tr("Claude fasst den Chat zusammen (Ziel, Ergebnisse, Dateien, offene Punkte)", "Claude summarizes the chat (goal, results, files, open points)"), ""))
+            val ctx = LocalContext.current
+            val exporter = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+                if (uri != null) scope.launch {
+                    val md = chatMarkdown(chat, h?.record?.name.orEmpty(), de.arfep.swapline.BuildConfig.VERSION_NAME)
+                    val ok = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ctx.contentResolver.openOutputStream(uri)!!.use { it.write(md.toByteArray()) } } }.isSuccess
+                    android.widget.Toast.makeText(ctx, if (ok) tr("Gespeichert", "Saved") else tr("Speichern fehlgeschlagen", "Saving failed"), android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
             var lastEmoji by remember(chat.id) { mutableStateOf<Pair<String, String>?>(null) } // (umgewandelt, vorher)
             val onText: (String) -> Unit = { v ->
                 val undo = lastEmoji
@@ -215,9 +228,23 @@ fun ChatScreen(model: AppModel, chat: Chat, onBack: () -> Unit, onSettings: () -
                     else -> v
                 }
             }
-            Composer(text, onText, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly, commands = commands) {
+            Composer(text, onText, attachments, enabled = h?.connected == true, offline = h?.connected != true, mic = model.micEnabled, onDeviceOnly = model.onDeviceOnly, commands = local + commands.filter { c -> local.none { it.name == c.name } }) {
                 val t = text.trim()
                 if (t.isEmpty() && attachments.isEmpty()) return@Composer
+                when (t) {
+                    "/resume" -> { text = ""; model.wantHistory = true; onBack(); return@Composer }
+                    "/export" -> {
+                        text = ""
+                        scope.launch { model.loadAll(chat); exporter.launch(chat.title.ifBlank { "Chat" }.replace(Regex("[\\\\/:*?\"<>|]"), "-").take(60) + ".md") }
+                        return@Composer
+                    }
+                    "/summary" -> {
+                        if (chat.running) return@Composer
+                        text = ""
+                        scope.launch { model.send(chat, ClaudeText.SUMMARY, shown = "/summary"); list.scrollToItem(0) }
+                        return@Composer
+                    }
+                }
                 // „!befehl“: direkt am Haupt-PC ausführen (wie in der Claude CLI)
                 if (t.startsWith("!") && attachments.isEmpty()) {
                     text = ""

@@ -252,6 +252,20 @@ class ChatTest {
         assertEquals(listOf(CmdOpt("review", "Code prüfen", "[datei]")), cmds)
     }
 
+    // /export: alle Details im Markdown, Backticks in Ausgaben brechen den Code-Block nicht
+    @Test fun exportMarkdown() {
+        val c = chat()
+        c.title = "Export"
+        c.ingest(j("""{"type":"swapline_user","content":{"text":"Bitte testen","images":0},"from":"PC"}"""))
+        c.ingest(j("""{"type":"assistant","message":{"content":[{"type":"text","text":"Mache ich."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm test"}}]}}"""))
+        c.ingest(j("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"42 passed"}]}}"""))
+        c.ingest(j("""{"type":"swapline_bash","id":"b1","command":"git status","state":"done","code":0,"output":"clean ``` drin"}"""))
+        c.ingest(j("""{"type":"result","subtype":"success","is_error":false,"duration_ms":3200,"total_cost_usd":0.012,"swapline_cost_delta":0.012}"""))
+        val md = de.arfep.swapline.ui.chatMarkdown(c, "PC", "0.0.0")
+        assertTrue(md, md.startsWith("# Export") && md.contains("Bitte testen") && md.contains("Mache ich.") && md.contains("npm test") && md.contains("42 passed") && md.contains("**! git status**"))
+        assertTrue(md, md.contains("````\nclean ``` drin\n````"))
+    }
+
     @Test fun markdownImages() {
         val b = parseMarkdown("Hier:\n![Diagramm](out/chart.png)\n![](https://example.com/a.png \"Titel\")\nText mit ![klein](x.png) mitten drin")
         assertEquals(Block.Para("Hier:"), b[0])

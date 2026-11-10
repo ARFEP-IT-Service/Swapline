@@ -62,6 +62,12 @@ class AppModel(context: Context, private val notifier: Notifier) {
     fun changeMic(on: Boolean) { micEnabled = on; prefs.edit().putBoolean("micEnabled", on).apply() }
     var liveEnabled by mutableStateOf(prefs.getBoolean("liveStatus", true))
         private set
+    // /resume im Chat: Startseite mit dem Verlauf öffnen
+    var wantHistory by mutableStateOf(false)
+
+    // /export: vorher den ganzen Verlauf holen (Chats laden sonst nur die letzten Nachrichten)
+    suspend fun loadAll(c: Chat) { repeat(200) { val before = c.olderFrom ?: return; loadOlder(c).join(); if (c.olderFrom == before) return } }
+
     fun changeLive(on: Boolean) { liveEnabled = on; prefs.edit().putBoolean("liveStatus", on).apply(); refreshLive() }
     // Smileys → Emojis beim Tippen und Senden (wie am PC)
     var emojiEnabled by mutableStateOf(prefs.getBoolean("emoji", true))
@@ -371,9 +377,10 @@ class AppModel(context: Context, private val notifier: Notifier) {
 
     // Nachricht an Claude: Text, optional mit Bildern (base64-JPEG). Ohne Text steht ein fester englischer Hinweis
     // im Inhalt, den Claude liest (wie in Swapline am PC).
-    suspend fun send(c: Chat, text: String, images: List<String> = emptyList(), docs: List<Pair<String, String>> = emptyList()): Boolean {
+    // shown: was in der eigenen Sprechblase steht (z. B. „/summary“ statt des englischen Auftrags an Claude)
+    suspend fun send(c: Chat, text: String, images: List<String> = emptyList(), docs: List<Pair<String, String>> = emptyList(), shown: String? = null): Boolean {
         val h = host(c.hostId) ?: return false
-        c.addOwn(text, images.size, docs.map { it.first })
+        c.addOwn(shown ?: text, images.size, docs.map { it.first })
         updateLive(c)
         // Dokumente zuerst auf den Haupt-PC (je bis 25 MB, über Mobilfunk evtl. langsam) – Claude bekommt die Pfade
         val paths = mutableListOf<String>()
