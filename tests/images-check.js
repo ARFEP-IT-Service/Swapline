@@ -37,7 +37,8 @@ const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: 
     if (bash) {
       const { execFileSync } = require('node:child_process');
       const home = fs.mkdtempSync(path.join(os.tmpdir(), 'swapline-ssh-home-'));
-      const posix = p => (process.platform === 'win32' ? execFileSync(bash, ['-c', 'cygpath -u ' + JSON.stringify(p)], { encoding: 'utf8' }).trim() : p);
+      // volle Pfade (GitHub-Windows liefert Temp-Ordner als 8.3-Kurznamen wie RUNNER~1, die Git Bash nicht auflöst)
+      const posix = p => { const full = fs.realpathSync.native(p); return process.platform === 'win32' ? execFileSync(bash, ['-c', 'cygpath -u ' + JSON.stringify(full)], { encoding: 'utf8' }).trim() : full; };
       fs.mkdirSync(path.join(home, 'bilder')); fs.writeFileSync(path.join(home, 'bilder', 'qr.png'), png); fs.writeFileSync(path.join(home, 'notiz.png'), 'text');
       const run = (folders, cwd, file) => c.serverImageResult(execFileSync(bash, ['-c', c.serverImageScript(folders, cwd, file)], { encoding: 'utf8', env: { ...process.env, HOME: posix(home) } }), file);
       const proj = posix(d);
