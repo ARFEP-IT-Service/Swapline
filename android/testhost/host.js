@@ -12,9 +12,8 @@ let devices = [];
 let denyNext = false;
 let lastTab = null; // zuletzt beigetretener Chat des Geräts (für „tasks“)
 let mute = false; // „stumm“: Anfragen bleiben unbeantwortet (tote Verbindung nachstellen)
-// validContent aus src/main.js (der echte Code, nicht nachgebaut): prüft, was ein Gerät als Nachricht schickt
-const mainSrc = require('node:fs').readFileSync(path.join(__dirname, '..', '..', 'src', 'main.js'), 'utf8');
-const validContent = new Function(/^const IMAGE_MEDIA = .*$/m.exec(mainSrc)[0] + '\n' + /^function validContent[\s\S]*?^}/m.exec(mainSrc)[0] + '\nreturn validContent;')();
+// validContent aus src/chat-core.js (der echte Code der PC-App, nicht nachgebaut): prüft, was ein Gerät als Nachricht schickt
+const { validContent } = require(path.join(__dirname, '..', '..', 'src', 'chat-core.js'));
 const out = o => process.stdout.write(JSON.stringify(o) + '\n');
 
 const host = remote.createHost({

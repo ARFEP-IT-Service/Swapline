@@ -98,6 +98,9 @@ function uiLang() {
 // fehlt beides, Englisch
 const TR = require('./renderer/i18n-tr.js');
 const tr = (de, en, tk) => { const l = uiLang(); return l === 'en' ? en : l === 'tr' ? (tk ?? (Object.prototype.hasOwnProperty.call(TR, de) ? TR[de] : en)) : de; };
+// Gemeinsam mit dem Server-Dienst (server/): Nachrichten und Antworten prüfen, Startparameter, Verlauf lesen
+const { validContent, IMAGE_MEDIA, claudeArgs, checkResponse, encodeCwd, readHead, parseSessionHead, listSessions, loadTranscript, transcriptFromText, pageTranscript } = require('./chat-core');
+const listHistory = (profile, limit = 200) => listSessions(path.join(profile.configDir, 'projects'), tr('(ohne Titel)', '(untitled)'), limit);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[\]]{0,63}$/i.test(v));
 // Netzwerkpfade (UNC, \\server\… oder //server/…) werden nie geprüft oder benutzt – schon die Existenzprüfung
@@ -316,14 +319,7 @@ function trackBgTask(s, m) {
 }
 function startSession(tab) {
   const profile = profileById(tab.profileId);
-  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    '--permission-prompt-tool', 'stdio', '--include-partial-messages'];
-  if (tab.sessionId) args.push('--resume', tab.sessionId);
-  if (tab.model) args.push('--model', tab.model);
-  // "Alles erlauben" = --dangerously-skip-permissions (keine Rückfragen, wie im Terminal)
-  if (tab.permissionMode === 'bypassPermissions') args.push('--dangerously-skip-permissions');
-  else if (tab.permissionMode && tab.permissionMode !== 'default') args.push('--permission-mode', tab.permissionMode);
-  if (tab.effort) args.push('--effort', tab.effort);
+  const args = claudeArgs(tab);
 
   const proc = tab.ssh ? spawnSsh(tab.ssh, claudeOnServer(args, tab.cwd)) : spawnClaude(args, profile, { chat: true, cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
   // lastCost: letzter Kostenstand der Sitzung. Beim Fortsetzen (--resume) startet Claude Code mit den bisherigen Kosten
@@ -408,92 +404,10 @@ function pushUsage() {
 }
 
 // ---------- Verlauf aus <configDir>/projects lesen ----------
-function encodeCwd(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
 
-function readHead(file, bytes = 65536) {
-  const fd = fs.openSync(file, 'r');
-  try {
-    const buf = Buffer.alloc(bytes);
-    const n = fs.readSync(fd, buf, 0, bytes, 0);
-    return buf.subarray(0, n).toString('utf8');
-  } finally { fs.closeSync(fd); }
-}
-function readTail(file, bytes = 65536) {
-  const size = fs.statSync(file).size;
-  const fd = fs.openSync(file, 'r');
-  try {
-    const start = Math.max(0, size - bytes);
-    const buf = Buffer.alloc(size - start);
-    fs.readSync(fd, buf, 0, buf.length, start);
-    return buf.toString('utf8');
-  } finally { fs.closeSync(fd); }
-}
 
-function listHistory(profile, limit = 200) {
-  const root = path.join(profile.configDir, 'projects');
-  const items = [];
-  let dirs = [];
-  try { dirs = fs.readdirSync(root); } catch { return []; }
-  for (const d of dirs) {
-    let files = [];
-    try { files = fs.readdirSync(path.join(root, d)).filter(f => f.endsWith('.jsonl')); } catch { continue; }
-    for (const f of files) {
-      const full = path.join(root, d, f);
-      try { items.push({ file: full, mtime: fs.statSync(full).mtimeMs, sessionId: f.slice(0, -6) }); } catch {}
-    }
-  }
-  items.sort((a, b) => b.mtime - a.mtime);
-  const untitled = tr('(ohne Titel)', '(untitled)');
-  return items.slice(0, limit).map(it => {
-    let text = '';
-    try { text = readHead(it.file) + '\n' + readTail(it.file, 32768); } catch {}
-    const { title, cwd, firstPrompt } = parseSessionHead(text);
-    return { sessionId: it.sessionId, file: it.file, mtime: it.mtime, cwd, title: title || firstPrompt.slice(0, 80) || untitled };
-  }).filter(h => h.cwd || h.title !== untitled);
-}
-function parseSessionHead(text) {
-  let title = '', cwd = '', firstPrompt = '';
-  {
-    {
-      for (const line of text.split('\n')) {
-        if (!line.startsWith('{')) continue;
-        if (line.includes('"ai-title"') || line.includes('"custom-title"')) {
-          try { const o = JSON.parse(line); title = o.customTitle || o.aiTitle || title; } catch {}
-        } else if (!cwd && line.includes('"cwd"')) {
-          try { const o = JSON.parse(line); if (o.cwd) cwd = o.cwd; } catch {}
-        }
-        if (!firstPrompt && line.includes('"type":"user"')) {
-          try {
-            const o = JSON.parse(line);
-            const c = o.message?.content;
-            if (typeof c === 'string' && !c.startsWith('<')) firstPrompt = c;
-          } catch {}
-        }
-      }
-    }
-  }
-  return { title, cwd, firstPrompt };
-}
 
 // Nachrichten einer alten Sitzung für die Anzeige laden
-function loadTranscript(file) {
-  let text = '';
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
-  return transcriptFromText(text);
-}
-function transcriptFromText(text) {
-  const out = [];
-  for (const line of text.split('\n')) {
-    if (!line.startsWith('{')) continue;
-    let o; try { o = JSON.parse(line); } catch { continue; }
-    if ((o.type === 'user' || o.type === 'assistant') && o.message && !o.isSidechain && !o.isMeta) {
-      out.push({ type: o.type, message: o.message, timestamp: o.timestamp, fromHistory: true });
-    } else if (o.type === 'system' && o.subtype === 'away_summary' && typeof o.content === 'string') {
-      out.push({ type: 'system', subtype: 'away_summary', content: o.content, timestamp: o.timestamp, fromHistory: true });
-    }
-  }
-  return out;
-}
 
 // Sitzung in ein anderes Konto kopieren, damit sie dort mit --resume fortgesetzt werden kann
 // Sitzungsdatei <configDir>/projects/<ordner>/<uuid>.jsonl finden. Die Session-ID muss eine UUID sein,
@@ -786,42 +700,6 @@ handle('history:loadSession', (_e, { profileId, sessionId, cwd, turns, before } 
   return paged ? pageTranscript(all, turns, before) : all;
 });
 // Eigene Nachricht (Beginn eines Abschnitts): Nutzer-Nachricht mit Text, nicht nur Werkzeug-Ergebnisse oder interne Hinweise
-const PAGE_HIDDEN = /^\s*<(command-|local-command|system-reminder|user-memory|task-notification)/;
-function isPrompt(m) {
-  if (m?.type !== 'user') return false;
-  const c = m.message?.content;
-  if (typeof c === 'string') return !!c.trim() && !PAGE_HIDDEN.test(c) && !c.startsWith('[Request interrupted');
-  return Array.isArray(c) && c.some(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim() && !PAGE_HIDDEN.test(b.text));
-}
-const PAGE_CUT = 4000, PAGE_MAX_MSGS = 600;
-const cutText = s => (typeof s === 'string' && s.length > PAGE_CUT ? s.slice(0, PAGE_CUT) + `\n… [${s.length - PAGE_CUT} more characters]` : s);
-// Für die Anzeige auf dem Gerät verkleinern: Bilder ohne Daten, lange Ergebnisse und Eingaben gekürzt, Denkblöcke weg
-function slimMessage(m) {
-  const c = m.message?.content;
-  if (!Array.isArray(c)) return m;
-  const content = c.filter(b => b && b.type !== 'thinking' && b.type !== 'redacted_thinking').map(b => {
-    if (b.type === 'image') return { type: 'image', source: { type: 'base64', media_type: b.source?.media_type || 'image/png', data: '' }, omitted: true };
-    if (b.type === 'tool_result') {
-      const r = Array.isArray(b.content) ? b.content.filter(x => x?.type === 'text').map(x => x.text).join('\n') : b.content;
-      return { ...b, content: cutText(typeof r === 'string' ? r : '') };
-    }
-    if (b.type === 'tool_use' && b.input && typeof b.input === 'object') {
-      return { ...b, input: Object.fromEntries(Object.entries(b.input).map(([k, v]) => [k, typeof v === 'string' ? cutText(v) : v])) };
-    }
-    return b;
-  });
-  return { ...m, message: { ...m.message, content } };
-}
-function pageTranscript(all, turns, before) {
-  const end = Number.isInteger(before) && before >= 0 && before <= all.length ? before : all.length;
-  let start = end, n = 0;
-  while (start > 0) {
-    start--;
-    if (isPrompt(all[start]) && ++n >= turns) break;
-  }
-  if (end - start > PAGE_MAX_MSGS) start = end - PAGE_MAX_MSGS; // ein Abschnitt mit sehr vielen Schritten: nur dessen Ende
-  return { msgs: all.slice(start, end).map(slimMessage), start, total: all.length };
-}
 
 // Tab-Daten aus der Oberfläche werden vollständig geprüft, bevor Claude gestartet wird
 function validTab(t) {
@@ -837,14 +715,6 @@ handle('session:confirmBypass', e => confirmBypass(e));
 // Warnung zu „Alles erlauben“ wieder einschalten (nur in diese sichere Richtung von der Oberfläche aus möglich)
 handle('settings:resetBypassWarning', () => updateStore(s => { delete s.bypassAcknowledged; }));
 // Nachrichteninhalt: Text oder Liste aus Text- und Bild-Blöcken (Bilder als base64, nur png/jpeg/gif/webp, je max. 5 MB)
-const IMAGE_MEDIA = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-function validContent(c) {
-  if (typeof c === 'string') return c.length <= 2e6;
-  if (!Array.isArray(c) || !c.length || c.length > 20) return false;
-  return c.every(b => (b?.type === 'text' && typeof b.text === 'string' && b.text.length <= 2e6)
-    || (b?.type === 'image' && b.source?.type === 'base64' && IMAGE_MEDIA.includes(b.source.media_type)
-      && typeof b.source.data === 'string' && b.source.data.length <= 7e6 && /^[A-Za-z0-9+/]+=*$/.test(b.source.data)));
-}
 // Anhänge über den Datei-Dialog: Bilder werden eingelesen (base64), andere Dateien nur als Pfad übergeben
 handle('attach:pick', async () => {
   const r = await dialog.showOpenDialog(win, { title: tr('Dateien anhängen', 'Attach files'), properties: ['openFile', 'multiSelections'] });
@@ -884,33 +754,13 @@ handle('session:send', (_e, { tab: rawTab, content }) => {
 // Antwort auf eine Berechtigungsanfrage. Nur offene Anfragen dieser CLI werden beantwortet; die Eingabe des
 // Werkzeugs darf nicht verändert werden (Ausnahme: Antworten auf eine Frage), Regeln nur exakt so, wie die CLI
 // sie vorgeschlagen hat, und nie ein Moduswechsel.
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 handle('session:respond', (_e, { tabId, requestId, response } = {}) => {
   const s = sessions.get(tabId);
   const req = s?.pending.get(requestId);
   const reject = why => { logError('session:respond abgelehnt: ' + why); return false; };
   if (!req) return reject('keine offene Anfrage');
-  if (!response || !['allow', 'deny'].includes(response.behavior)) return reject('ungültige Antwort');
-  let out;
-  if (response.behavior === 'deny') {
-    // Claude liest den Text: Standard immer Englisch
-    out = { behavior: 'deny', message: String(response.message || 'Declined.').slice(0, 500) };
-  } else {
-    let input = req.input;
-    if (req.toolName === 'AskUserQuestion') {
-      const { answers, ...rest } = response.updatedInput || {};
-      if (!same(rest, req.input)) return reject('Eingabe verändert');
-      const clean = {};
-      for (const [k, v] of Object.entries(answers || {})) if (typeof v === 'string') clean[String(k).slice(0, 500)] = v.slice(0, 2000);
-      input = { ...req.input, answers: clean };
-    } else if (!same(response.updatedInput, req.input)) return reject('Eingabe verändert');
-    out = { behavior: 'allow', updatedInput: input };
-    if (response.updatedPermissions != null) {
-      const perms = response.updatedPermissions;
-      if (!req.suggestions || !same(perms, req.suggestions) || perms.some(x => x?.type === 'setMode')) return reject('Regeln nicht wie vorgeschlagen');
-      out.updatedPermissions = req.suggestions;
-    }
-  }
+  const { out, error } = checkResponse(req, response);
+  if (error) return reject(error);
   s.pending.delete(requestId);
   writeTo(tabId, { type: 'control_response', response: { subtype: 'success', request_id: requestId, response: out } });
   send(tabId, { type: 'swapline_answered', requestId, behavior: out.behavior, from: _e?.remote ? _e.remote.name : os.hostname().slice(0, 40) });

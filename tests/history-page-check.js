@@ -1,15 +1,9 @@
-// Verlauf in Seiten (history:loadSession mit turns/before): der echte Code aus src/main.js, ohne App.
+// Verlauf in Seiten (history:loadSession mit turns/before): src/chat-core.js (PC-App und Server-Dienst), ohne App.
 // Wird von tests/run.js gestartet, Ergebnis als JSON.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
-const pick = re => { const m = re.exec(src); if (!m) throw new Error('nicht gefunden: ' + re); return m[0]; };
-const code = [
-  pick(/^const PAGE_HIDDEN = .*$/m), pick(/^function isPrompt[\s\S]*?^}/m), pick(/^const PAGE_CUT = .*$/m), pick(/^const cutText = .*$/m),
-  pick(/^function slimMessage[\s\S]*?^}/m), pick(/^function pageTranscript[\s\S]*?^}/m),
-].join('\n');
-const { pageTranscript } = new Function(code + '\nreturn { pageTranscript };')();
+const { pageTranscript } = require(path.join(__dirname, '..', 'src', 'chat-core.js'));
 const results = [];
 const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: String(detail) });
 

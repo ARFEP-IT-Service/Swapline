@@ -1,0 +1,74 @@
+name: Server release
+
+# Swapline Server (server/): testet unter Linux und veröffentlicht bei einem Tag server-v<Version> das Paket
+# swapline-server-<Version>.tar.gz – NIE als „Latest“ (das bleibt Swapline am PC, dessen Updates /releases/latest lesen).
+on:
+  push:
+    tags: ["server-v*"]
+  workflow_dispatch:   # nur testen und als Artefakt ablegen
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests (Server, Verlauf in Seiten)
+        run: |
+          node tests/server-check.js 2>/dev/null > server-results.json
+          node tests/history-page-check.js > page-results.json
+          node -e "const r=[...require('./server-results.json'),...require('./page-results.json')];for(const x of r)console.log((x.ok?'✓ ':'✕ ')+x.name+(x.ok?'':' – '+x.detail));if(r.some(x=>!x.ok)||r.length<20)process.exit(1)"
+
+      - name: Tag matches server/package.json
+        run: |
+          v=$(node -p "require('./server/package.json').version")
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "server-v$v" != "$GITHUB_REF_NAME" ]; then echo "Tag $GITHUB_REF_NAME passt nicht zu Version $v"; exit 1; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Package
+        run: |
+          d=swapline-server-$VERSION
+          mkdir -p dist-server/$d/src dist-server/$d/node_modules/qrcode-generator/dist
+          cp -R server dist-server/$d/
+          rm -f dist-server/$d/server/install.sh
+          cp server/install.sh dist-server/$d/install.sh
+          chmod 755 dist-server/$d/install.sh dist-server/$d/server/swapline-server.js
+          cp src/remote.js src/relay-link.js src/chat-core.js dist-server/$d/src/
+          cp node_modules/qrcode-generator/package.json dist-server/$d/node_modules/qrcode-generator/
+          cp node_modules/qrcode-generator/dist/qrcode.js dist-server/$d/node_modules/qrcode-generator/dist/
+          cp tools/licenses/npm/qrcode-generator.txt dist-server/$d/node_modules/qrcode-generator/LICENSE
+          cp LICENSE dist-server/$d/
+          # Probelauf aus dem Paket: Hilfe und Version
+          node dist-server/$d/server/swapline-server.js version
+          (cd dist-server && tar czf $d.tar.gz $d && sha256sum $d.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt | tee -a "$GITHUB_STEP_SUMMARY")
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: swapline-server-${{ github.ref_name }}
+          path: |
+            dist-server/*.tar.gz
+            dist-server/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release (not Latest)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node -e "const s=require('fs').readFileSync('server/CHANGELOG.md','utf8');const m=s.split(/^## /m).find(x=>x.startsWith('['+process.argv[1]+']'));console.log((m?m.split('\n').slice(1).join('\n').trim():'Swapline Server '+process.argv[1])+'\n\nInstallation und Befehle: https://github.com/ARFEP-IT-Service/Swapline/blob/main/server/README.md')" "$VERSION" > dist-server/notes.md
+          gh release create "$GITHUB_REF_NAME" --title "Swapline Server $VERSION" --notes-file dist-server/notes.md --latest=false \
+            dist-server/swapline-server-$VERSION.tar.gz dist-server/SHA256SUMS.txt

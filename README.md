@@ -70,6 +70,8 @@ Ein PC mit Swapline kann **Haupt-PC** sein: Andere eigene Geräte mit Swapline v
 
 **Ohne Portfreigabe – Swapline Relay:** Mit der App *Swapline Relay* auf einem eigenen Server (Windows; Linux ohne Oberfläche) ist der Haupt-PC von unterwegs ohne Portfreigabe und ohne VPN erreichbar; die Verbindung bleibt Ende-zu-Ende verschlüsselt. Einrichtung siehe [relay/README.md](relay/README.md): auf dem Server installieren, „Als Dienst einrichten“, Einrichtungscode kopieren und in Swapline unter Fernzugriff → **Über Vermittler erreichbar** einfügen. „Fernzugriff erlauben“ muss dafür an sein – am Router wird dabei nichts geöffnet. Handys und andere PCs nutzen den Vermittler automatisch, wenn der Haupt-PC direkt nicht erreichbar ist.
 
+**Ohne PC – Swapline Server:** Auf einem eigenen Linux-Server (z. B. VPS) übernimmt *Swapline Server* die Rolle des Haupt-PCs ohne Fenster: Claude Code läuft dort, das Handy koppelt sich per QR-Code direkt oder über den Vermittler. Installation und Befehle siehe [server/README.md](server/README.md). Alternativ reicht ein PC mit Swapline seine SSH-Server an das Handy weiter (Geräteliste → „SSH-Server“).
+
 **Dateien von Geräten:** Ein Gerät (z. B. die Android-App) kann Dokumente schicken. Sie landen auf dem Haupt-PC in einem eigenen Ordner je Datei unter `%TEMP%\swapline-uploads` (höchstens 25 MB, nach 7 Tagen gelöscht); Claude bekommt den Pfad.
 
 **Handy (Android):** Die App *Swapline für Android* (Ordner [android/](android/), APK in den Releases unter `android-v…`) koppelt sich per QR-Code wie ein weiteres Gerät – Claude läuft auch dann nur auf dem Haupt-PC.
