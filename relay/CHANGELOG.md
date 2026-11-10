@@ -3,6 +3,11 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC und der Android-App.
 Tags: `relay-v<Version>`.
 
+## [0.2.2] – 2026-11-09
+
+- Update-Prüfung liest jetzt die neuesten 100 statt 30 Releases – PC-, Relay- und Handy-Versionen stehen in derselben
+  Liste, sonst wären neue Relay-Versionen nach einigen PC-Releases nicht mehr gefunden worden.
+
 ## [0.2.1] – 2026-11-09
 
 - Neu: Knopf **„Nach Updates suchen“** oben rechts – prüft sofort und meldet auch „ist aktuell“.

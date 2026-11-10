@@ -30,6 +30,10 @@ const rel = (tag, extra = {}) => ({
     check('Relay-Update: ohne SHA256SUMS.txt → nicht installierbar', U.pickUpdate([noSums], '0.1.0')?.setup === null);
     const other = rel('relay-v0.1.1'); other.assets[0].browser_download_url = `${DL}relay-v0.1.0/Swapline-Relay-Setup-0.1.1.exe`;
     check('Relay-Update: Datei aus anderem Release → nicht installierbar', U.pickUpdate([other], '0.1.0')?.setup === null);
+    // PC-, Relay- und Handy-Releases teilen sich eine Liste: genug Einträge abfragen, sonst fällt die Relay-Version heraus
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'relay', 'app', 'update.js'), 'utf8');
+    const kt = require('node:fs').readFileSync(path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'java', 'de', 'arfep', 'swapline', 'model', 'Updates.kt'), 'utf8');
+    check('Update-Prüfung (Relay und Handy) fragt 100 Releases ab', /releases\?per_page=100/.test(src) && /releases\?per_page=100/.test(kt));
     check('Relay-Update: unsinnige Antwort → kein Update', U.pickUpdate({ message: 'rate limit' }, '0.1.0') === null);
 
     const h = 'a'.repeat(64), h2 = 'B'.repeat(64);

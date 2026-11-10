@@ -6,7 +6,8 @@ const https = require('node:https');
 const crypto = require('node:crypto');
 
 const REPO = 'ARFEP-IT-Service/Swapline';
-const API = `https://api.github.com/repos/${REPO}/releases?per_page=30`;
+// 100 statt 30: PC-, Relay- und Handy-Releases stehen in einer Liste – sonst fällt die Relay-Version irgendwann heraus
+const API = `https://api.github.com/repos/${REPO}/releases?per_page=100`;
 const RELEASES = `https://github.com/${REPO}/releases/`;
 const MAX_SETUP = 400 * 1024 * 1024;
 // Downloads beginnen bei github.com und werden auf GitHubs Datei-Server umgeleitet – nur dorthin folgen
