@@ -97,7 +97,7 @@ if (!filter || 'i18n'.includes(filter)) { // npm test -- i18n: nur diese Prüfun
 if (!filter || 'server'.includes(filter)) { // Swapline Server (server/): echter Dienst mit nachgebautem Claude Code
   console.log('\nserver');
   let results;
-  try { results = JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'server-check.js')], { encoding: 'utf8', timeout: 120000 }).stdout); }
+  try { results = JSON.parse(spawnSync(process.execPath, [path.join(__dirname, 'server-check.js')], { encoding: 'utf8', timeout: 600000 }).stdout); }
   catch (e) { results = [{ name: 'Server prüfen', ok: false, detail: e.message }]; }
   for (const r of results) {
     if (r.ok) passed++; else failed++;

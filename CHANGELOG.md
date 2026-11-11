@@ -7,6 +7,11 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.19.1] – 2026-11-11
+
+- Inhalt wie 0.19.0 (diese Version wurde nicht veröffentlicht: der Release-Lauf brach ab, weil der Server-Test mit der
+  neuen Upload-Grenze auf GitHub länger als 2 Minuten brauchte). Nur die Zeitgrenze des Tests wurde angehoben.
+
 ## [0.19.0] – 2026-11-11
 
 - Sicherheit: **Rechte neuer Geräte** – „Alles erlauben“, „!“-Befehle, SSH-Server und „Projekte anlegen“ sind beim Koppeln
