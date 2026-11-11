@@ -13,7 +13,7 @@ const { spawn, execFile } = require('node:child_process');
 
 const src = path.join(__dirname, '..', '..', 'src');
 const remote = require(path.join(src, 'remote.js'));
-const { createRelayLink } = require(path.join(src, 'relay-link.js'));
+const { createRelayLink, checkDial } = require(path.join(src, 'relay-link.js'));
 const core = require(path.join(src, 'chat-core.js'));
 const C = require('./config.js');
 const VERSION = require('../package.json').version;
@@ -25,6 +25,7 @@ const isModel = v => v === '' || (typeof v === 'string' && /^[a-z0-9][a-z0-9.\-[
 const HOME = os.homedir();
 const HOST_NAME = os.hostname().slice(0, 40);
 const UPLOAD_MAX = 25 * 1024 * 1024;
+const UPLOAD_DAY = 500 * 1024 * 1024, UPLOAD_TOTAL = 2 * 1024 * 1024 * 1024, UPLOAD_KEEP = 7 * 24 * 3600 * 1000;
 const BASH_TIMEOUT = 120000, BASH_MAX = 30000;
 const OUTPUT_RE = /(?:Output is being written to:\s*|"output_file":")((?:[^"\\]|\\.)+?\.output)/g;
 
@@ -32,7 +33,7 @@ const log = msg => console.error(`[${new Date().toISOString()}] ${msg}`); // std
 
 function startDaemon({ port } = {}) {
   let cfg = C.load();
-  C.save(cfg); // erzeugt hostId/dialKey beim ersten Start
+  C.save(cfg); // erzeugt hostId und je Gerät einen dialKey beim ersten Start (Umstellung siehe config.js)
   const setCfg = patch => { cfg = { ...cfg, ...patch }; C.save(cfg); };
   const projectsRoot = () => path.join(process.env.CLAUDE_CONFIG_DIR || path.join(HOME, '.claude'), 'projects');
 
@@ -161,11 +162,12 @@ function startDaemon({ port } = {}) {
 
   // ---------- Erreichbarkeit (für Geräte und den Kopplungslink) ----------
   const addresses = () => remote.localAddresses().sort((a, b) => Number(a.tailscale) - Number(b.tailscale)).map(a => a.address).slice(0, 6);
-  const relayReach = () => (cfg.relay ? { address: cfg.relay.address, port: cfg.relay.port, hostId: cfg.hostId, dialKey: cfg.dialKey } : null);
+  // je Gerät mit dessen eigenem dialKey; der Kopplungslink enthält keinen Schlüssel
+  const relayReach = dev => (cfg.relay && dev?.dialKeyEnc ? { address: cfg.relay.address, port: cfg.relay.port, hostId: cfg.hostId, dialKey: dev.dialKeyEnc } : null);
   function pairLink(code) {
-    const rr = relayReach();
+    const rr = cfg.relay;
     return 'swapline://pair?v=1&a=' + addresses().join(',') + '&p=' + host.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(HOST_NAME)
-      + (rr ? '&r=' + encodeURIComponent(rr.address + ':' + rr.port) + '&h=' + rr.hostId + '&k=' + rr.dialKey : '');
+      + (rr ? '&r=' + encodeURIComponent(rr.address + ':' + rr.port) + '&h=' + cfg.hostId : '');
   }
   const color = i => ['#0EA5E9', '#22C55E', '#F97316', '#7C5CFF', '#E5007E', '#EAB308'][i % 6];
   function store(dev) {
@@ -175,12 +177,13 @@ function startDaemon({ port } = {}) {
       allowedFolders: cfg.folders, settings: { model: '', effort: '', permissionMode: 'default' },
       scope: { limited: false, accountsLimited: false, newChats: true },
       hostName: HOST_NAME, hostVersion: 'server ' + VERSION, allowBypass: !!dev.allowBypass, canEditProjects: false,
-      reach: { addresses: addresses(), port: host.port, relay: relayReach() }, servers: [],
+      reach: { addresses: addresses(), port: host.port, relay: relayReach(dev) }, servers: [],
     };
   }
 
   // ---------- Anfragen der Geräte ----------
   const notAllowed = () => { throw new Error('Auf dem Server nicht verfügbar'); };
+  const uploadDay = new Map(); // Geräte-ID -> { day, bytes }
   async function dispatch(dev, ch, args) {
     const a0 = args[0];
     switch (ch) {
@@ -242,7 +245,7 @@ function startDaemon({ port } = {}) {
       case 'session:restart': case 'session:close': { const key = keyOf(dev, a0); if (key) stopSession(key); return true; }
       case 'session:confirmBypass': return !!dev.allowBypass;
       case 'session:bash': {
-        if (!dev.allowBypass) throw new Error('„!“-Befehle sind für dieses Gerät nicht freigegeben (swapline-server devices bypass <Name> on)');
+        if (dev.allowBang !== true) throw new Error('„!“-Befehle sind für dieses Gerät nicht freigegeben (swapline-server devices bang <Name> on)');
         const tab = validTab(a0?.tab);
         const command = a0?.command;
         if (!tab || typeof command !== 'string' || !command.trim() || command.length > 8000 || command.includes('\0')) return false;
@@ -253,10 +256,21 @@ function startDaemon({ port } = {}) {
         const name = String(a0?.name || '').replace(/[^\p{L}\p{N} ._()-]/gu, '_').replace(/^\.+/, '').slice(0, 120) || 'datei';
         const data = typeof a0?.data === 'string' ? a0.data : '';
         if (!/^[A-Za-z0-9+/]*=*$/.test(data) || data.length > Math.ceil(UPLOAD_MAX / 3) * 4) return { error: 'Datei zu groß oder ungültig (höchstens 25 MB)' };
+        const buf = Buffer.from(data, 'base64');
+        // Grenzen: je Gerät 500 MB am Tag, alle Uploads zusammen 2 GB; älter als 7 Tage wird gelöscht
+        const day = new Date().toISOString().slice(0, 10), used = uploadDay.get(dev.id);
+        const today = used?.day === day ? used.bytes : 0;
+        if (today + buf.length > UPLOAD_DAY) return { error: 'Tagesgrenze für Dateien erreicht (500 MB je Gerät)' };
         const dir = path.join(C.dataDir(), 'uploads');
         fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        let total = 0;
+        for (const f of fs.readdirSync(dir)) {
+          const q = path.join(dir, f);
+          try { const st = fs.statSync(q); if (Date.now() - st.mtimeMs > UPLOAD_KEEP) fs.rmSync(q, { force: true }); else total += st.size; } catch {}
+        }
+        if (total + buf.length > UPLOAD_TOTAL) return { error: 'Upload-Ordner ist voll (2 GB) – ältere Dateien werden nach 7 Tagen gelöscht' };
+        uploadDay.set(dev.id, { day, bytes: today + buf.length });
         const full = path.join(dir, crypto.randomBytes(4).toString('hex') + '-' + name);
-        const buf = Buffer.from(data, 'base64');
         fs.writeFileSync(full, buf, { mode: 0o600 });
         return { path: full, name, size: buf.length };
       }
@@ -280,23 +294,32 @@ function startDaemon({ port } = {}) {
   }
 
   // ---------- Kopplung: nur, solange „swapline-server pair“ im Terminal läuft – dort wird jede Kopplung bestätigt ----------
-  let pairer = null; // { ask(name, address) → Promise<bool>, paired(name) }
+  let pairer = null; // { ask(name, address) → Promise<{ ok, rights }>, paired(name) }
   const host = remote.createHost({
     getDevices: () => cfg.devices,
     saveDevices: list => setCfg({ devices: list }),
     encrypt: s => s, decrypt: s => s, // Schutz über die Dateirechte (0600), siehe config.js
+    // Rechte nur, wenn im Terminal einzeln mit „j“ bestätigt (Standard: nein); SSH-Server/Projekte gibt es hier nicht
     confirmPair: async ({ name, address }) => {
       if (!pairer) return false;
-      const ok = await pairer.ask(name, address);
-      if (ok) setTimeout(() => pairer?.paired(name), 200);
-      return ok;
+      const a = await pairer.ask(name, address);
+      if (!a?.ok) return false;
+      setTimeout(() => pairer?.paired(name), 200);
+      return { ok: true, rights: { allowBypass: a.rights?.allowBypass === true, allowBang: a.rights?.allowBang === true } };
     },
     dispatch, log, onChange: () => {},
   });
 
   // ---------- Vermittler ----------
   const relayLink = createRelayLink({ onSocket: (s, from) => host.adopt(s, from), onStatus: (st, d) => log(`Vermittler: ${st}${d ? ' – ' + d : ''}`), log });
-  const applyRelay = () => relayLink.use(cfg.relay ? { address: cfg.relay.address, port: cfg.relay.port, secret: cfg.relay.secret, hostId: cfg.hostId, dialKey: cfg.dialKey } : null);
+  // Gerät beim Einwählen: eigener dialKey (entfernte Geräte haben keinen mehr), beim Koppeln der Schlüssel aus dem Code
+  const verifyDial = (who, nonce, mac) => {
+    if (typeof nonce !== 'string' || typeof mac !== 'string') return false;
+    if (who === 'pair') { const k = host.pairDialKey(); return !!k && checkDial(k, nonce, cfg.hostId, 'pair', mac); }
+    const d = cfg.devices.find(x => x.id === who);
+    return !!d?.dialKeyEnc && checkDial(d.dialKeyEnc, nonce, cfg.hostId, who, mac);
+  };
+  const applyRelay = () => relayLink.use(cfg.relay ? { address: cfg.relay.address, port: cfg.relay.port, keyId: cfg.relay.keyId, key: cfg.relay.key, hostId: cfg.hostId, verifyDial } : null);
 
   // ---------- Steuerung über die Befehlszeile (nur dieser Benutzer: Unix-Socket 0600) ----------
   function control(sock) {
@@ -315,33 +338,41 @@ function startDaemon({ port } = {}) {
       }
     });
     sock.on('error', () => {});
-    sock.on('close', () => { if (pairer?.sock === sock) { pairer = null; host.cancelPairing(); } for (const r of answers.values()) r(false); });
+    sock.on('close', () => { if (pairer?.sock === sock) { pairer = null; host.cancelPairing(); } for (const r of answers.values()) r({ ok: false }); });
     function handle(m) {
       const dev = m.device && cfg.devices.find(d => d.id === m.device || d.name === m.device);
       switch (m.op) {
         case 'status': return send({ ok: true, version: VERSION, port: host.port, addresses: addresses(), folders: cfg.folders, relay: cfg.relay ? { address: cfg.relay.address, port: cfg.relay.port, state: relayLink.state, detail: relayLink.detail } : null,
-          devices: cfg.devices.map(d => ({ id: d.id, name: d.name, allowBypass: !!d.allowBypass, lastSeen: d.lastSeen, connected: host.connected(d.id) })), claude: claudeExe() });
+          relayLegacy: !!cfg.relayLegacy,
+          devices: cfg.devices.map(d => ({ id: d.id, name: d.name, allowBypass: !!d.allowBypass, allowBang: !!d.allowBang, lastSeen: d.lastSeen, connected: host.connected(d.id) })), claude: claudeExe() });
         case 'pair': {
           if (pairer) return send({ error: 'Es läuft schon eine Kopplung' });
           const p = host.startPairing();
           pairer = {
             sock,
-            ask: (name, address) => new Promise(resolve => { const id = crypto.randomBytes(4).toString('hex'); answers.set(id, resolve); send({ event: 'confirm', id, name, address }); setTimeout(() => { if (answers.delete(id)) resolve(false); }, 5 * 60 * 1000); }),
+            ask: (name, address) => new Promise(resolve => { const id = crypto.randomBytes(4).toString('hex'); answers.set(id, resolve); send({ event: 'confirm', id, name, address }); setTimeout(() => { if (answers.delete(id)) resolve({ ok: false }); }, 5 * 60 * 1000); }),
             paired: name => { send({ event: 'paired', name }); pairer = null; },
           };
           return send({ ok: true, code: p.code, expires: p.expires, link: pairLink(p.code) });
         }
-        case 'confirm': { const r = answers.get(m.id); if (r) { answers.delete(m.id); r(!!m.ok); } return; }
+        case 'confirm': { const r = answers.get(m.id); if (r) { answers.delete(m.id); r({ ok: m.ok === true, rights: { allowBypass: m.rights?.allowBypass === true, allowBang: m.rights?.allowBang === true } }); } return; }
         case 'device-remove': {
           if (!dev) return send({ error: 'Gerät nicht gefunden' });
           host.disconnect(dev.id);
+          for (const k of [...bashRuns.keys()]) if (k.startsWith(dev.id + ':')) stopBash(k);
           for (const k of [...sessions.keys()]) if (k.startsWith(dev.id + ':')) stopSession(k);
           setCfg({ devices: cfg.devices.filter(d => d.id !== dev.id) });
           return send({ ok: true });
         }
         case 'device-bypass': {
           if (!dev) return send({ error: 'Gerät nicht gefunden' });
-          setCfg({ devices: cfg.devices.map(d => (d.id === dev.id ? { ...d, allowBypass: !!m.on } : d)) });
+          setCfg({ devices: cfg.devices.map(d => (d.id === dev.id ? { ...d, allowBypass: m.on === true } : d)) });
+          return send({ ok: true });
+        }
+        case 'device-bang': {
+          if (!dev) return send({ error: 'Gerät nicht gefunden' });
+          setCfg({ devices: cfg.devices.map(d => (d.id === dev.id ? { ...d, allowBang: m.on === true } : d)) });
+          if (m.on !== true) for (const k of [...bashRuns.keys()]) if (k.startsWith(dev.id + ':')) stopBash(k);
           return send({ ok: true });
         }
         case 'folder-add': {
@@ -353,11 +384,13 @@ function startDaemon({ port } = {}) {
         }
         case 'folder-remove': setCfg({ folders: cfg.folders.filter(f => f !== m.path && f !== path.resolve(String(m.path || ''))) }); host.broadcast('store-changed', {}); return send({ ok: true });
         case 'relay': {
-          if (m.code == null) { setCfg({ relay: null }); applyRelay(); host.broadcast('store-changed', {}); return send({ ok: true }); }
+          if (m.code == null) { setCfg({ relay: null, relayLegacy: false }); applyRelay(); host.broadcast('store-changed', {}); return send({ ok: true }); }
+          const t = String(m.code).trim();
+          if (t.startsWith('srelay1.')) return send({ error: 'Alter Einrichtungscode – in Swapline Relay (ab 0.3.0) unter „Haupt-PCs“ einen Code für diesen Server erzeugen' });
           let r = null;
-          try { const t = String(m.code).trim(); if (t.startsWith('srelay1.')) r = JSON.parse(Buffer.from(t.slice(8), 'base64url').toString('utf8')); } catch {}
-          if (!r || typeof r.a !== 'string' || !/^[A-Za-z0-9.-]{1,253}$/.test(r.a) || !Number.isInteger(r.p) || r.p < 1 || r.p > 65535 || typeof r.s !== 'string' || r.s.length < 32) return send({ error: 'Einrichtungscode ungültig' });
-          setCfg({ relay: { address: r.a, port: r.p, secret: r.s } });
+          try { if (t.startsWith('srelay2.') && t.length < 1000) r = JSON.parse(Buffer.from(t.slice(8), 'base64url').toString('utf8')); } catch {}
+          if (!r || typeof r.a !== 'string' || !/^[A-Za-z0-9.:-]{1,253}$/.test(r.a) || !Number.isInteger(r.p) || r.p < 1 || r.p > 65535 || !/^[0-9a-f]{8}$/.test(r.i || '') || !/^[0-9a-f]{64}$/.test(r.k || '')) return send({ error: 'Einrichtungscode ungültig' });
+          setCfg({ relay: { address: r.a, port: r.p, keyId: r.i, key: r.k }, relayLegacy: false });
           applyRelay();
           host.broadcast('store-changed', {});
           return send({ ok: true });

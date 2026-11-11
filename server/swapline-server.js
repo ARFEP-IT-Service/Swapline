@@ -19,7 +19,8 @@ const HELP = tr(`Swapline Server ${VERSION}
   swapline-server pair                     Handy koppeln: QR-Code mit der Swapline-App scannen, hier bestätigen
   swapline-server devices                  gekoppelte Geräte
   swapline-server devices remove <Name>    Gerät entfernen
-  swapline-server devices bypass <Name> on|off   „Alles erlauben“ und „!“-Befehle für das Gerät
+  swapline-server devices bypass <Name> on|off   „Alles erlauben“ für das Gerät
+  swapline-server devices bang <Name> on|off     „!“-Befehle für das Gerät (Befehle ohne Claude und ohne Rückfrage)
   swapline-server folders add <Ordner>     Ordner für neue Chats freigeben (auch Unterordner)
   swapline-server folders remove <Ordner>
   swapline-server relay <Einrichtungscode> Über den Vermittler erreichbar (Code aus „Swapline Relay“)
@@ -33,7 +34,8 @@ Bei Claude anmelden: einmal „claude auth login“ als dieser Benutzer.`,
   swapline-server pair                     pair a phone: scan the QR code with the Swapline app, confirm here
   swapline-server devices                  paired devices
   swapline-server devices remove <name>    remove a device
-  swapline-server devices bypass <name> on|off   “Allow everything” and “!” commands for the device
+  swapline-server devices bypass <name> on|off   “Allow everything” for the device
+  swapline-server devices bang <name> on|off     “!” commands for the device (commands without Claude and without asking)
   swapline-server folders add <folder>     allow a folder for new chats (including subfolders)
   swapline-server folders remove <folder>
   swapline-server relay <setup code>       reachable via the relay (code from “Swapline Relay”)
@@ -86,7 +88,8 @@ async function main() {
       console.log('Claude Code: ' + (st.claude || tr('nicht gefunden', 'not found')));
       console.log(tr('Vermittler: ', 'Relay: ') + (st.relay ? `${st.relay.address}:${st.relay.port} – ${st.relay.state}${st.relay.detail ? ' (' + st.relay.detail + ')' : ''}` : tr('aus', 'off')));
       console.log(tr('Ordner für neue Chats: ', 'Folders for new chats: ') + (st.folders.join(', ') || tr('nur das Home-Verzeichnis', 'home directory only')));
-      console.log(tr('Geräte: ', 'Devices: ') + (st.devices.map(d => `${d.name}${d.connected ? ' ●' : ''}${d.allowBypass ? ' [' + tr('Alles erlauben', 'allow everything') + ']' : ''}`).join(', ') || '–'));
+      if (st.relayLegacy) console.log(tr('Vermittler: alter Einrichtungscode gilt nicht mehr – in Swapline Relay (ab 0.3.0) einen Code für diesen Server erzeugen und „swapline-server relay <Code>“ ausführen.', 'Relay: the old setup code is no longer valid – create a code for this server in Swapline Relay (0.3.0 or later) and run “swapline-server relay <code>”.'));
+      console.log(tr('Geräte: ', 'Devices: ') + (st.devices.map(d => `${d.name}${d.connected ? ' ●' : ''}${d.allowBypass ? ' [' + tr('Alles erlauben', 'allow everything') + ']' : ''}${d.allowBang ? ' [!]' : ''}`).join(', ') || '–'));
       return;
     }
     case 'pair': {
@@ -102,9 +105,22 @@ async function main() {
           console.log(m.link);
           console.log(tr(`Code: ${m.code} – gültig 5 Minuten, nur einmal. Abbrechen mit Strg+C.`, `Code: ${m.code} – valid for 5 minutes, once. Cancel with Ctrl+C.`));
         } else if (m.event === 'confirm') {
-          rl.question(tr(`Gerät „${m.name}“ (${m.address}) koppeln? Nur eigene Geräte! [j/N] `, `Pair device “${m.name}” (${m.address})? Own devices only! [y/N] `), a => {
-            sock.write(JSON.stringify({ op: 'confirm', id: m.id, ok: /^(j|ja|y|yes)$/i.test(a.trim()) }) + '\n');
-          });
+          // Rechte einzeln abfragen – Standard jeweils Nein
+          const yes = a => /^(j|ja|y|yes)$/i.test(String(a).trim());
+          const ask = q => new Promise(r => rl.question(q, r));
+          (async () => {
+            const ok = yes(await ask(tr(`Gerät „${m.name}“ (${m.address}) koppeln? Nur eigene Geräte! [j/N] `, `Pair device “${m.name}” (${m.address})? Own devices only! [y/N] `)));
+            let rights = {};
+            if (ok) {
+              console.log(tr('Rechte des Geräts (änderbar mit „swapline-server devices bypass|bang <Name> on|off“):', 'Rights of the device (change with “swapline-server devices bypass|bang <name> on|off”):'));
+              const red = t => (process.stdout.isTTY ? '\x1b[31m' + t + '\x1b[0m' : t);
+              rights = {
+                allowBypass: yes(await ask(red(tr('  „Alles erlauben“ – Claude führt Befehle ohne Rückfrage aus. Erlauben? [j/N] ', '  “Allow everything” – Claude runs commands without asking. Allow? [y/N] ')))),
+                allowBang: yes(await ask(red(tr('  „!“-Befehle – das Gerät führt Befehle direkt auf diesem Server aus, ohne Claude und ohne Rückfrage. Erlauben? [j/N] ', '  “!” commands – the device runs commands directly on this server, without Claude and without asking. Allow? [y/N] ')))),
+              };
+            }
+            sock.write(JSON.stringify({ op: 'confirm', id: m.id, ok, rights }) + '\n');
+          })();
         } else if (m.event === 'paired') { console.log(tr(`✓ „${m.name}“ ist gekoppelt.`, `✓ “${m.name}” is paired.`)); resolveEnd(0); }
       });
       s.write(JSON.stringify({ op: 'pair' }) + '\n');
@@ -117,8 +133,9 @@ async function main() {
       const [sub, name, val] = rest;
       if (sub === 'remove') { await request({ op: 'device-remove', device: name }); console.log(tr('Entfernt.', 'Removed.')); return; }
       if (sub === 'bypass') { await request({ op: 'device-bypass', device: name, on: val === 'on' }); console.log('OK'); return; }
+      if (sub === 'bang') { await request({ op: 'device-bang', device: name, on: val === 'on' }); console.log('OK'); return; }
       const st = await request({ op: 'status' });
-      for (const d of st.devices) console.log(`${d.connected ? '●' : '○'} ${d.name}  (${d.id})  ${d.allowBypass ? tr('„Alles erlauben“ an', '“Allow everything” on') : ''}`);
+      for (const d of st.devices) console.log(`${d.connected ? '●' : '○'} ${d.name}  (${d.id})  ${d.allowBypass ? tr('„Alles erlauben“ an', '“Allow everything” on') : ''}${d.allowBang ? tr('  „!“ an', '  “!” on') : ''}`);
       if (!st.devices.length) console.log(tr('Noch kein Gerät gekoppelt – swapline-server pair', 'No device paired yet – swapline-server pair'));
       return;
     }

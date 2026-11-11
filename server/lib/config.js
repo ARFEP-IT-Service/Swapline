@@ -17,17 +17,25 @@ function ensureDir() {
   try { fs.chmodSync(dataDir(), 0o700); } catch {}
 }
 
-// config.json: { port, folders[], devices[], hostId, dialKey, relay: { address, port, secret } | null, claudePath }
+// config.json: { port, folders[], devices[], hostId, relay: { address, port, keyId, key } | null, relayLegacy, claudePath }
+// Geräte: { id, name, keyEnc, dialKeyEnc, allowBypass, allowBang, … } – je Gerät ein eigener dialKey für den Vermittler.
+// Umstellung ab 0.3.0: gemeinsamer dialKey und Vermittler-Kennwort (srelay1) entfallen, „!“ ist ein eigenes Recht
+// (bestehende Geräte behalten es, wenn sie „Alles erlauben“ hatten).
+const validRelay = r => r && typeof r.address === 'string' && Number.isInteger(r.port) && /^[0-9a-f]{8}$/.test(r.keyId || '') && /^[0-9a-f]{64}$/.test(r.key || '');
 function load() {
   let c = {};
   try { c = JSON.parse(fs.readFileSync(file('config.json'), 'utf8')); } catch {}
+  const devices = (Array.isArray(c.devices) ? c.devices : []).filter(d => d && typeof d.id === 'string').map(d => ({
+    ...d, allowBang: typeof d.allowBang === 'boolean' ? d.allowBang : !!d.allowBypass,
+    dialKeyEnc: /^[0-9a-f]{64}$/.test(d.dialKeyEnc || '') ? d.dialKeyEnc : crypto.randomBytes(32).toString('hex'),
+  }));
   return {
     port: Number.isInteger(c.port) && c.port >= 1024 && c.port <= 65535 ? c.port : DEFAULT_PORT,
     folders: Array.isArray(c.folders) ? c.folders.filter(f => typeof f === 'string' && path.isAbsolute(f)) : [],
-    devices: Array.isArray(c.devices) ? c.devices : [],
+    devices,
     hostId: /^[0-9a-f]{16}$/.test(c.hostId || '') ? c.hostId : crypto.randomBytes(8).toString('hex'),
-    dialKey: /^[0-9a-f]{64}$/.test(c.dialKey || '') ? c.dialKey : crypto.randomBytes(32).toString('hex'),
-    relay: c.relay && typeof c.relay.address === 'string' && Number.isInteger(c.relay.port) && typeof c.relay.secret === 'string' ? c.relay : null,
+    relay: validRelay(c.relay) ? { address: c.relay.address, port: c.relay.port, keyId: c.relay.keyId, key: c.relay.key } : null,
+    relayLegacy: !!c.relayLegacy || !!(c.relay && typeof c.relay.secret === 'string'),
     claudePath: typeof c.claudePath === 'string' ? c.claudePath : '',
   };
 }

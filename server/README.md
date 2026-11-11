@@ -24,26 +24,33 @@ swapline-server pair                 # QR-Code mit der Swapline-App scannen, Kop
 Update: neues Paket entpacken und `./install.sh` erneut ausführen – Geräte und Einstellungen bleiben.
 
 **Erreichbarkeit:** entweder Port 47820/TCP in der Firewall des Servers öffnen, oder ohne offenen Port über den
-Vermittler: in *Swapline Relay* „Einrichtungscode kopieren“ und `swapline-server relay <Code>`.
+Vermittler: in *Swapline Relay* unter „Haupt-PCs“ einen Code für diesen Server erzeugen, `swapline-server relay <Code>`
+ausführen und in der Relay-App „Erlauben“ klicken.
 
 ## Befehle
 
 | Befehl | |
 |---|---|
 | `swapline-server status` | Zustand, Adressen, Geräte, Ordner, Vermittler |
-| `swapline-server pair` | Gerät koppeln (QR-Code und Kopplungslink, Bestätigung im Terminal) |
+| `swapline-server pair` | Gerät koppeln (QR-Code und Kopplungslink, Bestätigung und Rechte im Terminal) |
 | `swapline-server devices` / `devices remove <Name>` | gekoppelte Geräte anzeigen bzw. entfernen |
-| `swapline-server devices bypass <Name> on\|off` | „Alles erlauben“ und „!“-Befehle für das Gerät (Standard: an) |
+| `swapline-server devices bypass <Name> on\|off` | „Alles erlauben“ für das Gerät (Standard: aus) |
+| `swapline-server devices bang <Name> on\|off` | „!“-Befehle für das Gerät – Befehle direkt auf dem Server, ohne Claude und ohne Rückfrage (Standard: aus) |
 | `swapline-server folders add\|remove <Ordner>` | Ordner für neue Chats (samt Unterordnern) |
 | `swapline-server relay <Code>` / `relay off` | Vermittler einrichten bzw. abschalten |
 | `journalctl --user -u swapline-server` | Protokoll |
 
 ## Sicherheit
 
-- Koppeln geht nur, solange `swapline-server pair` im Terminal läuft, und jede Kopplung wird dort bestätigt.
+- Koppeln geht nur, solange `swapline-server pair` im Terminal läuft, und jede Kopplung wird dort bestätigt. „Alles
+  erlauben“ und „!“-Befehle werden dabei einzeln abgefragt (Standard: Nein). Geräte, die vor 0.3.0 gekoppelt wurden,
+  behalten ihre Rechte.
   **Nur eigene Geräte koppeln** – das Teilen eines Claude-Kontos erlauben Anthropics Bedingungen nicht.
 - Neue Chats nur in freigegebenen Ordnern (und im Home-Verzeichnis); Antworten auf Rückfragen werden wie in Swapline am
   PC geprüft (Eingabe unverändert, Regeln nur wie vorgeschlagen). „!“-Befehle und „Alles erlauben“ nur mit Freigabe.
+- Vermittler: eigener Eintrag je Server (Code `srelay2`), jedes Gerät hat einen eigenen Schlüssel – entfernte Geräte werden
+  schon beim Vermittler abgewiesen. Uploads: höchstens 25 MB je Datei, 500 MB je Gerät und Tag, 2 GB insgesamt; nach
+  7 Tagen gelöscht.
 - Einstellungen und Geräteschlüssel in `~/.config/swapline-server` (Ordner 0700, Dateien 0600) – geschützt über die
   Rechte des Benutzerkontos. Steuerung über einen Unix-Socket, den nur dieser Benutzer öffnen kann.
 - Der Dienst läuft als dieser Benutzer, nie als root.

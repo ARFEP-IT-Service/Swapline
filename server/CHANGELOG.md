@@ -3,6 +3,16 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC, der Android-App und
 Swapline Relay. Tags: `server-v<Version>`.
 
+## [0.3.0] – 2026-11-11
+
+- Sicherheit: Beim Koppeln fragt das Terminal **„Alles erlauben“** und **„!“-Befehle** einzeln ab (Standard: Nein).
+  „!“ ist ein eigenes Recht: `swapline-server devices bang <Name> on|off`. Bereits gekoppelte Geräte behalten ihre Rechte.
+- Sicherheit: Vermittler mit **eigenem Eintrag** (`srelay2` aus Swapline Relay 0.3.0, dort „Erlauben“); alte Codes
+  (`srelay1`) werden abgelehnt, `status` weist darauf hin. Jedes Gerät hat einen **eigenen Vermittler-Schlüssel** –
+  entfernte Geräte kommen nicht mehr durch. Der Kopplungslink enthält keinen Schlüssel mehr.
+- Sicherheit: Uploads höchstens 500 MB je Gerät und Tag und 2 GB insgesamt, nach 7 Tagen gelöscht; Entfernen eines Geräts
+  beendet auch seine laufenden „!“-Befehle.
+
 ## [0.2.1] – 2026-11-10
 
 - Behoben: Bilder aus dem Internet ließen sich nicht laden („nicht erreichbar“) – gleicher Fehler wie in Swapline 0.17.0.

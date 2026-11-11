@@ -44,20 +44,22 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     let early = ''; try { await remote.pair({ address: '127.0.0.1', port, code: '0'.repeat(26), name: 'x' }); } catch (e) { early = e.message; }
     check('Server: ohne „swapline-server pair“ keine Kopplung', !!early, early);
 
-    // Koppeln: Code und Link vom Dienst, Bestätigung „im Terminal“
+    // Koppeln: Code und Link vom Dienst, Bestätigung „im Terminal“ – ohne Rechte (Standard „N“)
     const asked = [];
     let pairInfo;
     const got = new Promise(r => { pairInfo = r; });
     const pairSock = await ctl((m, s) => {
       if (m.code) pairInfo(m);
-      if (m.event === 'confirm') { asked.push(m.name); s.write(JSON.stringify({ op: 'confirm', id: m.id, ok: true }) + '\n'); }
+      if (m.event === 'confirm') { asked.push(m.name); s.write(JSON.stringify({ op: 'confirm', id: m.id, ok: true, rights: {} }) + '\n'); }
     });
     pairSock.write(JSON.stringify({ op: 'pair' }) + '\n');
     const info = await got;
-    check('Server: Kopplungslink wie bei Swapline am PC', /^swapline:\/\/pair\?v=1&a=.*&p=\d+&c=[0-9A-Z]{26}&n=/.test(info.link), info.link);
+    check('Server: Kopplungslink wie bei Swapline am PC (ohne Schlüssel)', /^swapline:\/\/pair\?v=1&a=.*&p=\d+&c=[0-9A-Z]{26}&n=/.test(info.link) && !/[?&]k=/.test(info.link), info.link);
     const p = await remote.pair({ address: '127.0.0.1', port, code: info.code, name: 'Testhandy' });
-    check('Server: Kopplung erst nach Bestätigung im Terminal', asked[0] === 'Testhandy' && /^[0-9a-f]{16}$/.test(p.deviceId));
+    check('Server: Kopplung erst nach Bestätigung im Terminal', asked[0] === 'Testhandy' && /^[0-9a-f]{16}$/.test(p.deviceId) && /^[0-9a-f]{64}$/.test(p.dialKey || ''));
     pairSock.end();
+    const dev0 = (await op({ op: 'status' })).devices[0];
+    check('Server: neues Gerät ohne bestätigte Rechte – kein „Alles erlauben“, kein „!“', dev0.allowBypass === false && dev0.allowBang === false, JSON.stringify(dev0));
     const cfgFile = path.join(process.env.SWAPLINE_SERVER_DIR, 'config.json');
     if (process.platform !== 'win32') check('Server: Einstellungen nur für den Benutzer lesbar (0600)', (fs.statSync(cfgFile).mode & 0o077) === 0, (fs.statSync(cfgFile).mode & 0o777).toString(8));
 
@@ -67,7 +69,7 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     client.use({ id: 'h', address: '127.0.0.1', port, deviceId: p.deviceId, key: Buffer.from(p.key, 'base64') });
     await until(() => client.state === 'connected');
     const st = await client.call('store:get', []);
-    check('Server: Stand für das Handy (Konto = Server, Erreichbarkeit)', st.profiles[0].id === 'server' && st.reach.port === port && st.allowBypass === true && Array.isArray(st.reach.addresses), JSON.stringify(st).slice(0, 200));
+    check('Server: Stand für das Handy (Konto = Server, Erreichbarkeit)', st.profiles[0].id === 'server' && st.reach.port === port && st.allowBypass === false && Array.isArray(st.reach.addresses), JSON.stringify(st).slice(0, 200));
     check('Server: Anmeldestatus von Claude Code', (await client.call('profiles:status', ['server'])).loggedIn === true);
 
     // Neue Chats nur in freigegebenen Ordnern
@@ -86,6 +88,15 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     const answer = events.find(e => e.msg?.type === 'assistant')?.msg.message.content[0].text;
     check('Server: Antwort von Claude kommt beim Gerät an', answer === 'erlaubt: Hallo Server', answer);
 
+    // Angriffstest: neues Gerät ohne Häkchen darf kein „!“ und kein „Alles erlauben“
+    let noBang0 = ''; try { await client.call('session:bash', [{ tab, command: 'echo nein' }]); } catch (e) { noBang0 = e.message; }
+    check('Server: neues Gerät ohne Häkchen – „!“ abgelehnt', /nicht freigegeben/.test(noBang0), noBang0);
+    check('Server: neues Gerät ohne Häkchen – „Alles erlauben“ abgelehnt', (await client.call('session:confirmBypass', ['tabserver1'])) === false && (await client.call('session:send', [{ tab: { ...tab, id: 'tabserver3', permissionMode: 'bypassPermissions' }, content: 'x' }])) === false);
+    await op({ op: 'device-bypass', device: 'Testhandy', on: true });
+    let noBang1 = ''; try { await client.call('session:bash', [{ tab, command: 'echo nein' }]); } catch (e) { noBang1 = e.message; }
+    check('Server: „!“ ist ein eigenes Recht (mit „Alles erlauben“ allein abgelehnt)', /nicht freigegeben/.test(noBang1), noBang1);
+    await op({ op: 'device-bang', device: 'Testhandy', on: true });
+    check('Server: Recht „!“ im Status', (await op({ op: 'status' })).devices[0].allowBang === true);
     // „!“-Befehle: mit Freigabe, Ausgabe geht mit der nächsten Nachricht an Claude
     check('Server: „!“-Befehl', (await client.call('session:bash', [{ tab, command: 'echo bang-ok' }])) === true);
     await until(() => events.some(e => e.msg?.type === 'swapline_bash' && e.msg.state === 'done'), 30000); // PowerShell startet auf GitHub-Windows langsam
@@ -98,6 +109,7 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     const second = events.find(e => e.msg?.type === 'assistant')?.msg.message.content[0].text || '';
     check('Server: Claude sieht die „!“-Ausgabe mit der nächsten Nachricht', /<bash-input>echo bang-ok<\/bash-input>/.test(second) && /Weiter$/.test(second), second.slice(0, 120));
     await op({ op: 'device-bypass', device: 'Testhandy', on: false });
+    await op({ op: 'device-bang', device: 'Testhandy', on: false });
     let noBang = ''; try { await client.call('session:bash', [{ tab, command: 'echo nein' }]); } catch (e) { noBang = e.message; }
     check('Server: ohne Freigabe kein „!“ und kein „Alles erlauben“', /nicht freigegeben/.test(noBang) && (await client.call('session:send', [{ tab: { ...tab, id: 'tabserver2', permissionMode: 'bypassPermissions' }, content: 'x' }])) === false, noBang);
 
@@ -124,10 +136,18 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     check('Server: andere Kanäle gesperrt', /nicht verfügbar/.test(blocked) && (await client.call('task:readOutput', [path.join(tmp, 'x.output')])).error);
 
     // Vermittler: Einrichtungscode prüfen
-    check('Server: ungültiger Einrichtungscode abgelehnt', !!(await op({ op: 'relay', code: 'srelay1.kaputt' })).error);
-    const codeOk = 'srelay1.' + Buffer.from(JSON.stringify({ a: '127.0.0.1', p: 1, s: 'x'.repeat(40) })).toString('base64url');
-    check('Server: Vermittler eingerichtet → im Kopplungslink und beim Gerät', (await op({ op: 'relay', code: codeOk })).ok && (await client.call('store:get', [])).reach.relay?.hostId?.length === 16);
+    check('Server: ungültiger Einrichtungscode abgelehnt', !!(await op({ op: 'relay', code: 'srelay2.kaputt' })).error);
+    const oldCode = 'srelay1.' + Buffer.from(JSON.stringify({ a: '127.0.0.1', p: 1, s: 'x'.repeat(40) })).toString('base64url');
+    check('Server: alter Einrichtungscode (srelay1) abgelehnt', /Alter Einrichtungscode/.test((await op({ op: 'relay', code: oldCode })).error || ''));
+    const codeOk = 'srelay2.' + Buffer.from(JSON.stringify({ a: '127.0.0.1', p: 1, i: '0a0b0c0d', k: 'cd'.repeat(32) })).toString('base64url');
+    const rst = (await op({ op: 'relay', code: codeOk })).ok && (await client.call('store:get', [])).reach.relay;
+    check('Server: Vermittler eingerichtet → Gerät bekommt seinen eigenen dialKey', rst?.hostId?.length === 16 && rst.dialKey === p.dialKey, JSON.stringify(rst && { h: rst.hostId }));
     await op({ op: 'relay', code: null });
+    // Upload-Grenzen
+    const big = Buffer.alloc(24 * 1024 * 1024, 1).toString('base64');
+    let upErr = '';
+    for (let i = 0; i < 22 && !upErr; i++) upErr = (await client.call('files:upload', [{ name: 'gross.bin', data: big }])).error || '';
+    check('Server: Tagesgrenze für Uploads je Gerät (500 MB)', /Tagesgrenze/.test(upErr), upErr);
 
     // Gerät entfernen → Verbindung weg
     await op({ op: 'device-remove', device: 'Testhandy' });
