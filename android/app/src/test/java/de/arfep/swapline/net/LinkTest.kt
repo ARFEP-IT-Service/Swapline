@@ -45,7 +45,8 @@ class LinkTest {
             }.apply { isDaemon = true }.start()
             val ready = next()
             port = ready.getValue("port").jsonPrimitive.content.toInt()
-            relay = RelayRoute("127.0.0.1", ready.getValue("relayPort").jsonPrimitive.content.toInt(), ready.getValue("hostId").jsonPrimitive.content, ready.getValue("dialKey").jsonPrimitive.content)
+            // wie aus dem Kopplungslink: ohne Schlüssel
+            relay = RelayRoute("127.0.0.1", ready.getValue("relayPort").jsonPrimitive.content.toInt(), ready.getValue("hostId").jsonPrimitive.content, "")
         }
 
         @AfterClass @JvmStatic fun stop() { runCatching { stdin.close() }; proc.waitFor(5, TimeUnit.SECONDS); proc.destroy() }
@@ -108,9 +109,11 @@ class LinkTest {
         val code = code()
         val p = pair("swapline-test.invalid", port, code, "Unterwegs", relay = relay)
         assertEquals("Unterwegs", next().getValue("confirm").jsonPrimitive.content)
+        // eigener dialKey dieses Geräts kommt beim Koppeln
+        assertTrue(Regex("^[0-9a-f]{64}$").matches(p.dialKey ?: ""))
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val link = HostLink(scope, { _, _ -> }, { _, _ -> })
-        link.use(Target("swapline-test.invalid", port, p.deviceId, p.key, relay))
+        link.use(Target("swapline-test.invalid", port, p.deviceId, p.key, relay.copy(dialKey = p.dialKey!!)))
         withTimeout(20_000) { while (link.state != LinkState.CONNECTED) delay(20) }
         assertEquals("relay", link.via)
         assertEquals("Unterwegs", link.call("echo").jsonObject.getValue("device").jsonPrimitive.content)
@@ -120,10 +123,32 @@ class LinkTest {
         scope.cancel()
     }
 
-    @Test fun relayRejectsWrongDialKey() = runBlocking {
-        val code = code()
-        try { pair("swapline-test.invalid", port, code, "Fremd", relay = relay.copy(dialKey = "0".repeat(64))); fail("abgelehnt erwartet") }
+    @Test fun relayRejectsWrongPairCode() = runBlocking {
+        code() // ein Code ist offen – der hier geratene passt nicht
+        try { pair("swapline-test.invalid", port, "0123456789ABCDEFGHJKMNPQRS", "Fremd", relay = relay); fail("abgelehnt erwartet") }
         catch (e: LinkException) { assertEquals("relay", e.reason) }
+    }
+
+    // gleicher Kopplungs-Schlüssel wie src/relay-link.js (pairDialKey)
+    @Test fun pairDialKeyMatchesHost() {
+        val code = "0123456789ABCDEFGHJKMNPQRS"
+        assertEquals(cmd("pairdial $code").getValue("dialKey").jsonPrimitive.content, PairCode.dialKey(PairCode.decode(code)!!))
+    }
+
+    // Angriffstest: entferntes Gerät kommt über den Vermittler nicht mehr durch (dialKey ungültig)
+    @Test fun relayRejectsRemovedDevice() = runBlocking {
+        val code = code()
+        val p = pair("swapline-test.invalid", port, code, "Weg", relay = relay)
+        next() // confirm
+        cmd("remove")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val details = CopyOnWriteArrayList<String>()
+        val link = HostLink(scope, { _, _ -> }, { _, d -> if (d != null) details += d })
+        link.use(Target("swapline-test.invalid", port, p.deviceId, p.key, relay.copy(dialKey = p.dialKey!!)))
+        delay(3_000)
+        assertTrue(link.state != LinkState.CONNECTED)
+        link.close()
+        scope.cancel()
     }
 
     // SSH-Server des Haupt-PCs: eigener Eintrag, Aufrufe gehen als „server:call“ über dieselbe Verbindung
@@ -255,7 +280,10 @@ class PairLinkTest {
         val l = PairLinks.parse("swapline://pair?v=1&a=a%20b&p=47820&c=0123456789ABCDEFGHJKMNPQRS&n=PC&r=relay.example.com%3A47821&h=0123456789abcdef&k=$k")
         assertNull(l) // ungültige Heimnetz-Adresse
         val ok = PairLinks.parse("swapline://pair?v=1&a=172.16.0.20&p=47820&c=0123456789ABCDEFGHJKMNPQRS&n=PC&r=relay.example.com%3A47821&h=0123456789abcdef&k=$k")!!
-        assertEquals(RelayRoute("relay.example.com", 47821, "0123456789abcdef", k), ok.relay)
+        // ein „k“ aus älteren Links wird ignoriert – der Link trägt keinen Schlüssel mehr
+        assertEquals(RelayRoute("relay.example.com", 47821, "0123456789abcdef", ""), ok.relay)
+        val noKey = PairLinks.parse("swapline://pair?v=1&a=172.16.0.20&p=47820&c=0123456789ABCDEFGHJKMNPQRS&n=PC&r=relay.example.com%3A47821&h=0123456789abcdef")!!
+        assertEquals(RelayRoute("relay.example.com", 47821, "0123456789abcdef", ""), noKey.relay)
         // kaputte Vermittler-Angaben: Kopplung bleibt möglich, nur ohne Vermittler
         assertNull(PairLinks.parse("swapline://pair?v=1&a=172.16.0.20&p=47820&c=0123456789ABCDEFGHJKMNPQRS&r=x%3A99999&h=zz&k=1")!!.relay)
     }

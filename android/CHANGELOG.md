@@ -3,6 +3,14 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.12.0] – 2026-11-11
+
+- Sicherheit: Über den Vermittler meldet sich das Handy mit seinem **eigenen Schlüssel** an (kommt beim Koppeln vom
+  Haupt-PC) – ein am Haupt-PC entferntes Handy kommt nicht mehr durch. Der QR-Code enthält keinen Schlüssel mehr; Koppeln
+  über den Vermittler nutzt einen aus dem Einmal-Code abgeleiteten Schlüssel. Passt zu Swapline 0.19.0, Swapline Relay 0.3.0
+  und Swapline Server 0.3.0. Bereits gekoppelte Handys übernehmen den neuen Schlüssel bei der nächsten Verbindung zum
+  Haupt-PC (im Heimnetz oder per Tailscale) – oder neu koppeln.
+
 ## [0.11.0] – 2026-11-10
 
 - Neu: **/resume** (Verlauf öffnen), **/export** (Chat mit allen Details als Markdown-Datei speichern) und **/summary**

@@ -28,13 +28,15 @@ object PairLinks {
         val port = q["p"]?.toIntOrNull()?.takeIf { it in 1024..65535 } ?: return null
         val code = q["c"]?.uppercase()?.takeIf { CODE.matches(it) } ?: return null
         val name = q["n"].orEmpty().replace(Regex("[^\\p{L}\\p{N} ._-]"), "").take(40)
-        // Vermittler (optional): r=<Adresse>:<Port>, h=<hostId>, k=<dialKey>
+        // Vermittler (optional): r=<Adresse>:<Port>, h=<hostId>. Der Link enthält keinen Schlüssel – zum Koppeln gilt der
+        // aus dem Einmal-Code abgeleitete, danach der eigene dialKey dieses Geräts (kommt vom Haupt-PC). Ein „k“ aus
+        // älteren Links wird ignoriert.
         val relay = q["r"]?.let { r ->
             val i = r.lastIndexOf(':')
             val a = if (i > 0) r.substring(0, i) else null
             val p = if (i > 0) r.substring(i + 1).toIntOrNull() else null
-            val h = q["h"]; val k = q["k"]
-            if (a != null && validAddress(a) && p != null && p in 1..65535 && h != null && Regex("^[0-9a-f]{16}$").matches(h) && k != null && Regex("^[0-9a-f]{64}$").matches(k)) RelayRoute(a, p, h, k) else null
+            val h = q["h"]
+            if (a != null && validAddress(a) && p != null && p in 1..65535 && h != null && Regex("^[0-9a-f]{16}$").matches(h)) RelayRoute(a, p, h, "") else null
         }
         return PairLink(addresses, port, code, name, relay)
     }

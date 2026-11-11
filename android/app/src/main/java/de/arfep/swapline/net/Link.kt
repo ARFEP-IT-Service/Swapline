@@ -88,6 +88,13 @@ object PairCode {
         update(secret)
         digest()
     }
+
+    // Schlüssel für das Koppeln über den Vermittler (wie pairDialKey in src/relay-link.js)
+    fun dialKey(secret: ByteArray): String = MessageDigest.getInstance("SHA-256").run {
+        update("swapline-pair-dial-v1".toByteArray())
+        update(secret)
+        digest()
+    }.joinToString("") { "%02x".format(it) }
 }
 
 class LinkException(val reason: String, message: String = reason) : IOException(message)
@@ -149,7 +156,10 @@ private class Channel(val socket: Socket, val input: InputStream, val output: Ou
 // ---------- Weg über den Swapline-Vermittler (relay/relay.js) ----------
 // Anmeldung beim Vermittler mit HMAC(dialKey) über dessen Zufallszahl; danach läuft auf derselben Verbindung die
 // TLS-PSK-Verbindung zum Haupt-PC (Ende-zu-Ende – der Vermittler sieht nur verschlüsselte Bytes).
-data class RelayRoute(val address: String, val port: Int, val hostId: String, val dialKey: String)
+// who: eigene Geräte-ID (jedes Gerät hat einen eigenen dialKey, entfernte Geräte werden abgelehnt) bzw. „pair“ beim Koppeln
+data class RelayRoute(val address: String, val port: Int, val hostId: String, val dialKey: String, val who: String = "pair")
+
+fun dialMac(dialKey: String, nonce: String, hostId: String, who: String) = hmacHex(dialKey, "dial|$nonce|$hostId|$who")
 
 private fun readRawLine(input: InputStream, max: Int = 4096): String {
     val out = ByteArrayOutputStream()
@@ -176,12 +186,13 @@ private fun relayHandshake(socket: Socket, r: RelayRoute) {
     val hello = runCatching { json.parseToJsonElement(readRawLine(input)) as JsonObject }.getOrNull()
     val nonce = hello?.str("nonce")
     if (hello?.str("t") != "hello" || nonce == null) throw LinkException("relay", "kein Swapline-Vermittler")
-    val dial = buildJsonObject { put("t", "dial"); put("hostId", r.hostId); put("mac", hmacHex(r.dialKey, "dial|$nonce|${r.hostId}")) }
+    val dial = buildJsonObject { put("t", "dial"); put("hostId", r.hostId); put("who", r.who); put("mac", dialMac(r.dialKey, nonce, r.hostId, r.who)) }
     out.write((dial.toString() + "\n").toByteArray(Charsets.UTF_8)); out.flush()
     val res = runCatching { json.parseToJsonElement(readRawLine(input)) as JsonObject }.getOrNull()
     when {
         res?.str("t") == "ok" -> return
         res?.str("error") == "offline" -> throw LinkException("unreachable", "Haupt-PC ist nicht beim Vermittler angemeldet")
+        res?.str("error") == "voll" -> throw LinkException("unreachable", "Vermittler ist voll")
         else -> throw LinkException("relay", "Vermittler: " + (res?.str("error") ?: "abgelehnt"))
     }
 }
@@ -206,13 +217,16 @@ private fun open(address: String, port: Int, identity: ByteArray, key: ByteArray
 }
 
 // ---------- Koppeln ----------
-data class Paired(val deviceId: String, val key: ByteArray, val hostName: String)
+// dialKey: eigener Schlüssel dieses Geräts für den Vermittler (null bei älteren Haupt-PCs)
+data class Paired(val deviceId: String, val key: ByteArray, val hostName: String, val dialKey: String? = null)
 
 suspend fun pair(address: String, port: Int, code: String, name: String, connectTimeout: Int = CONNECT_TIMEOUT, relay: RelayRoute? = null): Paired = withContext(Dispatchers.IO) {
     val secret = PairCode.decode(code)
     if (secret == null || secret.size != 16) throw LinkException("code", "Ungültiger Code")
+    // über den Vermittler mit dem Schlüssel aus dem Einmal-Code (der Kopplungslink enthält keinen)
+    val pr = relay?.copy(dialKey = PairCode.dialKey(secret), who = "pair")
     withTimeout(PAIR_TIMEOUT) {
-        val ch = try { open(address, port, "pair".toByteArray(), PairCode.key(secret), connectTimeout, relay) }
+        val ch = try { open(address, port, "pair".toByteArray(), PairCode.key(secret), connectTimeout, pr) }
         catch (e: java.net.SocketTimeoutException) { throw LinkException("unreachable", e.message ?: "timeout") }
         catch (e: java.net.ConnectException) { throw LinkException("unreachable", e.message ?: "refused") }
         catch (e: java.net.NoRouteToHostException) { throw LinkException("unreachable", e.message ?: "no route") }
@@ -229,7 +243,8 @@ suspend fun pair(address: String, port: Int, code: String, name: String, connect
                             val id = m.str("deviceId")
                             val key = m.str("key")?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
                             if (id == null || !DEVICE_ID_RE.matches(id) || key == null || key.size != 32) throw LinkException("invalid", "Ungültige Antwort")
-                            cont.resume(Paired(id, key, (m.str("hostName") ?: "").take(40)))
+                            val dk = m.str("dialKey")?.takeIf { Regex("^[0-9a-f]{64}$").matches(it) }
+                            cont.resume(Paired(id, key, (m.str("hostName") ?: "").take(40), dk))
                             break
                         }
                         "pair-denied" -> throw LinkException("denied", "Am Haupt-PC abgelehnt")
@@ -265,7 +280,7 @@ private fun openAny(t: Target): Channel {
         catch (e: Exception) { if (unreachable(e) || (e is LinkException && e.reason == "unreachable")) last = e else throw e }
     }
     t.relay?.let { r ->
-        try { return open("", 0, t.deviceId.toByteArray(), t.key, CONNECT_TIMEOUT, r) }
+        try { return open("", 0, t.deviceId.toByteArray(), t.key, CONNECT_TIMEOUT, r.copy(who = t.deviceId)) }
         catch (e: Exception) { if (unreachable(e) || (e is LinkException && e.reason == "unreachable")) last = e else throw e }
     }
     throw last!!

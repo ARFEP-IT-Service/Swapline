@@ -166,6 +166,9 @@ class AppModel(context: Context, private val notifier: Notifier) {
         if (relay == null) r.copy(relay = "", relayKeyEnc = "")
         else r.copy(relay = "${relay.address}|${relay.port}|${relay.hostId}", relayKeyEnc = Vault.encrypt(relay.dialKey.toByteArray(Charsets.UTF_8)))
 
+    // Vermittler nach dem Koppeln: mit dem eigenen dialKey dieses Geräts (vom Haupt-PC); ohne den keiner
+    private fun ownRelay(relay: de.arfep.swapline.net.RelayRoute?, p: de.arfep.swapline.net.Paired) = if (relay != null && p.dialKey != null) relay.copy(dialKey = p.dialKey) else null
+
     // Mehrere Adressen (aus dem QR-Code): der Reihe nach probieren; nicht erreichbare kosten den Einmal-Code nicht
     suspend fun pairHost(addresses: List<String>, port: Int, code: String, relay: de.arfep.swapline.net.RelayRoute? = null): HostState {
         var last: Exception? = null
@@ -174,14 +177,14 @@ class AppModel(context: Context, private val notifier: Notifier) {
             catch (e: LinkException) { if (e.reason == "unreachable") { last = e; continue } else throw e }
             // alle Adressen merken (die erreichbare zuerst) – unterwegs z. B. die öffentliche IP
             val all = (listOf(address) + addresses.map { it.trim() }.filter { it.isNotEmpty() && it != address }).take(8)
-            val rec = withRelay(HostRecord(newId(8), p.hostName.ifBlank { address }, all.joinToString(","), port, p.deviceId, Vault.encrypt(p.key), p.hostName), relay)
+            val rec = withRelay(HostRecord(newId(8), p.hostName.ifBlank { address }, all.joinToString(","), port, p.deviceId, Vault.encrypt(p.key), p.hostName), ownRelay(relay, p))
             p.key.fill(0)
             return addHost(rec)
         }
         // von unterwegs: über den Vermittler koppeln
         if (relay != null) {
             val p = pair("", port, code, deviceName, relay = relay)
-            val rec = withRelay(HostRecord(newId(8), p.hostName.ifBlank { relay.address }, addresses.map { it.trim() }.filter { it.isNotEmpty() }.take(8).joinToString(","), port, p.deviceId, Vault.encrypt(p.key), p.hostName), relay)
+            val rec = withRelay(HostRecord(newId(8), p.hostName.ifBlank { relay.address }, addresses.map { it.trim() }.filter { it.isNotEmpty() }.take(8).joinToString(","), port, p.deviceId, Vault.encrypt(p.key), p.hostName), ownRelay(relay, p))
             p.key.fill(0)
             return addHost(rec)
         }

@@ -3,6 +3,7 @@
 //   pair            -> {"code": "...", "port": n}   neuer Einmal-Code
 //   deny            -> nächste Kopplung ablehnen
 //   push <kind>     -> Ereignis an alle Geräte
+//   pairdial <code> -> {"dialKey": "..."}            Schlüssel fürs Koppeln über den Vermittler (Abgleich mit Kotlin)
 'use strict';
 const path = require('node:path');
 const readline = require('node:readline');
@@ -21,7 +22,7 @@ const host = remote.createHost({
   saveDevices: list => { devices = list; },
   encrypt: s => Buffer.from(s).toString('base64'),
   decrypt: s => Buffer.from(s, 'base64').toString(),
-  confirmPair: async ({ name }) => { out({ confirm: name }); const ok = !denyNext; denyNext = false; return ok; },
+  confirmPair: async ({ name }) => { out({ confirm: name }); const ok = !denyNext; denyNext = false; return { ok, rights: {} }; },
   dispatch: async (dev, ch, args) => {
     if (mute) return new Promise(() => {});
     if (ch === 'echo') return { device: dev.name, args };
@@ -50,23 +51,31 @@ const host = remote.createHost({
   onChange: () => {},
 });
 
-// Vermittler (relay/relay.js) mit Anmeldung dieses Hosts – Geräte können auch nur darüber kommen
+// Vermittler (relay/relay.js) mit Anmeldung dieses Hosts (eigener, freigegebener Eintrag) – Geräte können auch nur
+// darüber kommen, jedes mit seinem eigenen dialKey (wie src/main.js)
 const { createRelay } = require(path.join(__dirname, '..', '..', 'relay', 'relay.js'));
-const { createRelayLink } = require(path.join(__dirname, '..', '..', 'src', 'relay-link.js'));
+const { createRelayLink, checkDial, pairDialKey } = require(path.join(__dirname, '..', '..', 'src', 'relay-link.js'));
 const crypto = require('node:crypto');
-const relaySecret = crypto.randomBytes(24).toString('hex'), hostId = crypto.randomBytes(8).toString('hex'), dialKey = crypto.randomBytes(32).toString('hex');
-const relay = createRelay({ secret: relaySecret });
+const hostId = crypto.randomBytes(8).toString('hex');
+const entry = { id: crypto.randomBytes(4).toString('hex'), name: 'Test', key: crypto.randomBytes(32).toString('hex'), hostId, approved: true };
+const relay = createRelay({ getHosts: () => [entry] });
+const verifyDial = (who, nonce, mac) => {
+  if (who === 'pair') { const k = host.pairDialKey(); return !!k && checkDial(k, nonce, hostId, 'pair', mac); }
+  const d = devices.find(x => x.id === who);
+  return !!d?.dialKeyEnc && checkDial(Buffer.from(d.dialKeyEnc, 'base64').toString(), nonce, hostId, who, mac);
+};
 
 host.start(0, '127.0.0.1').then(async port => {
   const relayPort = await relay.listen(0, '127.0.0.1');
   const link = createRelayLink({ onSocket: (s, from) => host.adopt(s, from) });
-  link.use({ address: '127.0.0.1', port: relayPort, secret: relaySecret, hostId, dialKey });
+  link.use({ address: '127.0.0.1', port: relayPort, keyId: entry.id, key: entry.key, hostId, verifyDial });
   while (link.state !== 'connected') await new Promise(r => setTimeout(r, 20));
-  out({ ready: true, port, relayPort, hostId, dialKey });
+  out({ ready: true, port, relayPort, hostId });
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const [cmd, arg] = line.trim().split(/\s+/);
     if (cmd === 'pair') out({ code: host.startPairing().code, port });
     else if (cmd === 'deny') { denyNext = true; out({ ok: true }); }
+    else if (cmd === 'pairdial') out({ dialKey: pairDialKey(remote.b32decode(arg)) });
     else if (cmd === 'work') { // Rauchtest Live-Status: Ablauf wie von Claude Code, mit Pausen
       const send = msg => host.broadcast('claude', { tabId: lastTab, msg });
       send({ type: 'swapline_user', content: { text: 'Teste bitte alles', images: 0 }, from: 'PC' });
