@@ -124,6 +124,22 @@ if (!filter || 'risk'.includes(filter)) { // Einstufung von Rückfragen (dieselb
   console.log(`  ${ok ? '✓' : '✕'} Rückfragen: ${cases.length} Fälle richtig eingestuft (kritisch, Vorsicht, normal)${ok ? '' : '\n      ' + bad.map(c => JSON.stringify(c.input)).join('\n      ')}`);
 }
 
+if (!filter || 'licenses'.includes(filter)) { // Lizenzhinweise (ohne Build): PC-App und Swapline Relay
+  console.log('\nlicenses');
+  const notices = fs.readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8').toLowerCase();
+  const deps = Object.keys(require(path.join(root, 'package.json')).dependencies);
+  const missDeps = deps.filter(p => !notices.includes('| ' + p.toLowerCase() + ' '));
+  const relayNotices = fs.readFileSync(path.join(root, 'relay', 'THIRD_PARTY_NOTICES.md'), 'utf8');
+  const yml = fs.readFileSync(path.join(root, 'relay', 'electron-builder.yml'), 'utf8');
+  const relayFiles = [...yml.matchAll(/^\s+- ([\w.-]+\.(?:txt|html))$/gm)].map(m => m[1]);
+  const missRelay = relayFiles.filter(f => !relayNotices.includes('licenses/' + f));
+  const relayOk = relayFiles.length >= 5 && !missRelay.length && /from: LICENSE/.test(yml) && /from: relay\/THIRD_PARTY_NOTICES\.md/.test(yml);
+  for (const [ok, name, detail] of [
+    [!missDeps.length, `Lizenzen: alle ${deps.length} Abhängigkeiten der PC-App in THIRD_PARTY_NOTICES.md`, missDeps.join(', ')],
+    [relayOk, 'Lizenzen: Relay-Installer enthält LICENSE, Hinweise und Lizenztexte (Electron, Chromium, FFmpeg, NSIS)', missRelay.join(', ') || relayFiles.join(', ')],
+  ]) { if (ok) passed++; else failed++; console.log(`  ${ok ? '✓' : '✕'} ${name}${ok ? '' : '\n      ' + detail}`); }
+}
+
 if (!filter || 'upnp'.includes(filter)) { // öffentliche Adresse per UPnP (nachgebauter Router, ohne Netz)
   console.log('\nupnp');
   let results;
@@ -168,6 +184,11 @@ for (const file of files) {
     settings: { model: '', permissionMode: 'default', claudePath: '', theme: 'system', notify: 'off', sound: 'off', autoUpdate: true, language: 'de' },
     // Fernzugriff-Test: Warnung zu „Alles erlauben“ schon bestätigt (sonst blockiert der native Dialog den Testlauf)
     ...(name === 'remote' ? remoteSeed(work, configDir) : {}),
+    // Umstellung auf 0.19: Geräte und Vermittler wie von 0.18 gespeichert (Schlüssel hier nur Platzhalter)
+    ...(name === 'migrate' ? { remoteHost: { enabled: false, port: 47820, devices: [
+      { id: '0123456789abcdef', name: 'Altes Handy', createdAt: 1, allowBypass: true, allowProjects: true, keyEnc: 'x' },
+      { id: 'fedcba9876543210', name: 'Alter Laptop', createdAt: 2, allowBypass: false, keyEnc: 'x' }],
+      relay: { enabled: true, address: 'relay.example', port: 47821, secretEnc: 'x', hostId: '00112233aabbccdd', dialKeyEnc: 'x' } } } : {}),
   }));
   // kleines Bild außerhalb des App-Ordners: die Oberfläche darf es nicht laden
   fs.writeFileSync(path.join(work, 'probe.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));

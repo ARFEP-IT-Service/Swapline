@@ -18,6 +18,9 @@ const listed = new Set(Object.keys(require(path.join(root, 'licenses', 'packages
 const errors = [];
 for (const p of bundled) if (!listed.has(p)) errors.push(`gebündelt, aber ohne Lizenzeintrag: ${p}`);
 for (const p of listed) if (!bundled.has(p)) errors.push(`Lizenzeintrag, aber nicht gebündelt: ${p}`);
+// jedes gebündelte Paket steht auch in THIRD_PARTY_NOTICES.md (0.18: qrcode-generator fehlte dort)
+const notices = fs.readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8').toLowerCase();
+for (const p of listed) if (!notices.includes(`| ${p} `) && !notices.includes(` ${p},`) && !notices.includes(`, ${p} `)) errors.push(`fehlt in THIRD_PARTY_NOTICES.md: ${p}`);
 for (const f of ['Swapline.exe', 'ffmpeg.dll', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses/FFmpeg-LGPL-2.1.txt', 'licenses/Chromium-LICENSES.chromium.html']) {
   if (!fs.existsSync(path.join(unpacked, f))) errors.push(`fehlt im Build: ${f}`);
 }

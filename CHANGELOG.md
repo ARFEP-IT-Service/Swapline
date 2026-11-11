@@ -7,6 +7,21 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.19.0] – 2026-11-11
+
+- Sicherheit: **Rechte neuer Geräte** – „Alles erlauben“, „!“-Befehle, SSH-Server und „Projekte anlegen“ sind beim Koppeln
+  aus und werden in einem eigenen Fenster einzeln angehakt (rot markiert: „Alles erlauben“ und „!“). Durchgesetzt am
+  Haupt-PC. Bereits gekoppelte Geräte behalten ihre Rechte; einmalig zeigt Swapline eine Liste der Geräte und ihrer Rechte.
+- Sicherheit: **„!“-Befehle sind ein eigenes Recht** (bisher an „Alles erlauben“ gekoppelt) – eigenes Häkchen in der
+  Geräteliste; Entziehen beendet laufende „!“-Befehle des Geräts.
+- Sicherheit: **Vermittler nur für eigene PCs** – Einrichtungscode `srelay2` mit eigenem Schlüssel je PC aus Swapline
+  Relay 0.3.0; der PC wartet, bis er dort „Erlaubt“ ist (Anzeige „wartet auf ‚Erlauben‘“). Alte Codes (`srelay1`, gemeinsames
+  Kennwort) gelten nicht mehr.
+- Sicherheit: **eigener Vermittler-Schlüssel je Gerät** – ein entferntes Gerät kommt auch über den Vermittler nicht mehr
+  durch. Der Kopplungslink/QR-Code enthält keinen Schlüssel mehr.
+- Sicherheit: Dateien von Geräten höchstens 500 MB je Gerät und Tag und 2 GB insgesamt.
+- Lizenzen: qrcode-generator in THIRD_PARTY_NOTICES.md; der Build prüft, dass jedes gebündelte Paket dort steht.
+
 ## [0.18.0] – 2026-11-10
 
 - Neu: **/resume** öffnet den Verlauf, um eine frühere Sitzung fortzusetzen (wie in der Claude CLI).

@@ -66,7 +66,7 @@ function getStore() {
   return s;
 }
 // Was Geräte im Fernzugriff vom Stand sehen – ändert es sich, holen sie den Stand neu (statt erst beim Neuverbinden)
-const deviceSig = s => JSON.stringify([s.profiles?.map(p => [p.id, p.name, p.color]), s.projects, s.projectGroups, s.favorites, s.remoteHost?.devices?.map(d => [d.id, d.allowBypass, d.allowProjects, d.allowServers, d.scope]), s.sshServers?.map(x => [x.id, x.name, x.color])]);
+const deviceSig = s => JSON.stringify([s.profiles?.map(p => [p.id, p.name, p.color]), s.projects, s.projectGroups, s.favorites, s.remoteHost?.devices?.map(d => [d.id, d.allowBypass, d.allowBang, d.allowProjects, d.allowServers, d.scope]), s.sshServers?.map(x => [x.id, x.name, x.color])]);
 let deviceSigTimer = null;
 function updateStore(fn) {
   const s = getStore(), before = deviceSig(s);
@@ -1071,7 +1071,7 @@ function remoteStoreFor(dev) {
     usage: s.usage,
     settings: { model: v.model ?? s.settings.model ?? '', effort: v.effort ?? s.settings.effort ?? '', permissionMode: v.permissionMode ?? s.settings.permissionMode ?? 'default' },
     allowedFolders: limited ? projectFolders(dev) : allowedFolders(), hostName: os.hostname().slice(0, 40), hostVersion: app.getVersion(), allowBypass: !!dev.allowBypass, canEditProjects: !!dev.allowProjects,
-    reach: { addresses: reachAddresses(), port: remoteHost?.port || null, relay: relayReach() },
+    reach: { addresses: reachAddresses(), port: remoteHost?.port || null, relay: relayReach(dev) },
     // SSH-Server dieses PCs (nur mit Freigabe „SSH-Server“): das Gerät nutzt sie über „server:call“, die Verbindung baut dieser PC auf
     servers: dev.allowServers ? sshServers().map(x => ({ id: x.id, name: cleanName(x.name, 'Server'), color: x.color || '#0EA5E9' })) : [],
   };
@@ -1235,13 +1235,28 @@ function cleanUploads() {
     try { if (Date.now() - fs.statSync(p).mtimeMs > 7 * 24 * 3600 * 1000) fs.rmSync(p, { recursive: true, force: true }); } catch {}
   }
 }
+// Grenzen: je Gerät höchstens UPLOAD_DAY am Tag, alle Uploads zusammen höchstens UPLOAD_TOTAL (ältere als 7 Tage werden gelöscht)
+const UPLOAD_DAY = 500 * 1024 * 1024, UPLOAD_TOTAL = 2 * 1024 * 1024 * 1024;
+const uploadDay = new Map(); // Geräte-ID -> { day, bytes }
+function uploadsSize() {
+  let sum = 0;
+  const walk = (d, depth) => { let list; try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const x of list) { const q = path.join(d, x.name); if (x.isDirectory()) { if (depth < 2) walk(q, depth + 1); } else try { sum += fs.statSync(q).size; } catch {} } };
+  walk(uploadRoot(), 0);
+  return sum;
+}
 function receiveUpload(dev, a) {
   const data = a?.data;
   if (typeof data !== 'string' || data.length > Math.ceil(UPLOAD_MAX / 3) * 4 + 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new Error(tr('Datei ungültig oder zu groß (höchstens 25 MB)', 'File invalid or too large (max. 25 MB)'));
   const buf = Buffer.from(data, 'base64');
   if (buf.length > UPLOAD_MAX) throw new Error(tr('Datei zu groß (höchstens 25 MB)', 'File too large (max. 25 MB)'));
   const name = uploadName(a?.name);
+  const day = new Date().toISOString().slice(0, 10), used = uploadDay.get(dev.id);
+  const today = used?.day === day ? used.bytes : 0;
+  if (today + buf.length > UPLOAD_DAY) throw new Error(tr('Tagesgrenze für Dateien erreicht (500 MB je Gerät)', 'Daily file limit reached (500 MB per device)', 'Günlük dosya sınırına ulaşıldı (cihaz başına 500 MB)'));
   cleanUploads();
+  if (uploadsSize() + buf.length > UPLOAD_TOTAL) throw new Error(tr('Upload-Ordner ist voll (2 GB) – ältere Dateien werden nach 7 Tagen gelöscht', 'Upload folder is full (2 GB) – older files are deleted after 7 days', 'Yükleme klasörü dolu (2 GB) – eski dosyalar 7 gün sonra silinir'));
+  uploadDay.set(dev.id, { day, bytes: today + buf.length });
   const dir = path.join(uploadRoot(), new Date().toISOString().slice(0, 10) + '-' + crypto.randomBytes(6).toString('hex'));
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name);
@@ -1317,9 +1332,9 @@ async function hostDispatch(dev, ch, args) {
       const id = hostTabId(dev, t.id);
       return id ? call(ch, { ...a0, tab: { ...t, id } }) : false;
     }
-    // „!“-Befehle laufen ohne Rückfrage – deshalb nur für Geräte mit der Freigabe „Alles erlauben“
+    // „!“-Befehle laufen ohne Rückfrage – deshalb nur für Geräte mit dem eigenen Recht „!-Befehle“ (Standard: aus)
     case 'session:bash': {
-      if (!dev.allowBypass) throw new Error(tr('„!“-Befehle sind für dieses Gerät nicht freigegeben – am Haupt-PC in der Geräteliste „Alles erlauben“ einschalten.', '“!” commands are not allowed for this device – turn on “Allow everything” for it in the device list on the host PC.'));
+      if (dev.allowBang !== true) throw new Error(tr('„!“-Befehle sind für dieses Gerät nicht freigegeben – am Haupt-PC in der Geräteliste „!-Befehle“ einschalten.', '“!” commands are not allowed for this device – turn on “! commands” for it in the device list on the host PC.', '“!” komutlarına bu cihaz için izin verilmiyor – ana bilgisayardaki cihaz listesinde “! komutları”nı açın.'));
       const t = a0?.tab || {};
       if (typeof t.hostTab === 'string') {
         const ht = openTabsFor(dev).find(x => x.id === t.hostTab);
@@ -1352,32 +1367,122 @@ async function hostDispatch(dev, ch, args) {
     default: return notAllowed();
   }
 }
+// Kopplung bestätigen: eigenes kleines Fenster mit den Rechten des neuen Geräts – alle zunächst aus, einzeln anzuhaken
+// (roter Hinweis bei „Alles erlauben“ und „!-Befehle“). Antwort: { ok, rights }.
+const PAIR_RIGHTS = ['allowBypass', 'allowBang', 'allowServers', 'allowProjects'];
+let pairWin = null, pairInfo = null, pairDone = null;
+function pairRightsTexts() {
+  return [
+    { key: 'allowBypass', risk: true, label: tr('„Alles erlauben“ verwenden', 'Use “Allow everything”', '“Her şeye izin ver” kullanımı'),
+      why: tr('Claude führt dann Befehle und Dateiänderungen ohne Rückfrage aus.', 'Claude then runs commands and changes files without asking.', 'Claude komutları ve dosya değişikliklerini sormadan yapar.') },
+    { key: 'allowBang', risk: true, label: tr('„!“-Befehle', '“!” commands', '“!” komutları'),
+      why: tr('Das Gerät kann Befehle direkt auf diesem PC ausführen – ohne Claude und ohne Rückfrage.', 'The device can run commands directly on this PC – without Claude and without asking.', 'Cihaz bu bilgisayarda doğrudan komut çalıştırabilir – Claude olmadan ve sormadan.') },
+    { key: 'allowServers', risk: false, label: tr('SSH-Server nutzen', 'Use SSH servers', 'SSH sunucularını kullanma'),
+      why: tr('Chats auf den hier eingetragenen Servern.', 'Chats on the servers set up here.', 'Burada kayıtlı sunucularda sohbetler.') },
+    { key: 'allowProjects', risk: false, label: tr('Projekte anlegen und ändern', 'Create and change projects', 'Proje oluşturma ve değiştirme'),
+      why: tr('Neue Projektordner hinzufügen und bestehende bearbeiten.', 'Add new project folders and edit existing ones.', 'Yeni proje klasörleri ekleme ve mevcutları düzenleme.') },
+  ];
+}
+ipcMain.handle('pairc:info', e => (pairWin && e.sender === pairWin.webContents ? pairInfo : null));
+ipcMain.handle('pairc:answer', (e, a) => {
+  if (!pairWin || e.sender !== pairWin.webContents || !pairDone) return false;
+  const rights = {};
+  for (const k of PAIR_RIGHTS) rights[k] = a?.ok === true && a?.rights?.[k] === true;
+  pairDone({ ok: a?.ok === true, rights });
+  return true;
+});
 async function confirmPairing({ name, address }) {
-  if (DEV && process.env.SWAPLINE_TEST_AUTOPAIR === '1') return true; // nur Testlauf aus dem Quellcode
-  if (!win || win.isDestroyed()) return false;
+  if (DEV && process.env.SWAPLINE_TEST_AUTOPAIR === '1') { // nur Testlauf aus dem Quellcode: Rechte aus der Umgebung (Standard: keine)
+    const want = String(process.env.SWAPLINE_TEST_PAIR_RIGHTS || '').split(',');
+    return { ok: true, rights: Object.fromEntries(PAIR_RIGHTS.map(k => [k, want.includes(k)])) };
+  }
+  if (!win || win.isDestroyed() || pairWin) return false; // nur eine Kopplung zugleich
   if (win.isMinimized()) win.restore();
   win.show(); win.focus();
-  const r = await dialog.showMessageBox(win, {
-    type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Koppeln', 'Pair')], defaultId: 0, cancelId: 0, noLink: true,
-    title: tr('Gerät koppeln', 'Pair device'),
-    message: tr(`Gerät „${name}“ koppeln?`, `Pair device “${name}”?`, `“${name}” cihazı eşleştirilsin mi?`),
-    detail: tr(`Adresse: ${address}\n\nDas Gerät kann danach alle Chats und Konten dieses PCs nutzen, Claude hier Befehle ausführen lassen und – solange in der Geräteliste erlaubt – „Alles erlauben“ verwenden. Nur eigene Geräte koppeln.`,
-      `Address: ${address}\n\nThe device can then use all chats and accounts of this PC, let Claude run commands here and – as long as allowed in the device list – use “Allow everything”. Only pair your own devices.`,
-      `Adres: ${address}\n\nCihaz bundan sonra bu bilgisayarın tüm sohbetlerini ve hesaplarını kullanabilir, Claude'a burada komut çalıştırtabilir ve – cihaz listesinde izin verildiği sürece – “Her şeye izin ver” seçeneğini kullanabilir. Yalnızca kendi cihazlarınızı eşleştirin.`),
+  pairInfo = {
+    lang: uiLang(), title: tr(`Gerät „${name}“ koppeln?`, `Pair device “${name}”?`, `“${name}” cihazı eşleştirilsin mi?`),
+    address: tr(`Adresse: ${address}`, `Address: ${address}`, `Adres: ${address}`),
+    note: tr('Das Gerät kann danach Chats und Konten dieses PCs nutzen (eingrenzbar in der Geräteliste). Nur eigene Geräte koppeln. Weitere Rechte nur anhaken, wenn nötig:',
+      'The device can then use chats and accounts of this PC (can be limited in the device list). Only pair your own devices. Tick further rights only if needed:',
+      'Cihaz bundan sonra bu bilgisayarın sohbetlerini ve hesaplarını kullanabilir (cihaz listesinde sınırlandırılabilir). Yalnızca kendi cihazlarınızı eşleştirin. Ek izinleri yalnızca gerekirse işaretleyin:'),
+    rights: pairRightsTexts(),
+    hint: tr('Alles lässt sich später in der Geräteliste ändern.', 'Everything can be changed later in the device list.', 'Her şey daha sonra cihaz listesinden değiştirilebilir.'),
+    ok: tr('Koppeln', 'Pair', 'Eşleştir'), cancel: tr('Abbrechen', 'Cancel', 'İptal'),
+  };
+  return new Promise(resolve => {
+    pairDone = v => { pairDone = null; resolve(v); if (pairWin && !pairWin.isDestroyed()) pairWin.close(); };
+    pairWin = new BrowserWindow({
+      parent: win, modal: true, width: 520, height: 520, resizable: false, minimizable: false, maximizable: false, show: false,
+      title: tr('Gerät koppeln', 'Pair device', 'Cihaz eşleştir'), autoHideMenuBar: true, backgroundColor: '#0f1115',
+      webPreferences: { preload: path.join(__dirname, 'pair-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    pairWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    pairWin.webContents.on('will-navigate', e => e.preventDefault());
+    pairWin.once('ready-to-show', () => pairWin?.show());
+    pairWin.on('closed', () => { pairWin = null; pairInfo = null; pairDone?.({ ok: false, rights: {} }); });
+    pairWin.loadFile(path.join(__dirname, 'renderer', 'pair-confirm.html'));
   });
-  return r.response === 1;
+}
+// Einmaliger Hinweis nach dem Update auf 0.19: Rechte der bereits gekoppelten Geräte (sie bleiben, wie sie waren)
+function showRightsNotice() {
+  const list = getDevices();
+  if (!list.length || !win || win.isDestroyed()) return;
+  const yes = tr('ja', 'yes', 'evet'), no = tr('nein', 'no', 'hayır');
+  const lines = list.map(d => `• ${d.name}: ${tr('Alles erlauben', 'Allow everything', 'Her şeye izin ver')} ${d.allowBypass ? yes : no}, „!“ ${d.allowBang ? yes : no}, ${tr('SSH-Server', 'SSH servers', 'SSH sunucuları')} ${d.allowServers ? yes : no}, ${tr('Projekte', 'Projects', 'Projeler')} ${d.allowProjects ? yes : no}`);
+  dialog.showMessageBox(win, {
+    type: 'info', buttons: ['OK'], noLink: true, title: tr('Rechte gekoppelter Geräte', 'Rights of paired devices', 'Eşleştirilmiş cihazların izinleri'),
+    message: tr('Neue Geräte bekommen ab jetzt keine weitergehenden Rechte mehr von selbst – sie werden beim Koppeln einzeln angehakt. Deine bereits gekoppelten Geräte behalten ihre Rechte:',
+      'From now on, new devices no longer get extended rights automatically – they are ticked individually when pairing. Your already paired devices keep their rights:',
+      'Bundan sonra yeni cihazlar geniş izinleri kendiliğinden almaz – eşleştirirken tek tek işaretlenir. Zaten eşleştirilmiş cihazlarınız izinlerini korur:'),
+    detail: lines.join('\n') + '\n\n' + tr('Ändern: Einstellungen → Fernzugriff → Geräteliste.', 'Change: Settings → Remote access → device list.', 'Değiştirmek için: Ayarlar → Uzaktan erişim → cihaz listesi.'),
+  }).catch(() => {});
+}
+// Umstellung auf 0.19: „!“ als eigenes Recht (bisher an „Alles erlauben“ gekoppelt), eigener Vermittler-Schlüssel je Gerät,
+// gemeinsames Vermittler-Kennwort (srelay1) und gemeinsamer dialKey entfallen
+function migrateRemote() {
+  const s = getStore();
+  const h = s.remoteHost;
+  if (!h) return false;
+  const devs = h.devices || [];
+  const need = devs.some(d => typeof d.allowBang !== 'boolean' || !d.dialKeyEnc) || h.relay?.secretEnc || h.relay?.dialKeyEnc;
+  if (!need || !safeStorage.isEncryptionAvailable()) return false;
+  let notice = false;
+  updateStore(x => {
+    const hh = x.remoteHost;
+    for (const d of hh.devices || []) {
+      if (typeof d.allowBang !== 'boolean') { d.allowBang = !!d.allowBypass; notice = true; }
+      d.dialKeyEnc ||= encryptSecret(crypto.randomBytes(32).toString('hex'));
+    }
+    if (hh.relay?.secretEnc) { delete hh.relay.secretEnc; hh.relay.legacy = true; }
+    if (hh.relay?.dialKeyEnc) delete hh.relay.dialKeyEnc;
+    if (notice && (hh.devices || []).length) hh.rightsNotice = true;
+  });
+  logError('Fernzugriff: auf eigene Rechte für „!“ und Vermittler-Schlüssel je Gerät umgestellt');
+  return true;
 }
 // --- Vermittler (relay/relay.js): Erreichbarkeit ohne Portfreigabe ---
-// Einstellungen: remoteHost.relay = { enabled, address, port, secretEnc, hostId, dialKeyEnc }. hostId und dialKey erzeugt
-// Swapline selbst; den dialKey bekommen nur gekoppelte Geräte (über die verschlüsselte Verbindung oder den QR-Code).
+// Einstellungen: remoteHost.relay = { enabled, address, port, keyId, keyEnc, hostId }. keyId/key stammen aus dem
+// Einrichtungscode (srelay2, je PC ein eigener Eintrag beim Vermittler); hostId erzeugt Swapline selbst. Jedes Gerät hat
+// einen eigenen dialKey (dialKeyEnc in der Geräteliste) – er gilt nur, solange das Gerät gekoppelt ist.
 const relayLinkMod = require('./relay-link');
 let relayLink = null;
 const RELAY_DEFAULT_PORT = 47821;
 function relayCfg() {
   const r = getStore().remoteHost?.relay;
-  if (!r?.enabled || !r.address || !r.secretEnc || !r.hostId || !r.dialKeyEnc) return null;
-  try { return { address: r.address, port: r.port || RELAY_DEFAULT_PORT, secret: decryptSecret(r.secretEnc), hostId: r.hostId, dialKey: decryptSecret(r.dialKeyEnc) }; }
-  catch { return null; }
+  if (!r?.enabled || !r.address || !r.keyId || !r.keyEnc || !r.hostId) return null;
+  let key;
+  try { key = decryptSecret(r.keyEnc); } catch { return null; }
+  const hostId = r.hostId;
+  return { address: r.address, port: r.port || RELAY_DEFAULT_PORT, keyId: r.keyId, key, hostId, verifyDial: (who, nonce, mac) => verifyDial(hostId, who, nonce, mac) };
+}
+// Einwählen eines Geräts prüfen: mit seinem eigenen dialKey (entfernte Geräte haben keinen mehr) bzw. beim Koppeln mit
+// dem aus dem gerade gültigen Einmal-Code abgeleiteten Schlüssel
+function verifyDial(hostId, who, nonce, mac) {
+  if (typeof nonce !== 'string' || typeof mac !== 'string') return false;
+  if (who === 'pair') { const k = remoteHost?.pairDialKey(); return !!k && relayLinkMod.checkDial(k, nonce, hostId, 'pair', mac); }
+  const d = getDevices().find(x => x.id === who);
+  if (!d?.dialKeyEnc) return false;
+  try { return relayLinkMod.checkDial(decryptSecret(d.dialKeyEnc), nonce, hostId, who, mac); } catch { return false; }
 }
 function applyRelay() {
   relayLink ||= relayLinkMod.createRelayLink({
@@ -1387,10 +1492,11 @@ function applyRelay() {
   });
   relayLink.use(remoteHost?.running ? relayCfg() : null);
 }
-// Für Geräte: wie sie den PC über den Vermittler erreichen (nur wenn eingerichtet)
-function relayReach() {
+// Für ein Gerät: wie es den PC über den Vermittler erreicht (nur wenn eingerichtet) – mit seinem eigenen dialKey
+function relayReach(dev) {
   const c = relayCfg();
-  return c ? { address: c.address, port: c.port, hostId: c.hostId, dialKey: c.dialKey } : null;
+  if (!c || !dev?.dialKeyEnc) return null;
+  try { return { address: c.address, port: c.port, hostId: c.hostId, dialKey: decryptSecret(dev.dialKeyEnc) }; } catch { return null; }
 }
 
 async function startRemoteHost() {
@@ -1517,9 +1623,9 @@ function remoteInfo() {
       enabled: !!cfg.enabled, port: cfg.port || remote.DEFAULT_PORT, running: !!remoteHost?.running, listenPort: remoteHost?.port || null,
       pairingExpires: remoteHost?.pairingExpires || null, addresses: remote.localAddresses(), hostName: os.hostname().slice(0, 40),
       publicAddress: publicAt ? { address: publicAddr?.address || null, found: !!publicAddr } : null,
-      relay: { enabled: !!cfg.relay?.enabled, address: cfg.relay?.address || '', port: cfg.relay?.port || RELAY_DEFAULT_PORT, hasSecret: !!cfg.relay?.secretEnc,
+      relay: { enabled: !!cfg.relay?.enabled, address: cfg.relay?.address || '', port: cfg.relay?.port || RELAY_DEFAULT_PORT, hasKey: !!cfg.relay?.keyEnc, keyId: cfg.relay?.keyId || '', legacy: !!cfg.relay?.legacy,
         state: relayLink?.state || 'off', detail: relayLink?.detail || '' },
-      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowProjects: !!d.allowProjects, allowServers: !!d.allowServers, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
+      devices: getDevices().map(d => ({ id: d.id, name: d.name, createdAt: d.createdAt, lastSeen: d.lastSeen, lastAddress: d.lastAddress, allowBypass: !!d.allowBypass, allowBang: !!d.allowBang, allowProjects: !!d.allowProjects, allowServers: !!d.allowServers, scope: scopeOf(d), connected: !!remoteHost?.connected(d.id) })),
     },
     hosts: [
       ...remoteHosts().map(h => ({ id: h.id, kind: 'swapline', name: h.name, address: String(h.address || '').split(',')[0], port: h.port, relay: !!h.relay, via: clients.get(h.id)?.via || '', color: h.color || '#475569', ...(h.icon ? { icon: h.icon } : {}), state: clients.get(h.id)?.state || 'off' })),
@@ -1534,33 +1640,42 @@ const validPort = p => Number.isInteger(p) && p >= 1024 && p <= 65535;
 const validAddress = a => typeof a === 'string' && a.length <= 253 && !isUnc(a) && (require('node:net').isIP(a) > 0 || /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(a));
 
 handle('remote:info', () => remoteInfo());
-// Einrichtungscode aus der App „Swapline Relay“: srelay1.<base64url(JSON {a: Adresse, p: Port, s: Kennwort})>
-handle('remote:relayCode', (e, code) => {
+// Einrichtungscode aus der App „Swapline Relay“: srelay2.<base64url(JSON {a: Adresse, p: Port, i: Eintrag, k: Schlüssel})>
+// – je PC ein eigener Eintrag, den man im Vermittler zusätzlich „Erlauben“ muss. srelay1 (gemeinsames Kennwort) gilt nicht mehr.
+handle('remote:relayCode', (_e, code) => {
+  const t = typeof code === 'string' ? code.trim() : '';
+  if (t.startsWith('srelay1.')) return { ...remoteInfo(), error: tr('Alter Einrichtungscode – in Swapline Relay (ab 0.3.0) unter „Haupt-PCs“ einen Code für diesen PC erzeugen.', 'Old setup code – create a code for this PC under “Host PCs” in Swapline Relay (0.3.0 or later).', 'Eski kurulum kodu – Swapline Relay\'de (0.3.0 ve üzeri) “Ana bilgisayarlar” altında bu bilgisayar için bir kod oluşturun.') };
   let c = null;
-  try { if (typeof code === 'string' && code.length < 1000 && code.trim().startsWith('srelay1.')) c = JSON.parse(Buffer.from(code.trim().slice(8), 'base64url').toString('utf8')); } catch {}
-  if (!c || typeof c.a !== 'string' || !Number.isInteger(c.p) || typeof c.s !== 'string') return { ...remoteInfo(), error: tr('Ungültiger Einrichtungscode', 'Invalid setup code') };
-  return H.get('remote:relaySet')(e, { enabled: true, address: c.a, port: c.p, secret: c.s });
+  try { if (t.length < 1000 && t.startsWith('srelay2.')) c = JSON.parse(Buffer.from(t.slice(8), 'base64url').toString('utf8')); } catch {}
+  if (!c || typeof c.a !== 'string' || !validAddress(c.a.trim()) || !Number.isInteger(c.p) || c.p < 1 || c.p > 65535 || !/^[0-9a-f]{8}$/.test(c.i || '') || !/^[0-9a-f]{64}$/.test(c.k || ''))
+    return { ...remoteInfo(), error: tr('Ungültiger Einrichtungscode', 'Invalid setup code') };
+  updateStore(s => {
+    const h = (s.remoteHost ||= { enabled: false, port: remote.DEFAULT_PORT, devices: [] });
+    const r = (h.relay ||= {});
+    Object.assign(r, { enabled: true, address: c.a.trim(), port: c.p, keyId: c.i, keyEnc: encryptSecret(c.k) });
+    r.hostId ||= crypto.randomBytes(8).toString('hex');
+    delete r.legacy; delete r.secretEnc; delete r.dialKeyEnc;
+  });
+  applyRelay();
+  pushRemoteStatus();
+  return remoteInfo();
 });
-// Vermittler einrichten: Adresse und Port prüfen, Kennwort nur verschlüsselt speichern (leer = bisheriges behalten)
-handle('remote:relaySet', (_e, { enabled, address, port, secret } = {}) => {
+// Vermittler ein/aus, Adresse und Port (z. B. anderer DNS-Name) – den Schlüssel bringt nur der Einrichtungscode
+handle('remote:relaySet', (_e, { enabled, address, port } = {}) => {
   const bad = () => ({ ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') });
   if (typeof enabled !== 'boolean') return bad();
   const addr = typeof address === 'string' ? address.trim() : '';
   if (addr && !validAddress(addr)) return { ...remoteInfo(), error: tr('Ungültige Adresse', 'Invalid address') };
   if (port !== undefined && !(Number.isInteger(port) && port >= 1 && port <= 65535)) return bad();
-  if (secret !== undefined && secret !== '' && (typeof secret !== 'string' || secret.length < 32 || secret.length > 200 || !/^[\x21-\x7e]+$/.test(secret)))
-    return { ...remoteInfo(), error: tr('Kennwort: mindestens 32 Zeichen, ohne Leerzeichen', 'Password: at least 32 characters, no spaces') };
   updateStore(s => {
     const h = (s.remoteHost ||= { enabled: false, port: remote.DEFAULT_PORT, devices: [] });
     const r = (h.relay ||= {});
     r.enabled = enabled;
-    r.address = addr;
+    if (addr) r.address = addr;
     r.port = port || r.port || RELAY_DEFAULT_PORT;
-    if (secret) r.secretEnc = encryptSecret(secret);
     r.hostId ||= crypto.randomBytes(8).toString('hex');
-    r.dialKeyEnc ||= encryptSecret(crypto.randomBytes(32).toString('hex'));
   });
-  if (enabled && !relayCfg()) { applyRelay(); return { ...remoteInfo(), error: tr('Adresse und Kennwort des Vermittlers angeben', 'Enter the relay address and password') }; }
+  if (enabled && !relayCfg()) { applyRelay(); return { ...remoteInfo(), error: tr('Einrichtungscode aus Swapline Relay einfügen', 'Paste the setup code from Swapline Relay', 'Swapline Relay\'den kurulum kodunu yapıştırın') }; }
   applyRelay();
   pushRemoteStatus();
   return remoteInfo();
@@ -1597,9 +1712,9 @@ function refreshPublic(force) {
 // Kopplungslink: steckt im QR-Code (Handy) und lässt sich für einen anderen PC kopieren
 function pairLink(code) {
   const addrs = reachAddresses();
-  const rr = relayReach(); // Vermittler: Koppeln auch von unterwegs
+  const rr = relayCfg(); // Vermittler: Koppeln auch von unterwegs – ohne Schlüssel im Link (der kommt erst nach dem Koppeln)
   return 'swapline://pair?v=1&a=' + addrs.join(',') + '&p=' + remoteHost.port + '&c=' + code.replace(/-/g, '') + '&n=' + encodeURIComponent(os.hostname().slice(0, 40))
-    + (rr ? '&r=' + encodeURIComponent(rr.address + ':' + rr.port) + '&h=' + rr.hostId + '&k=' + rr.dialKey : '');
+    + (rr ? '&r=' + encodeURIComponent(rr.address + ':' + rr.port) + '&h=' + rr.hostId : '');
 }
 function pairQr(url) {
   const q = require('qrcode-generator')(0, 'M');
@@ -1614,10 +1729,11 @@ handle('remote:pairStart', () => {
   return { ...p, link, qr: pairQr(link) };
 });
 handle('remote:pairCancel', () => { remoteHost?.cancelPairing(); return true; });
-handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, allowServers, scope } = {}) => {
+handle('remote:deviceSet', (_e, { id, allowBypass, allowBang, allowProjects, allowServers, scope } = {}) => {
   if (!getDevices().some(d => d.id === id)) return remoteInfo();
   const patch = {};
   if (allowBypass !== undefined) { if (typeof allowBypass !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowBypass = allowBypass; }
+  if (allowBang !== undefined) { if (typeof allowBang !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowBang = allowBang; }
   if (allowProjects !== undefined) { if (typeof allowProjects !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowProjects = allowProjects; }
   if (allowServers !== undefined) { if (typeof allowServers !== 'boolean') return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.allowServers = allowServers; }
   if (scope !== undefined) { const sc = cleanScope(scope); if (!sc) return { ...remoteInfo(), error: tr('Ungültige Eingabe', 'Invalid input') }; patch.scope = sc; }
@@ -1632,6 +1748,7 @@ handle('remote:deviceSet', (_e, { id, allowBypass, allowProjects, allowServers, 
     if (!ok) { stopSession(k); remoteTabs.delete(k); }
   }
   for (const [k, hostTab] of [...attachOf]) if (k.startsWith(id + ':') && !openTabsFor(dev).some(t => t.id === hostTab)) detach(id, k.slice(id.length + 1));
+  if (allowBang === false) for (const [k, v] of remoteTabs) if (v.deviceId === id) stopBash(k);
   pushOpenTabs();
   return remoteInfo();
 });
@@ -1640,11 +1757,12 @@ handle('remote:deviceRemove', (_e, id) => {
   saveDevices(getDevices().filter(d => d.id !== id));
   remoteHost?.disconnect(id);
   detachDevice(id);
-  for (const [k, v] of remoteTabs) if (v.deviceId === id) { stopSession(k); remoteTabs.delete(k); }
+  for (const [k, v] of remoteTabs) if (v.deviceId === id) { stopBash(k); stopSession(k); remoteTabs.delete(k); }
   logError(`Fernzugriff: Gerät ${id} entfernt`);
   return remoteInfo();
 });
-// Kopplungslink (wie im QR-Code): swapline://pair?v=1&a=<Adressen>&p=<Port>&c=<Code>&n=<Name>[&r=<Vermittler:Port>&h=<hostId>&k=<dialKey>]
+// Kopplungslink (wie im QR-Code): swapline://pair?v=1&a=<Adressen>&p=<Port>&c=<Code>&n=<Name>[&r=<Vermittler:Port>&h=<hostId>]
+// (ein „k“ aus Links vor 0.19 wird ignoriert – den Schlüssel für den Vermittler schickt der Haupt-PC beim Koppeln)
 function parsePairLink(text) {
   const t = typeof text === 'string' ? text.trim() : '';
   if (t.length > 1000 || !t.startsWith('swapline://pair?')) return null;
@@ -1656,8 +1774,8 @@ function parsePairLink(text) {
   if (!addresses.length || !addresses.every(validAddress) || !validPort(port) || !/^[0-9A-HJKMNP-TV-Z]{26}$/.test(code)) return null;
   let relay = null;
   const r = q.get('r') || '', i = r.lastIndexOf(':');
-  const ra = r.slice(0, i), rp = Number(r.slice(i + 1)), h = q.get('h') || '', k = q.get('k') || '';
-  if (i > 0 && validAddress(ra) && Number.isInteger(rp) && rp >= 1 && rp <= 65535 && /^[0-9a-f]{16}$/.test(h) && /^[0-9a-f]{64}$/.test(k)) relay = { address: ra, port: rp, hostId: h, dialKey: k };
+  const ra = r.slice(0, i), rp = Number(r.slice(i + 1)), h = q.get('h') || '';
+  if (i > 0 && validAddress(ra) && Number.isInteger(rp) && rp >= 1 && rp <= 65535 && /^[0-9a-f]{16}$/.test(h)) relay = { address: ra, port: rp, hostId: h };
   return { addresses, port, code, name: cleanName(q.get('n') || '', ''), relay };
 }
 handle('remote:pair', async (_e, { address, port, code, link } = {}) => {
@@ -1677,7 +1795,7 @@ handle('remote:pair', async (_e, { address, port, code, link } = {}) => {
     const label = t.addresses[0];
     const host = { id: r.deviceId, name: cleanName(r.hostName, label) || label, address: t.addresses.join(','), port: t.port, deviceId: r.deviceId, keyEnc: encryptSecret(r.key),
       ...(t.manual ? { manual: t.manual } : {}),
-      ...(t.relay ? { relay: { address: t.relay.address, port: t.relay.port, hostId: t.relay.hostId }, relayKeyEnc: encryptSecret(t.relay.dialKey) } : {}) };
+      ...(t.relay && r.dialKey ? { relay: { address: t.relay.address, port: t.relay.port, hostId: t.relay.hostId }, relayKeyEnc: encryptSecret(r.dialKey) } : {}) };
     // derselbe Haupt-PC schon gekoppelt (gleiche erste Adresse und Port oder gleiche Kennung beim Vermittler): ersetzen
     const same = h => (h.port === t.port && String(h.address || '').split(',')[0] === label) || (!!t.relay && h.relay?.hostId === t.relay.hostId);
     for (const old of remoteHosts().filter(same)) { clients.get(old.id)?.use(null); clients.delete(old.id); }
@@ -1720,6 +1838,10 @@ function initRemote() {
   if ('remoteTarget' in s) updateStore(x => { delete x.remoteTarget; }); // bis 0.3.0: ganze Oberfläche umgeschaltet
   if (safeStorage.isEncryptionAvailable()) for (const h of remoteHosts()) connectHost(h);
   for (const srv of sshServers()) checkServer(srv);
+  migrateRemote();
+  if (getStore().remoteHost?.rightsNotice && win && !(DEV && process.env.SWAPLINE_TEST_JS)) {
+    win.webContents.once('did-finish-load', () => setTimeout(() => { showRightsNotice(); updateStore(x => { delete x.remoteHost.rightsNotice; }); }, 1500));
+  }
   if (s.remoteHost?.enabled) startRemoteHost().catch(e => logError('Fernzugriff: ' + e.message));
 }
 

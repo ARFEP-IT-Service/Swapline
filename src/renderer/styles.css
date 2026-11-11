@@ -566,3 +566,4 @@ button.link:hover { color: var(--accent); }
 .tool .t-thumbs img { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); cursor: zoom-in; }
 .modal.image-view { max-width: 92vw; width: auto; }
 .modal.image-view img { display: block; max-width: 88vw; max-height: 78vh; margin: 0 auto; border-radius: 8px; }
+.dev-row label.risk-right { color: var(--danger); }

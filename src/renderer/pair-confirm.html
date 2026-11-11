@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>Swapline</title>
+  <style>
+    :root { color-scheme: light dark; --risk: #D92D20; --muted: #6b7280; --accent: #0A5FCC; }
+    body { font: 14px/1.45 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 18px 20px; }
+    h1 { font-size: 16px; margin: 0 0 6px; }
+    .muted { color: var(--muted); font-size: 12.5px; }
+    .note { margin: 10px 0 12px; font-size: 13px; }
+    label { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-top: 1px solid rgba(128,128,128,.25); cursor: pointer; }
+    label input { margin-top: 3px; }
+    label b { font-weight: 600; }
+    .risk b { color: var(--risk); }
+    .risk .why { color: var(--risk); }
+    .why { display: block; font-size: 12.5px; color: var(--muted); }
+    .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+    button { font: inherit; padding: 6px 16px; border-radius: 6px; border: 1px solid rgba(128,128,128,.5); background: transparent; color: inherit; cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  </style>
+</head>
+<body>
+  <h1 id="title"></h1>
+  <div id="addr" class="muted"></div>
+  <p id="note" class="note"></p>
+  <div id="rights"></div>
+  <p id="hint" class="muted"></p>
+  <div class="buttons"><button id="cancel"></button><button id="ok" class="primary"></button></div>
+  <script src="pair-confirm.js"></script>
+</body>
+</html>

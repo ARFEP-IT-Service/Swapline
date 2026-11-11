@@ -27,6 +27,7 @@ Drittkomponenten; die vollständigen Lizenztexte liegen im Ordner `licenses/` ne
 | sax | 1.6.1 | Reading the GitHub release feed (electron-updater) | BlueOak-1.0.0 | `licenses/sax-1.6.1.txt` |
 | semver | 7.7.4 | Version comparison (electron-updater) | ISC | `licenses/semver-7.7.4.txt` |
 | tiny-typed-emitter | 2.1.0 | Used by electron-updater | MIT | `licenses/tiny-typed-emitter-2.1.0.txt` |
+| qrcode-generator | 2.0.4 | QR code for pairing a phone (the package ships no license file; text from its declared MIT license) | MIT | `licenses/qrcode-generator-2.0.4.txt` |
 
 Installer only (`Swapline-Setup-<version>.exe`, not part of the installed app) / nur im Installer:
 

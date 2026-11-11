@@ -1,7 +1,7 @@
 {
   "name": "swapline",
   "productName": "Swapline",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Messenger-artige Oberfläche für Claude Code mit Kontowechsel",
   "main": "src/main.js",
   "author": "ARFEP – IT-Service",
@@ -11,7 +11,7 @@
     "dist": "node tools/collect-licenses.js && electron-builder --win --publish never && node tools/check-bundle.js",
     "test": "node tests/run.js",
     "relay:start": "electron relay/app",
-    "relay:dist": "electron-builder --config relay/electron-builder.yml --win --publish never"
+    "relay:dist": "node tools/collect-licenses.js && electron-builder --config relay/electron-builder.yml --win --publish never && node tools/check-relay-bundle.js"
   },
   "build": {
     "appId": "de.arfep.swapline",

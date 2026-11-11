@@ -20,7 +20,7 @@
   r = await api.remote.pair({ address: '127.0.0.1', port, code: wrong });
   check('Falscher Code abgelehnt', !!r.error && r.hosts.length === 0, r.error);
   check('Ungültige Adresse abgelehnt', !!(await api.remote.pair({ address: '\\\\server\\share', port, code: p.code })).error);
-  check('Kopplungslink für einen anderen PC', String(p.link).startsWith('swapline://pair?v=1&a=') && p.link.includes('&c=' + p.code.replace(/-/g, '')), String(p.link).slice(0, 40));
+  check('Kopplungslink für einen anderen PC (ohne Schlüssel)', String(p.link).startsWith('swapline://pair?v=1&a=') && p.link.includes('&c=' + p.code.replace(/-/g, '')) && !/[?&]k=/.test(p.link), String(p.link).slice(0, 40));
   check('Ungültiger Kopplungslink abgelehnt', !!(await api.remote.pair({ link: 'swapline://pair?v=1&a=' + encodeURIComponent('\\server\share') + '&p=' + port + '&c=' + p.code.replace(/-/g, '') })).error
     && !!(await api.remote.pair({ link: 'https://example.com/?v=1' })).error);
   // Testlauf lauscht nur auf 127.0.0.1: Adressen im Link darauf umstellen (der Rest bleibt wie vom Haupt-PC)
@@ -28,6 +28,8 @@
   check('Koppeln mit richtigem Code', !r.error && r.hosts.length === 1 && r.host.devices.length === 1, r.error);
   check('Code gilt nur einmal', !!(await api.remote.pair({ address: '127.0.0.1', port, code: p.code })).error);
   const hostId = r.hosts[0].id, devId = r.host.devices[0].id;
+  const nd = r.host.devices[0];
+  check('Neues Gerät ohne angehakte Rechte: „Alles erlauben“, „!“, SSH-Server, Projekte aus', nd.allowBypass === false && nd.allowBang === false && nd.allowServers === false && nd.allowProjects === false, JSON.stringify(nd));
 
   // Verbunden bleibt der Haupt-PC im Hintergrund; Chats des Haupt-PCs laufen über remote:call
   const R = (ch, ...a) => api.remote.call(hostId, ch, a);
@@ -83,13 +85,16 @@
   check('Geräteliste zeigt die Freigabe', JSON.stringify((await api.remote.info()).host.devices[0].scope) === JSON.stringify({ profiles: null, projects: [], chats: [U2] }));
   await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: null, chats: [] } });
 
-  // „Alles erlauben“ je Gerät
-  await api.remote.deviceSet({ id: devId, allowBypass: false });
-  check('Ohne Gerätefreigabe kein „Alles erlauben“', (await R('session:confirmBypass', 'abcdefgh')) === false && !(await R('store:get')).allowBypass);
+  // „Alles erlauben“ und „!“ je Gerät – Angriffstest: neues Gerät ohne Häkchen darf kein „!“ und kein „Alles erlauben“
+  check('Neues Gerät ohne Häkchen: kein „Alles erlauben“', (await R('session:confirmBypass', 'abcdefgh')) === false && !(await R('store:get')).allowBypass);
   const bangTab = { id: 'bangtab1', profileId: 'test', cwd: WORK, sessionId: null, model: '', effort: '', permissionMode: 'default' };
-  check('„!“-Befehl vom Gerät ohne Freigabe „Alles erlauben“ abgelehnt', (await R('session:bash', { tab: bangTab, command: 'echo nein' })) === false);
+  check('Neues Gerät ohne Häkchen: „!“-Befehl abgelehnt', (await R('session:bash', { tab: bangTab, command: 'echo nein' })) === false);
   await api.remote.deviceSet({ id: devId, allowBypass: true });
   check('Mit Gerätefreigabe „Alles erlauben“ möglich', (await R('session:confirmBypass', 'abcdefgh')) === true);
+  check('„!“ ist ein eigenes Recht: mit „Alles erlauben“ allein abgelehnt', (await R('session:bash', { tab: bangTab, command: 'echo nein' })) === false);
+  check('Ungültiger Wert für „!“ abgelehnt', !!(await api.remote.deviceSet({ id: devId, allowBang: 'ja' })).error);
+  await api.remote.deviceSet({ id: devId, allowBang: true });
+  check('Geräteliste zeigt das Recht „!“', (await api.remote.info()).host.devices[0].allowBang === true);
   check('„!“-Befehl vom Gerät mit Freigabe läuft am Haupt-PC', (await R('session:bash', { tab: bangTab, command: 'echo remote-bang' })) === true);
   check('„!“-Befehl vom Gerät nur in freigegebenen Ordnern', (await R('session:bash', { tab: { ...bangTab, id: 'bangtab2', cwd: 'C:\\Windows' }, command: 'echo nein' })) === false);
 
@@ -171,23 +176,26 @@
   check('Offene Rückfragen eines beigetretenen Chats abrufbar (nach Unterbrechung)', pend && pend.running === false && Array.isArray(pend.requests), JSON.stringify(pend));
   check('Offene Rückfragen: fremder Chat liefert nichts', JSON.stringify(await R('session:pending', { tabId: 'fremd0001' })) === JSON.stringify({ running: false, requests: [] }));
   check('Offene Rückfragen: ungültige ID abgelehnt', (await R('session:pending', { tabId: '../x' })) === false);
-  // Vermittler (ohne Portfreigabe): Eingaben geprüft, Kennwort nie im Klartext, Geräte und QR-Code bekommen die Daten
-  check('Vermittler: ungültige Adresse abgelehnt', !!(await api.remote.relaySet({ enabled: true, address: 'bad host/x', port: 47821, secret: 'a'.repeat(40) })).error);
-  check('Vermittler: zu kurzes Kennwort abgelehnt', !!(await api.remote.relaySet({ enabled: true, address: '127.0.0.1', port: 47821, secret: 'kurz' })).error);
-  let rl = await api.remote.relaySet({ enabled: true, address: '127.0.0.1', port: 1, secret: 's'.repeat(40) });
-  check('Vermittler: eingerichtet, Kennwort nicht in der Oberfläche', !rl.error && rl.host.relay.enabled && rl.host.relay.hasSecret && !JSON.stringify(rl).includes('s'.repeat(40)), JSON.stringify(rl.host.relay));
+  // Vermittler (ohne Portfreigabe): eigener Schlüssel je PC (srelay2), Schlüssel nie in der Oberfläche
+  const b64u = o => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const KEY = 'ab'.repeat(32);
+  check('Vermittler: alter Einrichtungscode (srelay1, gemeinsames Kennwort) abgelehnt', /Alter Einrichtungscode|Old setup code/.test((await api.remote.relayCode('srelay1.' + b64u({ a: 'relay.example', p: 47821, s: 'k'.repeat(48) }))).error || ''));
+  check('Vermittler: kaputter Einrichtungscode abgelehnt', !!(await api.remote.relayCode('srelay2.kaputt')).error && !!(await api.remote.relayCode('irgendwas')).error);
+  check('Vermittler: Einrichtungscode mit ungültiger Adresse abgelehnt', !!(await api.remote.relayCode('srelay2.' + b64u({ a: 'a b', p: 1, i: '0a0b0c0d', k: KEY }))).error);
+  check('Vermittler: Einrichtungscode ohne Schlüssel abgelehnt', !!(await api.remote.relayCode('srelay2.' + b64u({ a: '127.0.0.1', p: 1, i: '0a0b0c0d' }))).error);
+  check('Vermittler: ohne Einrichtungscode nicht einschaltbar', !!(await api.remote.relaySet({ enabled: true, address: '127.0.0.1', port: 1 })).error);
+  check('Vermittler: ungültige Adresse abgelehnt', !!(await api.remote.relaySet({ enabled: true, address: 'bad host/x', port: 47821 })).error);
+  let rl = await api.remote.relayCode('srelay2.' + b64u({ a: '127.0.0.1', p: 1, i: '0a0b0c0d', k: KEY }));
+  check('Vermittler: Einrichtungscode übernimmt Adresse, Port und Eintrag, Schlüssel nicht in der Oberfläche', !rl.error && rl.host.relay.enabled && rl.host.relay.address === '127.0.0.1' && rl.host.relay.port === 1 && rl.host.relay.keyId === '0a0b0c0d' && rl.host.relay.hasKey && !JSON.stringify(rl).includes(KEY), JSON.stringify(rl.host.relay));
   // das Gerät (hier derselbe PC) übernimmt den Vermittler aus store:get – im Hauptprozess, nicht in der Oberfläche
   const rs2 = await R('store:get');
+  await until(async () => (await api.remote.info()).hosts[0]?.relay === true, 5000);
   const hi = (await api.remote.info()).hosts[0];
-  check('Vermittler: gekoppelte Geräte übernehmen den Vermittler (Schlüssel nicht in der Oberfläche)', hi.relay === true && !('reach' in rs2) && !JSON.stringify(hi).includes('s'.repeat(40)), JSON.stringify(hi));
-  const qr = atob(String((await api.remote.pairStart()).qr || '').replace('data:image/svg+xml;base64,', ''));
-  check('Vermittler: QR-Code wird erzeugt', qr.startsWith('<svg'));
+  check('Vermittler: gekoppelte Geräte übernehmen den Vermittler (Schlüssel nicht in der Oberfläche)', hi.relay === true && !('reach' in rs2) && !JSON.stringify(hi).includes(KEY), JSON.stringify(hi));
+  const p2 = await api.remote.pairStart();
+  check('Vermittler: Kopplungslink mit Vermittler, aber ohne Schlüssel', /&r=127\.0\.0\.1%3A1&h=[0-9a-f]{16}$/.test(p2.link || '') && !/[?&]k=/.test(p2.link), p2.link);
+  check('Vermittler: QR-Code wird erzeugt', atob(String(p2.qr || '').replace('data:image/svg+xml;base64,', '')).startsWith('<svg'));
   await api.remote.pairCancel();
-  check('Vermittler: kaputter Einrichtungscode abgelehnt', !!(await api.remote.relayCode('srelay1.kaputt')).error && !!(await api.remote.relayCode('irgendwas')).error);
-  const goodCode = 'srelay1.' + btoa(JSON.stringify({ a: 'relay.example', p: 47821, s: 'k'.repeat(48) })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  rl = await api.remote.relayCode(goodCode);
-  check('Vermittler: Einrichtungscode übernimmt Adresse, Port und Kennwort', !rl.error && rl.host.relay.address === 'relay.example' && rl.host.relay.port === 47821 && rl.host.relay.hasSecret && !JSON.stringify(rl).includes('k'.repeat(48)), JSON.stringify(rl.host.relay));
-  check('Vermittler: Einrichtungscode mit ungültiger Adresse abgelehnt', !!(await api.remote.relayCode('srelay1.' + btoa(JSON.stringify({ a: 'a b', p: 1, s: 'k'.repeat(48) })))).error);
   rl = await api.remote.relaySet({ enabled: false, address: '127.0.0.1', port: 1 });
   check('Vermittler: ausschalten nimmt die Daten aus der Geräte-Antwort', !rl.error && rl.host.relay.state === 'off' && !(await R('store:get'))?.reach?.relay, rl.host.relay.state);
   // Dateien vom Gerät (Dokumente vom Handy): eigener Ordner im Temp-Verzeichnis, nur der Dateiname zählt

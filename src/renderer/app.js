@@ -2558,11 +2558,9 @@ function relaySection(h) {
   const on = el('input', { type: 'checkbox', checked: !!r.enabled });
   const addr = el('input', { type: 'text', placeholder: _('Adresse des Vermittlers (IP oder Name)'), value: r.address || '', style: 'flex:1' });
   const port = el('input', { type: 'number', min: '1', max: '65535', value: String(r.port || 47821), style: 'width:100px' });
-  const secret = el('input', { type: 'password', placeholder: r.hasSecret ? _('Kennwort (leer lassen = unverändert)') : _('Kennwort des Vermittlers'), style: 'flex:1', autocomplete: 'off' });
-  const state = r.state === 'connected' ? _('verbunden') : r.state === 'connecting' ? _('verbinde …') : r.state === 'error' ? (r.detail || _('Fehler')) : _('aus');
+  const state = r.state === 'connected' ? _('verbunden') : r.state === 'connecting' ? _('verbinde …') : r.state === 'pending' ? _('wartet auf „Erlauben“ in Swapline Relay') : r.state === 'error' ? (r.detail || _('Fehler')) : _('aus');
   const save = async () => {
-    remoteState = await api.remote.relaySet({ enabled: on.checked, address: addr.value, port: Number(port.value), ...(secret.value ? { secret: secret.value } : {}) });
-    secret.value = '';
+    remoteState = await api.remote.relaySet({ enabled: on.checked, address: addr.value, port: Number(port.value) });
     if (remoteState.error) toast(remoteState.error);
     drawRemote();
   };
@@ -2576,11 +2574,12 @@ function relaySection(h) {
   };
   return el('div', { class: 'relay-box' },
     el('div', { class: 'row' }, el('label', { class: 'row' }, on, _('Über Vermittler erreichbar (ohne Portfreigabe)')),
-      el('span', { class: 'hint', style: r.state === 'error' ? 'color:var(--danger)' : '' }, r.enabled ? state : '')),
+      el('span', { class: 'hint', style: r.state === 'error' ? 'color:var(--danger)' : r.state === 'pending' ? 'color:var(--warn, #D97706)' : '' }, r.enabled ? state : '')),
     el('p', { class: 'hint' }, _('Eigener Server mit der App „Swapline Relay“. Die Verbindung bleibt Ende-zu-Ende verschlüsselt; der Vermittler sieht keine Inhalte.')),
+    r.legacy ? el('p', { class: 'hint', style: 'color:var(--danger)' }, _('Der alte Einrichtungscode gilt nicht mehr. In Swapline Relay (ab 0.3.0) unter „Haupt-PCs“ einen Code für diesen PC erzeugen, hier einfügen und dort „Erlauben“ klicken.')) : null,
     el('div', { class: 'row' }, code, el('button', { class: 'primary', onclick: useCode }, _('Übernehmen'))),
-    el('p', { class: 'hint' }, _('Oder einzeln eintragen:')),
-    el('div', { class: 'row' }, addr, port), el('div', { class: 'row', style: 'margin-top:6px' }, secret, el('button', { class: 'ghost', onclick: save }, _('Speichern'))));
+    r.hasKey ? el('div', {}, el('p', { class: 'hint' }, _('Adresse ändern (z. B. anderer DNS-Name):')),
+      el('div', { class: 'row' }, addr, port, el('button', { class: 'ghost', onclick: save }, _('Speichern')))) : null);
 }
 function drawRemote() {
   const box = $('#remote-body'); if (!box || !remoteState) return;
@@ -2618,6 +2617,8 @@ function drawRemote() {
     ...h.devices.map(d => {
       const bypass = el('input', { type: 'checkbox', checked: d.allowBypass });
       bypass.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBypass: bypass.checked }); drawRemote(); };
+      const bang = el('input', { type: 'checkbox', checked: d.allowBang });
+      bang.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowBang: bang.checked }); drawRemote(); };
       const projAllow = el('input', { type: 'checkbox', checked: d.allowProjects });
       projAllow.onchange = async () => { remoteState = await api.remote.deviceSet({ id: d.id, allowProjects: projAllow.checked }); drawRemote(); };
       const srvAllow = el('input', { type: 'checkbox', checked: d.allowServers });
@@ -2626,7 +2627,8 @@ function drawRemote() {
         el('div', { class: 'grow' }, el('b', {}, d.name), el('small', {}, d.connected ? _('verbunden') : d.lastSeen ? _('zuletzt {t}', { t: new Date(d.lastSeen).toLocaleString(locale()) }) : _('noch nie verbunden'), d.lastAddress ? ' · ' + d.lastAddress : ''),
           el('small', {}, _('Freigabe: {s}', { s: scopeText(d.scope) }))),
         el('button', { class: 'ghost', onclick: () => openScopeEditor(d) }, _('Freigabe …')),
-        el('label', { class: 'row', title: _('Darf Chats mit „Alles erlauben“ (--dangerously-skip-permissions) starten') }, bypass, _('„Alles erlauben“')),
+        el('label', { class: 'row risk-right', title: _('Darf Chats mit „Alles erlauben“ (--dangerously-skip-permissions) starten') }, bypass, _('„Alles erlauben“')),
+        el('label', { class: 'row risk-right', title: _('Darf „!“-Befehle direkt auf diesem PC ausführen (ohne Claude, ohne Rückfrage)') }, bang, _('„!“-Befehle')),
         el('label', { class: 'row', title: _('Darf auf diesem PC Projekte und Ordner anlegen und umbenennen (nicht löschen)') }, projAllow, _('Projekte anlegen')),
         el('label', { class: 'row', title: _('Darf die SSH-Server dieses PCs nutzen (Chats laufen über diesen PC, der PC muss an sein)') }, srvAllow, _('SSH-Server')),
         el('button', { class: 'ghost danger', onclick: async () => { if (!confirm(_('Gerät „{name}“ entfernen? Es kann sich danach nicht mehr verbinden.', { name: d.name }))) return; remoteState = await api.remote.deviceRemove(d.id); drawRemote(); } }, _('Entfernen')));
