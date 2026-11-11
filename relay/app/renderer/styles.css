@@ -31,3 +31,4 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; }
 pre.log { max-height: 260px; overflow: auto; background: var(--raised); border-radius: 8px; padding: 10px; margin: 8px 0 0; font: 12px/1.4 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
 .notice { border-left: 3px solid var(--warn); padding: 8px 12px; background: var(--raised); border-radius: 6px; }
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--raised); border: 1px solid var(--border); padding: 8px 14px; border-radius: 10px; }
+span.ok { color: var(--ok); } span.warn { color: var(--warn); } table button { margin-right: 6px; }

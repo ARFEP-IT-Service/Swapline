@@ -21,8 +21,8 @@ const started = Date.now();
 let listening = false, lastError = '';
 function writeStatus(relay) {
   const st = relay ? relay.stats() : { hosts: 0, pipes: 0, pending: 0 };
-  const det = relay ? relay.details() : { hosts: [], blocked: 0 };
-  const status = { pid: process.pid, started, updated: Date.now(), port: cfg?.port, listening, lastError, ...st, hostList: det.hosts, blocked: det.blocked };
+  const det = relay ? relay.details() : { hosts: [], waiting: [], blocked: 0 };
+  const status = { pid: process.pid, started, updated: Date.now(), port: cfg?.port, listening, lastError, ...st, hostList: det.hosts, waiting: det.waiting, blocked: det.blocked };
   try { const tmp = P.file('status.json.tmp'); fs.writeFileSync(tmp, JSON.stringify(status)); fs.renameSync(tmp, P.file('status.json')); } catch {}
 }
 
@@ -33,7 +33,17 @@ if (!cfg) {
   process.exit(1);
 }
 
-const relay = createRelay({ secret: cfg.secret, log });
+// Haupt-PCs aus hosts.json; Änderungen aus der Oberfläche (Erlauben, Entfernen) werden alle 2 s übernommen
+let hostList = P.readHosts(), hostsMtime = 0;
+const hostsFile = P.file('hosts.json');
+function reloadHosts(relay) {
+  let m = 0; try { m = fs.statSync(hostsFile).mtimeMs; } catch {}
+  if (m === hostsMtime) return;
+  hostsMtime = m; hostList = P.readHosts();
+  relay?.refresh();
+}
+const relay = createRelay({ getHosts: () => hostList, maxPipesPerHost: cfg.maxPipesPerHost, maxPipes: cfg.maxPipes, log });
+reloadHosts(null);
 relay.listen(cfg.port, '0.0.0.0').then(port => {
   listening = true;
   log(`Swapline-Vermittler gestartet – Port ${port}`);
@@ -44,7 +54,7 @@ relay.listen(cfg.port, '0.0.0.0').then(port => {
   writeStatus(relay);
   process.exit(1);
 });
-setInterval(() => writeStatus(relay), 2000).unref?.();
+setInterval(() => { reloadHosts(relay); writeStatus(relay); }, 2000).unref?.();
 
 // Beendet sich mit dem Elternprozess (Aufgabe gestoppt), damit kein verwaister Dienst weiterläuft
 const parent = process.ppid;

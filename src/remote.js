@@ -42,6 +42,7 @@ function b32decode(str) {
   }
   return Buffer.from(out);
 }
+const pairDialKey = secret => crypto.createHash('sha256').update('swapline-pair-dial-v1').update(secret).digest('hex'); // wie src/relay-link.js
 const pairKey = secret => crypto.createHash('sha256').update('swapline-pair-v1').update(secret).digest();
 const formatCode = c => c.match(/.{1,4}/g).join('-');
 
@@ -130,13 +131,20 @@ function createHost(ctx) {
     const write = lineChannel(socket, async msg => {
       if (msg.t !== 'pair' || !p) return socket.destroy();
       const name = String(msg.name || '').replace(/[^\p{L}\p{N} ._-]/gu, '').slice(0, 40) || 'Gerät';
-      const ok = await ctx.confirmPair({ name, address: addr });
+      // Bestätigung am Haupt-PC: true/false oder { ok, rights } – Rechte nur, wenn dort einzeln angehakt (Standard: alle aus)
+      const answer = await ctx.confirmPair({ name, address: addr });
+      const ok = answer === true || answer?.ok === true;
       if (!ok) { ctx.log(`Fernzugriff: Kopplung von „${name}“ (${addr}) abgelehnt`); write({ t: 'pair-denied' }); return socket.end(); }
+      if (socket.destroyed) return ctx.log(`Fernzugriff: Kopplung von „${name}“ abgebrochen (Verbindung weg)`); // kein verwaister Eintrag
+      const r = (answer && typeof answer === 'object' && answer.rights) || {};
       const id = crypto.randomBytes(8).toString('hex');
       const key = crypto.randomBytes(32);
-      ctx.saveDevices([...ctx.getDevices(), { id, name, createdAt: Date.now(), lastSeen: null, lastAddress: addr, allowBypass: true, keyEnc: ctx.encrypt(key.toString('base64')) }]);
+      const dialKey = crypto.randomBytes(32).toString('hex'); // eigener Schlüssel dieses Geräts für den Vermittler
+      ctx.saveDevices([...ctx.getDevices(), { id, name, createdAt: Date.now(), lastSeen: null, lastAddress: addr,
+        allowBypass: r.allowBypass === true, allowBang: r.allowBang === true, allowProjects: r.allowProjects === true, allowServers: r.allowServers === true,
+        keyEnc: ctx.encrypt(key.toString('base64')), dialKeyEnc: ctx.encrypt(dialKey) }]);
       ctx.log(`Fernzugriff: Gerät „${name}“ (${addr}) gekoppelt`);
-      write({ t: 'paired', deviceId: id, key: key.toString('base64'), hostName: os.hostname().slice(0, 40) });
+      write({ t: 'paired', deviceId: id, key: key.toString('base64'), dialKey, hostName: os.hostname().slice(0, 40) });
       socket.end();
       ctx.onChange();
     });
@@ -171,11 +179,13 @@ function createHost(ctx) {
     },
     startPairing() {
       const secret = crypto.randomBytes(16);
-      pairing = { key: pairKey(secret), expires: Date.now() + PAIR_TTL };
+      pairing = { key: pairKey(secret), dialKey: pairDialKey(secret), expires: Date.now() + PAIR_TTL };
       ctx.onChange();
       return { code: formatCode(b32encode(secret)), expires: pairing.expires };
     },
     cancelPairing() { pairing = null; ctx.onChange(); },
+    // dialKey für das Koppeln über den Vermittler (aus dem Einmal-Code abgeleitet), nur solange ein Code gilt
+    pairDialKey() { return pairing && Date.now() < pairing.expires ? pairing.dialKey : null; },
     get pairingExpires() { return pairing && Date.now() < pairing.expires ? pairing.expires : null; },
     // Verbindung, die der Vermittler (src/relay-link.js) hergestellt hat: wie eine direkte Verbindung annehmen
     adopt(socket, from) {
@@ -198,7 +208,8 @@ const ROUTE_TIMEOUT = 4000, CONNECT_TIMEOUT = 15000;
 const UNREACHABLE = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'EHOSTOFFLINE']);
 function routesOf(t) {
   const list = (Array.isArray(t.addresses) ? t.addresses : String(t.address || '').split(',')).map(a => String(a).trim()).filter(Boolean);
-  return [...list.map(a => ({ address: a, port: t.port })), ...(t.relay ? [{ relay: t.relay }] : [])];
+  // Vermittler: als dieses Gerät (eigener dialKey) bzw. beim Koppeln als „pair“
+  return [...list.map(a => ({ address: a, port: t.port })), ...(t.relay ? [{ relay: { ...t.relay, who: t.deviceId || t.relay.who || 'pair' } }] : [])];
 }
 // TLS-PSK-Verbindung über einen Weg – fertig erst nach erfolgreichem Handshake
 async function openRoute(route, psk, identity, timeout) {
@@ -232,7 +243,9 @@ async function openAny(t, psk, identity) {
 async function pair({ address, addresses, port, code, name, relay }) {
   const secret = b32decode(code);
   if (!secret || secret.length !== 16) throw new Error('code');
-  const sock = await openAny({ address, addresses, port, relay }, pairKey(secret), 'pair');
+  // über den Vermittler mit einem aus dem Code abgeleiteten Schlüssel (kein dauerhafter Schlüssel im Kopplungslink)
+  const pr = relay ? { address: relay.address, port: relay.port, hostId: relay.hostId, dialKey: pairDialKey(secret), who: 'pair' } : null;
+  const sock = await openAny({ address, addresses, port, relay: pr }, pairKey(secret), 'pair');
   return new Promise((resolve, reject) => {
     let done = false;
     const finish = (err, val) => { if (done) return; done = true; sock.destroy(); err ? reject(err) : resolve(val); };
@@ -240,7 +253,7 @@ async function pair({ address, addresses, port, code, name, relay }) {
     sock.on('error', e => finish(e));
     sock.on('close', () => finish(new Error('closed')));
     const write = lineChannel(sock, msg => {
-      if (msg.t === 'paired' && DEVICE_ID_RE.test(msg.deviceId) && typeof msg.key === 'string') finish(null, { deviceId: msg.deviceId, key: msg.key, hostName: String(msg.hostName || '').slice(0, 40), via: sock.swaplineVia });
+      if (msg.t === 'paired' && DEVICE_ID_RE.test(msg.deviceId) && typeof msg.key === 'string') finish(null, { deviceId: msg.deviceId, key: msg.key, dialKey: /^[0-9a-f]{64}$/.test(msg.dialKey || '') ? msg.dialKey : null, hostName: String(msg.hostName || '').slice(0, 40), via: sock.swaplineVia });
       else if (msg.t === 'pair-denied') finish(new Error('denied'));
     });
     write({ t: 'pair', name });

@@ -4,10 +4,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 const call = (ch, ...a) => ipcRenderer.invoke(ch, ...a);
 contextBridge.exposeInMainWorld('relay', {
   state: force => call('state', !!force),
-  showSecret: () => call('secret:show'),
-  copySecret: () => call('secret:copy'),
-  newSecret: () => call('secret:new'),
-  copyCode: address => call('code:copy', address),
+  addHost: (name, address) => call('hosts:add', name, address),
+  copyHostCode: (id, address) => call('hosts:code', id, address),
+  approveHost: id => call('hosts:approve', id),
+  removeHost: id => call('hosts:remove', id),
+  setLimits: (perHost, total) => call('limits:set', { perHost, total }),
   setPort: port => call('port:set', port),
   install: () => call('svc:install'),
   uninstall: () => call('svc:uninstall'),

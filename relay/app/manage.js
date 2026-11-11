@@ -56,14 +56,37 @@ async function removeFirewall() {
   await ps('Get-NetFirewallRule -DisplayName $env:SR_RULE -ErrorAction SilentlyContinue | Remove-NetFirewallRule', { SR_RULE: RULE });
 }
 
+// Datenordner absichern, BEVOR darin Schlüssel angelegt werden: Besitzer Administratoren, Zugriff nur Administratoren
+// (S-1-5-32-544) und SYSTEM (S-1-5-18) voll, Lokaler Dienst (S-1-5-19) ändern, keine geerbten Rechte (ProgramData erlaubt
+// sonst allen Benutzern das Lesen). Hat ein normaler Benutzer den Ordner vorher angelegt, übernimmt das hier wieder.
+async function secureDir() {
+  await ps(`
+    $dir = $env:SR_DIR
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    & icacls $dir /setowner '*S-1-5-32-544' /T /C | Out-Null
+    & icacls $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M' /T /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'icacls fehlgeschlagen' }`, { SR_DIR: P.dataDir() });
+}
+// Update-Ordner: nur Administratoren und SYSTEM dürfen schreiben (auch nicht der Dienst), damit niemand das geprüfte
+// Setup zwischen Prüfung und Start austauscht
+async function secureUpdateDir() {
+  const dir = P.file('update');
+  await ps(`
+    $dir = $env:SR_DIR
+    if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    & icacls $dir /setowner '*S-1-5-32-544' | Out-Null
+    & icacls $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'icacls fehlgeschlagen' }`, { SR_DIR: dir });
+  return dir;
+}
+
 async function install() {
+  await secureDir();
   const cfg = P.ensureConfig();
   const l = launcher();
   await ps(`
     $dir = $env:SR_DIR
-    New-Item -ItemType Directory -Force $dir | Out-Null
-    # Zugriff: Administratoren (S-1-5-32-544) und SYSTEM (S-1-5-18) voll, Lokaler Dienst (S-1-5-19) ändern, sonst niemand
-    & icacls $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M' | Out-Null
     $ls = (New-Object Security.Principal.SecurityIdentifier 'S-1-5-19').Translate([Security.Principal.NTAccount]).Value
     Unregister-ScheduledTask -TaskName $env:SR_TASK -Confirm:$false -ErrorAction SilentlyContinue
     $action = New-ScheduledTaskAction -Execute $env:SR_PS -Argument $env:SR_ARG -WorkingDirectory $dir
@@ -77,7 +100,7 @@ async function install() {
 }
 
 // Ältere Versionen haben die Aufgabe mit einem anderen Startbefehl eingerichtet: dann neu einrichten
-// (Kennwort, Port und Protokoll bleiben). Ergebnis: 'none' (keine Aufgabe), 'ok' oder 'repaired'.
+// (Einträge der Haupt-PCs, Port und Protokoll bleiben). Ergebnis: 'none' (keine Aufgabe), 'ok' oder 'repaired'.
 async function repair() {
   const cur = await ps(`
     $t = Get-ScheduledTask -TaskName $env:SR_TASK -ErrorAction SilentlyContinue
@@ -112,4 +135,4 @@ async function uninstall() {
     Get-NetFirewallRule -DisplayName $env:SR_RULE -ErrorAction SilentlyContinue | Remove-NetFirewallRule`, { SR_TASK: TASK, SR_RULE: RULE });
 }
 
-module.exports = { TASK, RULE, isAdmin, serviceState, install, repair, uninstall, start, stop, restart, setFirewall, removeFirewall, launcher };
+module.exports = { TASK, RULE, isAdmin, serviceState, secureDir, secureUpdateDir, install, repair, uninstall, start, stop, restart, setFirewall, removeFirewall, launcher };

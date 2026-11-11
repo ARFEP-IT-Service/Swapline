@@ -42,15 +42,18 @@ function dial(address, port) {
   });
 }
 
-// cfg: { address, port, secret, hostId, dialKey }; onSocket(socket, from) übernimmt eine fertige Datenverbindung
+// cfg: { address, port, keyId, key, hostId, verifyDial(who, nonce, mac) }
+//   keyId/key: Eintrag und Schlüssel dieses PCs beim Vermittler (aus dem Einrichtungscode „srelay2.“ – je PC ein eigener)
+//   verifyDial: prüft den HMAC eines Geräts mit dessen eigenem dialKey (bzw. beim Koppeln mit dem aus dem Einmal-Code)
+// onSocket(socket, from) übernimmt eine fertige Datenverbindung
 function createRelayLink({ onSocket, onStatus = () => {}, log = () => {} }) {
   let cfg = null, ctrl = null, retry = null, ping = null, delay = 2000, state = 'off', detail = '';
   const setState = (s, d = '') => { state = s; detail = d; onStatus(s, d); };
 
   async function accept(m) {
-    // nur Geräte, die den dialKey dieses PCs kennen (gekoppelte Geräte bekommen ihn über die verschlüsselte Verbindung)
+    // nur gekoppelte Geräte (je Gerät ein eigener dialKey, entfernt = ungültig) und ein laufendes Koppeln
     const c = cfg;
-    if (!c || !same(m.mac, hmac(c.dialKey, `dial|${m.nonce}|${c.hostId}`))) {
+    if (!c || typeof m.who !== 'string' || typeof m.mac !== 'string' || !c.verifyDial(m.who, m.nonce, m.mac)) {
       log(`Vermittler: Gerät ${String(m.from || '?').slice(0, 64)} abgelehnt (falsche Kennung)`);
       if (ctrl && !ctrl.destroyed) ctrl.write(JSON.stringify({ t: 'reject', id: m.id }) + '\n');
       return;
@@ -60,7 +63,7 @@ function createRelayLink({ onSocket, onStatus = () => {}, log = () => {} }) {
       s = await dial(c.address, c.port);
       const hello = await readLine(s);
       if (hello?.t !== 'hello' || typeof hello.nonce !== 'string') throw new Error('kein Vermittler');
-      s.write(JSON.stringify({ t: 'accept', id: m.id, mac: hmac(c.secret, `accept|${hello.nonce}|${m.id}`) }) + '\n');
+      s.write(JSON.stringify({ t: 'accept', id: m.id, mac: hmac(c.key, `accept|${hello.nonce}|${m.id}`) }) + '\n');
       s.setKeepAlive(true, 30_000);
       s.setNoDelay(true);
       onSocket(s, String(m.from || '').slice(0, 64));
@@ -77,13 +80,19 @@ function createRelayLink({ onSocket, onStatus = () => {}, log = () => {} }) {
       if (cfg !== c) return s.destroy();
       const hello = await readLine(s);
       if (hello?.t !== 'hello' || typeof hello.nonce !== 'string') throw new Error('kein Swapline-Vermittler');
-      s.write(JSON.stringify({ t: 'host', hostId: c.hostId, mac: hmac(c.secret, `host|${hello.nonce}|${c.hostId}`) }) + '\n');
+      s.write(JSON.stringify({ t: 'host', key: c.keyId, hostId: c.hostId, mac: hmac(c.key, `host|${hello.nonce}|${c.hostId}`) }) + '\n');
       const r = await readLine(s);
-      if (r?.t !== 'registered') throw new Error(r?.error === 'voll' ? 'Vermittler ist voll' : 'Anmeldung abgelehnt – Kennwort prüfen');
+      if (r?.t !== 'registered') {
+        const e = new Error({ voll: 'Vermittler ist voll', pending: 'Wartet auf Freigabe in der App „Swapline Relay“ (dort „Erlauben“)', veraltet: 'Alter Einrichtungscode – in Swapline Relay einen neuen Code für diesen PC erzeugen' }[r?.error]
+          || 'Anmeldung abgelehnt – Einrichtungscode prüfen (in Swapline Relay entfernt?)');
+        e.pending = r?.error === 'pending';
+        throw e;
+      }
     } catch (e) {
       s?.destroy();
       if (cfg !== c) return;
-      setState('error', e.message);
+      setState(e.pending ? 'pending' : 'error', e.message);
+      if (e.pending) delay = 15_000; // bis zur Freigabe regelmäßig nachfragen
       retry = setTimeout(connect, delay);
       delay = Math.min(delay * 2, 60_000);
       return;
@@ -118,7 +127,7 @@ function createRelayLink({ onSocket, onStatus = () => {}, log = () => {} }) {
   return {
     get state() { return state; },
     get detail() { return detail; },
-    use(next) { // next: { address, port, secret, hostId, dialKey } oder null
+    use(next) { // next: { address, port, keyId, key, hostId, verifyDial } oder null
       clearTimeout(retry); clearInterval(ping);
       ctrl?.destroy(); ctrl = null;
       cfg = next; delay = 2000;
@@ -129,7 +138,7 @@ function createRelayLink({ onSocket, onStatus = () => {}, log = () => {} }) {
 
 // Gerät → Haupt-PC über den Vermittler: anmelden mit HMAC(dialKey) über die Zufallszahl des Vermittlers. Liefert die
 // Verbindung, sobald der Haupt-PC angenommen hat – darauf läuft dann die TLS-PSK-Verbindung (Ende-zu-Ende).
-// route: { address, port, hostId, dialKey }
+// route: { address, port, hostId, dialKey, who } – who: eigene Geräte-ID (bzw. „pair“ beim Koppeln)
 async function dialRelay(route, timeout = CONNECT_TIMEOUT) {
   const s = await new Promise((resolve, reject) => {
     const c = net.connect({ host: route.address, port: route.port, timeout });
@@ -140,7 +149,8 @@ async function dialRelay(route, timeout = CONNECT_TIMEOUT) {
   try {
     const hello = await readLine(s);
     if (hello?.t !== 'hello' || typeof hello.nonce !== 'string') throw new Error('kein Swapline-Vermittler');
-    s.write(JSON.stringify({ t: 'dial', hostId: route.hostId, mac: hmac(route.dialKey, `dial|${hello.nonce}|${route.hostId}`) }) + '\n');
+    const who = route.who || 'pair';
+    s.write(JSON.stringify({ t: 'dial', hostId: route.hostId, who, mac: dialMac(route.dialKey, hello.nonce, route.hostId, who) }) + '\n');
     const r = await readLine(s, 30_000);
     if (r?.t !== 'ok') { const e = new Error(r?.error === 'offline' ? 'Haupt-PC ist nicht beim Vermittler angemeldet' : 'Vermittler: ' + (r?.error || 'abgelehnt')); e.code = r?.error === 'offline' ? 'EHOSTOFFLINE' : 'ERELAY'; throw e; }
     s.setKeepAlive(true, 30_000);
@@ -149,4 +159,11 @@ async function dialRelay(route, timeout = CONNECT_TIMEOUT) {
   } catch (e) { s.destroy(); throw e; }
 }
 
-module.exports = { createRelayLink, dialRelay, hmac, readLine };
+// HMAC eines Geräts beim Einwählen (gleich in der Android-App, net/Link.kt)
+const dialMac = (dialKey, nonce, hostId, who) => hmac(dialKey, `dial|${nonce}|${hostId}|${who}`);
+// dialKey für das Koppeln über den Vermittler: aus dem Einmal-Code abgeleitet (der Kopplungslink enthält keinen Schlüssel)
+const pairDialKey = secret => crypto.createHash('sha256').update('swapline-pair-dial-v1').update(secret).digest('hex');
+// Prüfung beim Haupt-PC: konstante Zeit
+const checkDial = (dialKey, nonce, hostId, who, mac) => typeof dialKey === 'string' && same(mac, dialMac(dialKey, nonce, hostId, who));
+
+module.exports = { createRelayLink, dialRelay, hmac, readLine, dialMac, pairDialKey, checkDial };

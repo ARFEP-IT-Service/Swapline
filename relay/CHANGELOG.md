@@ -3,6 +3,22 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC und der Android-App.
 Tags: `relay-v<Version>`.
 
+## [0.3.0] – 2026-11-11
+
+- Sicherheit: **nur für eigene Haupt-PCs** – kein gemeinsames Kennwort mehr. Unter „Haupt-PCs“ je PC einen
+  Einrichtungscode (`srelay2`) mit eigenem Schlüssel erzeugen; ein neuer PC wartet, bis er mit **Erlauben** freigegeben ist,
+  und ist danach an seine Kennung gebunden. **Entfernen** trennt ihn sofort. Alte Codes (`srelay1`) werden abgelehnt.
+- Sicherheit: Geräte melden sich mit ihrem **eigenen Schlüssel** an (Swapline ab 0.19.0, Android ab 0.12.0, Swapline Server
+  ab 0.3.0) – am Haupt-PC entfernte Geräte werden schon hier abgewiesen.
+- Neu: **Grenzen** für Verbindungen je PC (Standard 10) und insgesamt (Standard 50) einstellbar, höchstens 300
+  gleichzeitige Verbindungen.
+- Sicherheit: Updates werden in einen Ordner geladen, den nur Administratoren beschreiben dürfen, und direkt vor dem Start
+  noch einmal mit der Prüfsumme verglichen; die Rechte des Datenordners werden gesetzt, bevor eine Datei mit Schlüsseln
+  entsteht.
+- Lizenzen: `LICENSE`, `THIRD_PARTY_NOTICES.md` und die Lizenztexte (Electron, Chromium, FFmpeg, NSIS) liegen jetzt im
+  Installer und im ZIP.
+- Ohne App (Linux): `relay.js add|list|approve|remove` verwaltet die Haupt-PCs.
+
 ## [0.2.2] – 2026-11-09
 
 - Update-Prüfung liest jetzt die neuesten 100 statt 30 Releases – PC-, Relay- und Handy-Versionen stehen in derselben

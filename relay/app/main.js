@@ -1,4 +1,4 @@
-// „Swapline Relay“ – Oberfläche zur Verwaltung des Vermittlers (Dienst, Kennwort, Port, Firewall, Protokoll).
+// „Swapline Relay“ – Oberfläche zur Verwaltung des Vermittlers (Dienst, Haupt-PCs, Port, Firewall, Protokoll).
 // Der Vermittler selbst läuft als Dienst (service.js), unabhängig davon, ob dieses Fenster offen ist.
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, clipboard, shell, Menu } = require('electron');
@@ -56,8 +56,11 @@ app.whenReady().then(async () => {
     if (await relaunchElevated()) return app.quit();
     app.requestSingleInstanceLock();
   }
-  try { P.ensureConfig(); } catch {}
-  if (await M.isAdmin()) M.repair().catch(() => {});
+  // Schlüssel und Einstellungen nur als Administrator anlegen – und erst, nachdem die Ordnerrechte gesetzt sind
+  if (await M.isAdmin()) {
+    try { await M.secureDir(); P.ensureConfig(); } catch {}
+    M.repair().catch(() => {});
+  }
   createWindow();
 });
 app.on('window-all-closed', () => app.quit());
@@ -93,34 +96,64 @@ handle('state', async (force) => {
   const cfg = P.readConfig();
   return {
     version: app.getVersion(), admin: await admin, dataDir: P.dataDir(),
-    config: cfg ? { port: cfg.port, hasSecret: true } : null,
+    config: cfg ? { port: cfg.port, maxPipesPerHost: cfg.maxPipesPerHost, maxPipes: cfg.maxPipes } : null,
+    // Haupt-PCs ohne Schlüssel (der bleibt im Hauptprozess)
+    hosts: P.readHosts().map(e => ({ id: e.id, name: e.name, hostId: e.hostId ? e.hostId.slice(0, 6) : null, approved: e.approved, created: e.created })),
     service: svcCache, status: readStatus(), addresses: addresses(), lang: de() ? 'de' : 'en',
   };
 });
 let adminCache = null;
 async function adminOnce() { if (adminCache === null) adminCache = await M.isAdmin(); return adminCache; }
 
-// Kennwort nur auf ausdrücklichen Klick in die Oberfläche; Kopieren direkt aus dem Hauptprozess
-handle('secret:show', () => P.readConfig()?.secret || '');
-handle('secret:copy', () => { const s = P.readConfig()?.secret; if (s) clipboard.writeText(s); return !!s; });
-handle('secret:new', async () => {
-  const r = await dialog.showMessageBox(win, { type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Neues Kennwort', 'New password')], defaultId: 0, cancelId: 0, noLink: true,
-    title: 'Swapline Relay', message: tr('Neues Kennwort erzeugen?', 'Create a new password?'),
-    detail: tr('Alle Swapline-PCs verlieren die Verbindung, bis du dort das neue Kennwort (oder den neuen Einrichtungscode) einträgst.', 'All Swapline PCs lose the connection until you enter the new password (or the new setup code) there.') });
+// Haupt-PCs: je einer ein eigener Schlüssel (kein gemeinsames Kennwort). Neuer Eintrag → Einrichtungscode für genau
+// einen PC; der PC wartet nach dem ersten Kontakt auf „Erlauben“. Alles nur als Administrator.
+const needAdmin = async () => { if (!(await adminOnce())) throw new Error(tr('Nur als Administrator – App neu öffnen und die Windows-Abfrage bestätigen.', 'Administrator only – reopen the app and confirm the Windows prompt.')); };
+handle('hosts:add', async (name, address) => {
+  await needAdmin();
+  const c = P.readConfig();
+  if (!c || !validHost(address)) return { error: tr('Bitte eine gültige Adresse des Servers angeben', 'Please enter a valid server address') };
+  const e = P.addHost(name);
+  clipboard.writeText(P.setupCode(address, c.port, e));
+  return { ok: true, id: e.id };
+});
+// Einrichtungscode eines noch nicht verbundenen Eintrags erneut kopieren (gebundene Einträge: nur für denselben PC nutzbar)
+handle('hosts:code', async (id, address) => {
+  await needAdmin();
+  const c = P.readConfig(), e = P.readHosts().find(x => x.id === id);
+  if (!c || !e || !validHost(address)) return false;
+  clipboard.writeText(P.setupCode(address, c.port, e));
+  return true;
+});
+handle('hosts:approve', async id => {
+  await needAdmin();
+  const w = (readStatus()?.waiting || []).find(x => x.entry === id);
+  if (!w) return { error: tr('Dieser PC wartet gerade nicht auf Freigabe', 'This PC is not waiting for approval') };
+  const e = P.readHosts().find(x => x.id === id);
+  const r = await dialog.showMessageBox(win, { type: 'question', buttons: [tr('Abbrechen', 'Cancel'), tr('Erlauben', 'Allow')], defaultId: 0, cancelId: 0, noLink: true,
+    title: 'Swapline Relay', message: tr(`„${e?.name}“ zulassen?`, `Allow “${e?.name}”?`),
+    detail: tr(`Kennung ${w.hostId.slice(0, 6)}…, Adresse ${w.ip}. Nur eigene PCs zulassen – andere betreiben ihren eigenen Vermittler.`, `ID ${w.hostId.slice(0, 6)}…, address ${w.ip}. Only allow your own PCs – others run their own relay.`) });
   if (r.response !== 1) return false;
-  const c = P.ensureConfig();
-  P.writeConfig({ ...c, secret: P.newSecret() });
+  return P.approveHost(id, w.hostId) || { error: tr('Konnte nicht freigegeben werden', 'Could not be allowed') };
+});
+handle('hosts:remove', async id => {
+  await needAdmin();
+  const e = P.readHosts().find(x => x.id === id);
+  if (!e) return false;
+  const r = await dialog.showMessageBox(win, { type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Entfernen', 'Remove')], defaultId: 0, cancelId: 0, noLink: true,
+    title: 'Swapline Relay', message: tr(`„${e.name}“ entfernen?`, `Remove “${e.name}”?`),
+    detail: tr('Der Schlüssel dieses PCs wird ungültig, die Verbindung sofort getrennt. Für eine neue Anmeldung braucht der PC einen neuen Einrichtungscode.', 'The key of this PC becomes invalid and it is disconnected at once. To sign in again the PC needs a new setup code.') });
+  if (r.response !== 1) return false;
+  return P.removeHost(id);
+});
+handle('limits:set', async ({ perHost, total } = {}) => {
+  await needAdmin();
+  if (!Number.isInteger(perHost) || perHost < 1 || perHost > 100 || !Number.isInteger(total) || total < 1 || total > 1000) return { error: tr('Ungültige Werte', 'Invalid values') };
+  P.writeConfig({ ...P.ensureConfig(), maxPipesPerHost: perHost, maxPipes: total });
   if ((await M.serviceState()).task) await M.restart();
   return true;
 });
-// Einrichtungscode für Swapline am PC: Adresse, Port und Kennwort in einem Text (in Swapline einfügen)
-handle('code:copy', (address) => {
-  const c = P.readConfig();
-  if (!c || !validHost(address)) return false;
-  clipboard.writeText('srelay1.' + Buffer.from(JSON.stringify({ a: address, p: c.port, s: c.secret })).toString('base64url'));
-  return true;
-});
 handle('port:set', async (port) => {
+  await needAdmin();
   if (!Number.isInteger(port) || port < 1024 || port > 65535) return { error: tr('Port zwischen 1024 und 65535', 'Port between 1024 and 65535') };
   const c = P.ensureConfig();
   P.writeConfig({ ...c, port });
@@ -134,7 +167,7 @@ handle('svc:install', async () => { await M.install(); svcAt = 0; return true; }
 handle('svc:uninstall', async () => {
   const r = await dialog.showMessageBox(win, { type: 'warning', buttons: [tr('Abbrechen', 'Cancel'), tr('Entfernen', 'Remove')], defaultId: 0, cancelId: 0, noLink: true,
     title: 'Swapline Relay', message: tr('Dienst entfernen?', 'Remove service?'),
-    detail: tr('Der Vermittler wird beendet und startet nicht mehr mit Windows; die Firewall-Regel wird entfernt. Kennwort und Protokoll bleiben erhalten.', 'The relay is stopped and no longer starts with Windows; the firewall rule is removed. Password and log are kept.') });
+    detail: tr('Der Vermittler wird beendet und startet nicht mehr mit Windows; die Firewall-Regel wird entfernt. Die Haupt-PCs (Schlüssel) und das Protokoll bleiben erhalten.', 'The relay is stopped and no longer starts with Windows; the firewall rule is removed. Host PCs (keys) and the log are kept.') });
   if (r.response !== 1) return false;
   await M.uninstall(); svcAt = 0; return true;
 });
@@ -169,16 +202,17 @@ handle('update:install', async () => {
   if (!(await adminOnce())) return { error: tr('Update nur als Administrator – App neu öffnen und die Windows-Abfrage bestätigen.', 'Updating needs administrator rights – reopen the app and confirm the Windows prompt.') };
   const r = await dialog.showMessageBox(win, { type: 'question', buttons: [tr('Abbrechen', 'Cancel'), tr('Jetzt aktualisieren', 'Update now')], defaultId: 1, cancelId: 0, noLink: true,
     title: 'Swapline Relay', message: tr(`Auf Version ${updateInfo.version} aktualisieren?`, `Update to version ${updateInfo.version}?`),
-    detail: tr('Das Setup wird von GitHub geladen und geprüft. Während der Installation ist der Vermittler einige Sekunden nicht erreichbar; die Swapline-PCs verbinden sich danach von selbst neu. Kennwort, Port und Protokoll bleiben erhalten.',
-      'The setup is downloaded from GitHub and verified. The relay is unreachable for a few seconds during installation; Swapline PCs reconnect on their own afterwards. Password, port and log are kept.') });
+    detail: tr('Das Setup wird von GitHub geladen und geprüft. Während der Installation ist der Vermittler einige Sekunden nicht erreichbar; die Swapline-PCs verbinden sich danach von selbst neu. Haupt-PCs, Port und Protokoll bleiben erhalten.',
+      'The setup is downloaded from GitHub and verified. The relay is unreachable for a few seconds during installation; Swapline PCs reconnect on their own afterwards. Host PCs, port and log are kept.') });
   if (r.response !== 1) return false;
   updating = true;
   const progress = p => { if (win && !win.isDestroyed()) win.webContents.send('update:progress', p); };
   try {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swapline-relay-update-'));
+    const dir = await M.secureUpdateDir();
     progress(0);
-    const { file } = await U.download(updateInfo, dir, progress);
+    const { file, sha256 } = await U.download(updateInfo, dir, progress);
     progress(1);
+    if ((await U.sha256File(file)) !== sha256) throw new Error(tr('Prüfsumme stimmt nicht mehr – Update abgebrochen', 'Checksum no longer matches – update cancelled'));
     // wie electron-updater: still installieren, als Update kennzeichnen, App danach wieder öffnen
     require('node:child_process').spawn(file, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     setTimeout(() => app.quit(), 500);

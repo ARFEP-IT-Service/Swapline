@@ -1,7 +1,7 @@
 // Oberfläche von „Swapline Relay“: Status, verbundene Swapline-PCs, Zugangsdaten für Swapline, Einstellungen, Protokoll.
 'use strict';
 const $ = s => document.querySelector(s);
-let S = null, lang = 'de', shownSecret = '', chosenAddr = '', busy = false;
+let S = null, lang = 'de', chosenAddr = '', busy = false;
 const tr = (d, e) => (lang === 'de' ? d : e);
 
 function el(tag, attrs = {}, ...kids) {
@@ -44,43 +44,52 @@ function statusCard() {
       busy ? el('span', { class: 'muted' }, tr('Bitte warten …', 'Please wait …')) : null));
 }
 
-function accessCard() {
+// Haupt-PCs: nur eigene. Je PC ein eigener Einrichtungscode (eigener Schlüssel); nach dem ersten Kontakt wartet der PC auf
+// „Erlauben“. Entfernen macht den Schlüssel ungültig und trennt sofort.
+let newName = '';
+function hostsCard() {
   const addrs = S.addresses.map(a => a.address);
   if (!chosenAddr || (!addrs.includes(chosenAddr) && !chosenAddr.includes('.'))) chosenAddr = addrs[0] || '';
+  const online = new Map((S.status?.alive ? S.status.hostList || [] : []).map(h => [h.entry, h]));
+  const waiting = new Map((S.status?.alive ? S.status.waiting || [] : []).map(w => [w.entry, w]));
   const addrInput = el('input', { class: 'grow mono', value: chosenAddr, placeholder: tr('Adresse oder Name des Servers', 'Server address or name'), oninput: e => { chosenAddr = e.target.value.trim(); } });
-  return el('section', { class: 'card' },
-    el('h2', {}, tr('Für Swapline am PC', 'For Swapline on the PC')),
-    el('p', { class: 'muted' }, tr('In Swapline: Fernzugriff → „Über Vermittler erreichbar“ → Einrichtungscode einfügen. Oder Adresse, Port und Kennwort einzeln eintragen.',
-      'In Swapline: Remote access → “Reachable via relay” → paste the setup code. Or enter address, port and password separately.')),
-    el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:90px' }, tr('Adresse', 'Address')), addrInput),
+  const nameInput = el('input', { class: 'grow', value: newName, maxlength: '40', placeholder: tr('Name des PCs, z. B. Büro-PC', 'Name of the PC, e.g. office PC'), oninput: e => { newName = e.target.value; } });
+  const row = e => {
+    const on = online.get(e.id), w = waiting.get(e.id);
+    const state = !e.approved && w ? el('span', { class: 'warn' }, tr(`wartet auf Freigabe – Kennung ${w.hostId.slice(0, 6)}…, ${w.ip}`, `waiting for approval – ID ${w.hostId.slice(0, 6)}…, ${w.ip}`))
+      : !e.approved ? el('span', { class: 'muted' }, tr('Code noch nicht benutzt', 'code not used yet'))
+      : on ? el('span', { class: 'ok' }, tr(`verbunden · ${on.ip} · seit ${ago(on.since)} · ${on.pipes} Verbindung(en)`, `connected · ${on.ip} · for ${ago(on.since)} · ${on.pipes} connection(s)`))
+      : el('span', { class: 'muted' }, tr('erlaubt · nicht verbunden', 'allowed · not connected'));
+    return el('tr', {}, el('td', {}, e.name), el('td', { class: 'mono' }, e.hostId ? e.hostId + '…' : '–'), el('td', {}, state),
+      el('td', {}, !e.approved && w ? el('button', { class: 'primary', disabled: busy || !S.admin, onclick: () => act(() => window.relay.approveHost(e.id), tr('Erlaubt', 'Allowed')) }, tr('Erlauben', 'Allow')) : null,
+        !e.hostId ? el('button', { disabled: busy || !S.admin, onclick: async () => { if (await window.relay.copyHostCode(e.id, chosenAddr)) toast(tr('Einrichtungscode kopiert', 'Setup code copied')); else toast(tr('Bitte eine gültige Adresse angeben', 'Please enter a valid address')); } }, tr('Code kopieren', 'Copy code')) : null,
+        el('button', { class: 'danger', disabled: busy || !S.admin, onclick: () => act(() => window.relay.removeHost(e.id), tr('Entfernt', 'Removed')) }, tr('Entfernen', 'Remove'))));
+  };
+  return el('section', { class: 'card wide' },
+    el('h2', {}, tr('Haupt-PCs (nur eigene)', 'Host PCs (own only)')),
+    el('p', { class: 'muted' }, tr('Jeder PC bekommt einen eigenen Einrichtungscode. In Swapline: Fernzugriff → „Über Vermittler erreichbar“ → Code einfügen (bzw. „swapline-server relay <Code>“). Danach hier „Erlauben“. Andere Personen betreiben ihren eigenen Vermittler.',
+      'Each PC gets its own setup code. In Swapline: Remote access → “Reachable via relay” → paste the code (or “swapline-server relay <code>”). Then “Allow” here. Other people run their own relay.')),
+    el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:110px' }, tr('Adresse', 'Address')), addrInput),
     addrs.length > 1 ? el('div', { class: 'row muted' }, tr('Adressen dieses Servers: ', 'Addresses of this server: ') + S.addresses.map(a => `${a.address} (${a.name})`).join(', ')) : null,
-    el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:90px' }, 'Port'), el('span', { class: 'mono' }, String(S.config?.port ?? '–'))),
-    el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:90px' }, tr('Kennwort', 'Password')),
-      el('span', { class: 'secret grow' }, shownSecret || '••••••••••••••••••••••••'),
-      el('button', { onclick: async () => { shownSecret = shownSecret ? '' : await window.relay.showSecret(); render(); } }, shownSecret ? tr('Verbergen', 'Hide') : tr('Anzeigen', 'Show')),
-      el('button', { onclick: async () => { if (await window.relay.copySecret()) toast(tr('Kennwort kopiert', 'Password copied')); } }, tr('Kopieren', 'Copy'))),
-    el('div', { class: 'row' },
-      el('button', { class: 'primary', onclick: async () => { if (await window.relay.copyCode(chosenAddr)) toast(tr('Einrichtungscode kopiert – in Swapline einfügen', 'Setup code copied – paste it into Swapline')); else toast(tr('Bitte eine gültige Adresse angeben', 'Please enter a valid address')); } }, tr('Einrichtungscode kopieren', 'Copy setup code')),
-      el('button', { class: 'danger', disabled: busy, onclick: () => act(async () => { const r = await window.relay.newSecret(); if (r === true) shownSecret = ''; return r; }, tr('Neues Kennwort gilt – Swapline-PCs neu einrichten', 'New password active – set up Swapline PCs again')) }, tr('Neues Kennwort …', 'New password …'))));
-}
-
-function hostsCard() {
-  const list = S.status?.alive ? S.status.hostList || [] : [];
-  return el('section', { class: 'card' },
-    el('h2', {}, tr('Angemeldete Swapline-PCs', 'Signed-in Swapline PCs')),
-    list.length ? el('table', {}, el('tr', {}, el('th', {}, tr('Kennung', 'ID')), el('th', {}, tr('Adresse', 'Address')), el('th', {}, tr('Seit', 'Since')), el('th', {}, tr('Verbindungen', 'Connections'))),
-      ...list.map(h => el('tr', {}, el('td', { class: 'mono' }, h.id + '…'), el('td', { class: 'mono' }, h.ip), el('td', {}, ago(h.since)), el('td', {}, String(h.pipes)))))
-      : el('p', { class: 'muted' }, tr('Noch kein Swapline-PC angemeldet.', 'No Swapline PC signed in yet.')),
+    el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:110px' }, tr('Neuer PC', 'New PC')), nameInput,
+      el('button', { class: 'primary', disabled: busy || !S.admin, onclick: () => act(async () => { const r = await window.relay.addHost(newName, chosenAddr); if (r?.ok) newName = ''; return r; }, tr('Einrichtungscode kopiert – in Swapline auf diesem PC einfügen', 'Setup code copied – paste it into Swapline on that PC')) }, tr('Einrichtungscode erzeugen', 'Create setup code'))),
+    (S.hosts || []).length ? el('table', {}, el('tr', {}, el('th', {}, tr('Name', 'Name')), el('th', {}, tr('Kennung', 'ID')), el('th', {}, tr('Zustand', 'State')), el('th', {}, '')), ...S.hosts.map(row))
+      : el('p', { class: 'muted' }, tr('Noch kein PC eingerichtet.', 'No PC set up yet.')),
     S.status?.blocked ? el('p', { class: 'muted' }, tr(`${S.status.blocked} Adresse(n) wegen Fehlversuchen vorübergehend gesperrt.`, `${S.status.blocked} address(es) temporarily blocked after failed attempts.`)) : null);
 }
 
 function settingsCard() {
   const svc = S.service || {};
   const port = el('input', { type: 'number', min: '1024', max: '65535', value: String(S.config?.port || 47821), style: 'width:110px' });
+  const perHost = el('input', { type: 'number', min: '1', max: '100', value: String(S.config?.maxPipesPerHost || 10), style: 'width:80px' });
+  const total = el('input', { type: 'number', min: '1', max: '1000', value: String(S.config?.maxPipes || 50), style: 'width:80px' });
   return el('section', { class: 'card' },
     el('h2', {}, tr('Einstellungen', 'Settings')),
     el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:150px' }, 'Port (TCP)'), port,
       el('button', { disabled: busy || !S.admin, onclick: () => act(() => window.relay.setPort(Number(port.value)), tr('Port geändert', 'Port changed')) }, tr('Übernehmen', 'Apply'))),
+    el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:150px' }, tr('Verbindungen', 'Connections')),
+      el('span', {}, tr('je PC', 'per PC')), perHost, el('span', {}, tr('gesamt', 'total')), total,
+      el('button', { disabled: busy || !S.admin, onclick: () => act(() => window.relay.setLimits(Number(perHost.value), Number(total.value)), tr('Übernommen', 'Applied')) }, tr('Übernehmen', 'Apply'))),
     el('div', { class: 'row' }, el('span', { class: 'muted', style: 'width:150px' }, tr('Windows-Firewall', 'Windows Firewall')),
       el('span', { class: 'grow' }, svc.firewall ? tr(`Regel aktiv (TCP ${svc.firewallPort})`, `Rule active (TCP ${svc.firewallPort})`) : tr('keine Regel – von außen nicht erreichbar', 'no rule – not reachable from outside')),
       el('button', { disabled: busy || !S.admin, onclick: () => act(() => window.relay.setFirewall(!svc.firewall)) }, svc.firewall ? tr('Entfernen', 'Remove') : tr('Freigeben', 'Allow'))),
@@ -101,7 +110,7 @@ function logCard() {
 function render() {
   if (!S) return;
   $('#sub').textContent = tr(`Vermittler für Swapline · Version ${S.version}`, `Relay for Swapline · version ${S.version}`);
-  $('#main').replaceChildren(statusCard(), accessCard(), hostsCard(), settingsCard(), logCard());
+  $('#main').replaceChildren(statusCard(), hostsCard(), settingsCard(), logCard());
   const pre = document.querySelector('pre.log'); if (pre) pre.scrollTop = pre.scrollHeight;
 }
 

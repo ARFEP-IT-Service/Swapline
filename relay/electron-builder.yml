@@ -15,6 +15,21 @@ files:
   # nur die App selbst – keine Bibliotheken von Swapline (die Relay-App hat keine Abhängigkeiten)
   - "!**/node_modules/**"
 asar: true
+# Lizenzen neben der exe (Installer und zip): MIT-Lizenz, Hinweise zu Drittkomponenten und deren Volltexte
+# (tests/run.js „licenses“ prüft, dass alle hier genannten Dateien existieren)
+extraFiles:
+  - from: LICENSE
+    to: LICENSE
+  - from: relay/THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+  - from: licenses
+    to: licenses
+    filter:
+      - Electron-45.2.3.txt
+      - Chromium-LICENSES.chromium.html
+      - FFmpeg-LGPL-2.1.txt
+      - Installer-NSIS-COPYING.txt
+      - Installer-electron-builder-26.18.0.txt
 # Der Dienst startet service.js mit dem Node der App – liegt deshalb außerhalb des Archivs
 asarUnpack:
   - service.js
