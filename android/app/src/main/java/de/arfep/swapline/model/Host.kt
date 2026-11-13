@@ -47,7 +47,8 @@ data class HostRecord(
 data class Profile(val id: String, val name: String, val color: String, val isDefault: Boolean)
 data class Project(val id: String, val name: String, val color: String, val cwd: String, val groupId: String?)
 data class Group(val id: String, val name: String, val color: String)
-data class OpenTab(val id: String, val title: String, val profileId: String, val cwd: String, val sessionId: String?, val model: String, val effort: String, val permissionMode: String, val running: Boolean, val updated: Long, val preview: String)
+// projectId: Projekt des Chats am Haupt-PC (auch per Ziehen zugeordnet), sonst null
+data class OpenTab(val id: String, val title: String, val profileId: String, val cwd: String, val sessionId: String?, val model: String, val effort: String, val permissionMode: String, val running: Boolean, val updated: Long, val preview: String, val projectId: String? = null)
 data class HistoryEntry(val sessionId: String, val title: String, val cwd: String, val mtime: Long)
 data class ModelOpt(val value: String, val name: String, val description: String)
 // /-Befehle und Skills eines Kontos (vom Haupt-PC, wie die Auswahl im Eingabefeld am PC)
@@ -80,6 +81,7 @@ private fun JsonElement?.objects(): List<JsonObject> = (this as? JsonArray)?.map
 private val COLOR = Regex("^#[0-9a-fA-F]{6}$")
 private fun color(v: String) = if (COLOR.matches(v)) v else "#1581FF"
 private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", RegexOption.IGNORE_CASE)
+private val PROJECT_ID = Regex("^[A-Za-z0-9_-]{1,80}$")
 
 object Parse {
     fun store(e: JsonElement?): HostStore? {
@@ -115,7 +117,8 @@ object Parse {
     fun openTabs(e: JsonElement?): List<OpenTab> = e.objects().take(200).mapNotNull {
         val id = it.s("id", 40)
         if (id.isEmpty()) null else OpenTab(id, it.s("title", 200), it.s("profileId", 80), it.s("cwd"), it.str("sessionId")?.takeIf { s -> UUID.matches(s) },
-            it.s("model", 80), it.s("effort", 20), it.str("permissionMode") ?: "default", it.b("running"), it.n("updated"), it.s("preview", 200))
+            it.s("model", 80), it.s("effort", 20), it.str("permissionMode") ?: "default", it.b("running"), it.n("updated"), it.s("preview", 200),
+            it.str("projectId")?.takeIf { p -> PROJECT_ID.matches(p) })
     }
 
     fun history(e: JsonElement?): List<HistoryEntry> = e.objects().mapNotNull {

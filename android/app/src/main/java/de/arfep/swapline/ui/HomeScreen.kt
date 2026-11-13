@@ -195,16 +195,19 @@ private fun Filters(model: AppModel, h: HostState) {
     }
 }
 
-private fun inFilter(h: HostState, cwd: String): Boolean {
+// Projekt-Filter: Zuordnung vom Haupt-PC (projectId) geht vor, sonst der Ordner des Chats
+internal fun inFilter(h: HostState, cwd: String, projectId: String? = null): Boolean {
     val pid = h.projectFilter ?: return true
     val p = h.store?.projects?.firstOrNull { it.id == pid } ?: return true
+    if (projectId != null) return projectId == pid
     return p.cwd.isNotEmpty() && within(cwd, p.cwd)
 }
 
 @Composable
 private fun ChatList(model: AppModel, h: HostState, onOpen: (Chat) -> Unit) {
-    val mine = model.chats.filter { it.hostId == h.id && inFilter(h, it.cwd) }
-    val open = h.openTabs.filter { t -> mine.none { it.hostTab == t.id } && inFilter(h, t.cwd) }
+    // beigetretene Chats übernehmen das Projekt des offenen Chats am Haupt-PC
+    val mine = model.chats.filter { c -> c.hostId == h.id && inFilter(h, c.cwd, c.hostTab?.let { ht -> h.openTabs.firstOrNull { it.id == ht }?.projectId }) }
+    val open = h.openTabs.filter { t -> mine.none { it.hostTab == t.id } && inFilter(h, t.cwd, t.projectId) }
     val rows = (mine.map { Row_.Mine(it) } + open.map { Row_.Open(it) }).sortedByDescending {
         when (it) { is Row_.Mine -> maxOf(it.chat.updated, if (it.chat.running || it.chat.tasksRunning) Long.MAX_VALUE / 2 else 0); is Row_.Open -> maxOf(it.tab.updated, if (it.tab.running) Long.MAX_VALUE / 2 else 0) }
     }

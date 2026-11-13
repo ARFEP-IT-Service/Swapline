@@ -3,6 +3,12 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.12.1] – 2026-11-13
+
+- Behoben: Offene Chats des Haupt-PCs standen nur unter „Alle“, nicht unter ihrem Projekt, wenn sie am PC per Ziehen
+  zugeordnet waren oder ihr Ordner außerhalb des Projektordners lag. Braucht Swapline ab 0.19.2 am Haupt-PC; mit älteren
+  Versionen gilt weiter der Ordner.
+
 ## [0.12.0] – 2026-11-11
 
 - Sicherheit: Über den Vermittler meldet sich das Handy mit seinem **eigenen Schlüssel** an (kommt beim Koppeln vom
