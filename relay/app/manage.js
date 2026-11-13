@@ -59,13 +59,20 @@ async function removeFirewall() {
 // Datenordner absichern, BEVOR darin Schlüssel angelegt werden: Besitzer Administratoren, Zugriff nur Administratoren
 // (S-1-5-32-544) und SYSTEM (S-1-5-18) voll, Lokaler Dienst (S-1-5-19) ändern, keine geerbten Rechte (ProgramData erlaubt
 // sonst allen Benutzern das Lesen). Hat ein normaler Benutzer den Ordner vorher angelegt, übernimmt das hier wieder.
-async function secureDir() {
+// Rechte nur am Ordner setzen und die Dateien darin auf „geerbt“ zurücksetzen – in 0.3.0 gingen die Ordnerrechte mit /T
+// auch an die Dateien, dort sind (OI)(CI) ungültig: relay.log und status.json hatten danach GAR KEINE Rechte (der Dienst
+// lief, konnte aber weder Protokoll noch Status schreiben; die App zeigte „Gestoppt“).
+async function secureDir(dir = P.dataDir(), { owner = true } = {}) {
   await ps(`
     $dir = $env:SR_DIR
     New-Item -ItemType Directory -Force $dir | Out-Null
-    & icacls $dir /setowner '*S-1-5-32-544' /T /C | Out-Null
-    & icacls $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M' /T /C | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'icacls fehlgeschlagen' }`, { SR_DIR: P.dataDir() });
+    if ($env:SR_OWNER -eq '1') { & icacls $dir /setowner '*S-1-5-32-544' /T /C | Out-Null }
+    & icacls $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-19:(OI)(CI)M' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'icacls (Ordner) fehlgeschlagen' }
+    if (Get-ChildItem -Force $dir) {
+      & icacls (Join-Path $dir '*') /reset /T /C | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw 'icacls (Dateien) fehlgeschlagen' }
+    }`, { SR_DIR: dir, SR_OWNER: owner ? '1' : '0' });
 }
 // Update-Ordner: nur Administratoren und SYSTEM dürfen schreiben (auch nicht der Dienst), damit niemand das geprüfte
 // Setup zwischen Prüfung und Start austauscht

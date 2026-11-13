@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC und der Android-App.
 Tags: `relay-v<Version>`.
 
+## [0.3.1] – 2026-11-13
+
+- Behoben: Nach dem Update auf 0.3.0 zeigte die App „Gestoppt“ und ein leeres Protokoll, obwohl der Vermittler lief. Beim
+  Absichern des Datenordners verloren die schon vorhandenen Dateien (`relay.log`, `status.json`) alle Zugriffsrechte – der
+  Dienst konnte weder Protokoll noch Status schreiben. Jetzt werden nur am Ordner Rechte gesetzt, die Dateien erben sie;
+  beim ersten Öffnen von 0.3.1 wird das automatisch repariert.
+
 ## [0.3.0] – 2026-11-11
 
 - Sicherheit: **nur für eigene Haupt-PCs** – kein gemeinsames Kennwort mehr. Unter „Haupt-PCs“ je PC einen

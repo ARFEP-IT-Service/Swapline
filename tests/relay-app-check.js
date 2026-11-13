@@ -87,6 +87,28 @@ const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } c
       if (svcPid && alive(svcPid)) process.kill(svcPid);
     }
 
+    // Rechte des Datenordners (0.3.0: Dateien hatten danach gar keine Rechte). Ohne Adminrechte: ohne Besitzerwechsel,
+    // dieser Benutzer bekommt am Testordner zusätzlich Vollzugriff, damit er ihn wieder löschen kann.
+    if (process.platform === 'win32') {
+      const M = require(path.join(root, 'relay', 'app', 'manage.js'));
+      const { execFileSync } = require('node:child_process');
+      const sys32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+      const me = execFileSync(path.join(sys32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' }).trim().split(',').pop().replace(/"/g, '');
+      const icacls = path.join(sys32, 'icacls.exe');
+      const acl = f => execFileSync(icacls, [f], { encoding: 'utf8' });
+      const ad = fs.mkdtempSync(path.join(os.tmpdir(), 'swapline-relay-acl-'));
+      fs.writeFileSync(path.join(ad, 'relay.log'), 'x');
+      // Zustand wie nach 0.3.0 herstellen: Datei ohne Rechte
+      execFileSync(icacls, [ad, '/inheritance:r', '/grant:r', `*${me}:(OI)(CI)F`, '*S-1-5-18:(OI)(CI)F', '/T', '/C'], { stdio: 'ignore' });
+      const broken = !/\(F\)|\(M\)/.test(acl(path.join(ad, 'relay.log')));
+      await M.secureDir(ad, { owner: false });
+      execFileSync(icacls, [ad, '/grant', `*${me}:(OI)(CI)F`], { stdio: 'ignore' });
+      const fileAcl = acl(path.join(ad, 'relay.log')), dirAcl = acl(ad);
+      check('Relay-App: Datenordner-Rechte – Dateien erben Admins/SYSTEM/Lokaler Dienst (repariert auch den Fehler aus 0.3.0)',
+        broken && /\(I\)\(M\)/.test(fileAcl) && /\(I\)\(F\)/.test(fileAcl) && /\(OI\)\(CI\)\(M\)/.test(dirAcl) && !/(Everyone|Jeder|\\Users|\\Benutzer):/.test(dirAcl), fileAcl.split('\n').slice(0, 4).join(' | '));
+      fs.rmSync(ad, { recursive: true, force: true });
+    }
+
     // ohne gültige Einstellungen: Dienst startet nicht und meldet es
     fs.writeFileSync(path.join(dir, 'relay.json'), 'kaputt');
     const p2 = spawn(electron, [path.join(root, 'relay', 'app', 'service.js')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SWAPLINE_RELAY_DIR: dir }, stdio: 'ignore', windowsHide: true });
