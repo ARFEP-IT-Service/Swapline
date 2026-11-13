@@ -983,10 +983,15 @@ function cleanOpenTab(t) {
     id: t.id, title: str(t.title, 200), profileId: t.profileId, cwd: isDir(t.cwd) ? t.cwd : '', sessionId: UUID_RE.test(t.sessionId || '') ? t.sessionId : null,
     model: isModel(t.model || '') ? t.model || '' : '', effort: EFFORTS.includes(t.effort || '') ? t.effort || '' : '', permissionMode: MODES.includes(t.permissionMode) ? t.permissionMode : 'default',
     running: !!t.running, updated: Number(t.updated) || 0, preview: str(t.preview, 200),
+    // Projekt des Chats am Haupt-PC (auch per Ziehen zugeordnet) – sonst erraten Geräte es nur aus dem Ordner
+    projectId: typeof t.projectId === 'string' && getStore().projects.some(p => p.id === t.projectId) ? t.projectId : null,
   };
 }
 function openTabsFor(dev) {
-  return openTabs.filter(t => profileAllowed(dev, t.profileId) && (!contentLimited(dev) || (t.sessionId ? sessionAllowed(dev, t.profileId, t.sessionId) : folderAllowed(dev, t.cwd))));
+  // eingeschränkte Geräte sehen nur die Zuordnung zu Projekten, die für sie freigegeben sind
+  const shared = contentLimited(dev) ? new Set(scopeOf(dev).projects) : null;
+  return openTabs.filter(t => profileAllowed(dev, t.profileId) && (!contentLimited(dev) || (t.sessionId ? sessionAllowed(dev, t.profileId, t.sessionId) : folderAllowed(dev, t.cwd))))
+    .map(t => (shared && t.projectId && !shared.has(t.projectId) ? { ...t, projectId: null } : t));
 }
 function pushOpenTabs() { for (const d of getDevices()) if (remoteHost?.connected(d.id)) remoteHost.push(d.id, 'tabs', openTabsFor(d)); }
 handle('tabs:publish', (e, list) => {

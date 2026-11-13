@@ -163,6 +163,18 @@
   moveChatToProject(mirror.id, 'p-work');
   check('Gespiegelter Chat behält die Zuordnung zum eigenen Projekt', mirrorProjects[hostId + '|' + open.id] === 'p-work');
   moveChatToProject(mirror.id, 'all');
+  // Projekt am Haupt-PC (per Ziehen, Ordner liegt außerhalb des Projektordners): Gerät zeigt den Chat unter diesem Projekt
+  open.projectId = 'p-work'; open.cwd = OTHER; renderList();
+  await until(() => mirror.hostProjectId === 'p-work', 5000);
+  hostProjectFilter[hostId] = 'p-work';
+  const inHostProj = tabInProject(mirror, 'host:' + hostId);
+  hostProjectFilter[hostId] = null;
+  check('Projekt vom Haupt-PC kommt beim Gerät an (auch wenn der Ordner nicht passt)', mirror.hostProjectId === 'p-work' && inHostProj, JSON.stringify({ hp: mirror.hostProjectId, inHostProj }));
+  await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: [], chats: [U1] } });
+  const limitedTab = (await R('tabs:list')).find(x => x.id === open.id);
+  check('Eingeschränktes Gerät: Zuordnung zu nicht freigegebenem Projekt bleibt verborgen', !!limitedTab && limitedTab.projectId === null, JSON.stringify(limitedTab));
+  await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: null, chats: [] } });
+  open.projectId = null; open.cwd = WORK; renderList();
   check('Haupt-PC liefert offene Chats nur nach Freigabe', (await R('tabs:list')).some(x => x.id === open.id));
   await api.remote.deviceSet({ id: devId, scope: { profiles: null, projects: [], chats: [U2] } });
   check('Nicht freigegebener offener Chat bleibt verborgen', !(await R('tabs:list')).some(x => x.id === open.id));

@@ -7,6 +7,12 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.19.2] – 2026-11-13
+
+- Behoben: Offene Chats eines Haupt-PCs erschienen auf anderen Geräten nur unter „Alle“, nicht unter ihrem Projekt, wenn
+  sie dort per Ziehen einem Projekt zugeordnet waren oder ihr Ordner außerhalb des Projektordners lag. Der Haupt-PC gibt
+  die Projekt-Zuordnung jetzt mit (eingeschränkte Geräte nur für freigegebene Projekte); Geräte sortieren danach.
+
 ## [0.19.1] – 2026-11-11
 
 - Inhalt wie 0.19.0 (diese Version wurde nicht veröffentlicht: der Release-Lauf brach ab, weil der Server-Test mit der

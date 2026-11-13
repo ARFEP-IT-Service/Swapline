@@ -1,7 +1,7 @@
 {
   "name": "swapline",
   "productName": "Swapline",
-  "version": "0.19.1",
+  "version": "0.19.2",
   "description": "Messenger-artige Oberfläche für Claude Code mit Kontowechsel",
   "main": "src/main.js",
   "author": "ARFEP – IT-Service",

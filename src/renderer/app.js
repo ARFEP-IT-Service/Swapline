@@ -235,11 +235,13 @@ const tabInProject = (t, pid) => pid === 'all' || (hostOfView(pid) ? t.host === 
 // Projekte eines Haupt-PCs/Servers: Filter in dessen Ansicht (Zugehörigkeit über den Projektordner)
 const hostProjectFilter = {}; // Haupt-PC -> Projekt-ID oder null (alle)
 const within = (cwd, dir) => { const n = x => String(x || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); const a = n(cwd), b = n(dir); return !!b && (a === b || a.startsWith(b + '/')); };
+const hostPid = x => (typeof x?.projectId === 'string' && /^[\w-]{1,80}$/.test(x.projectId) ? x.projectId : null); // Projekt eines offenen Chats am Haupt-PC
 function inHostProject(host, cwd, projectId) {
   const f = hostProjectFilter[host];
   if (!f) return true;
   const p = hostStores[host]?.projects?.find(x => x.id === f);
-  return !p || projectId === p.id || within(cwd, p.cwd);
+  // Zuordnung vom Haupt-PC (Projekt-ID) geht vor, sonst der Ordner
+  return !p || (projectId ? projectId === p.id : within(cwd, p.cwd));
 }
 
 // ---------- Chats von Haupt-PCs (Fernzugriff) ----------
@@ -292,11 +294,11 @@ function syncMirrors(host, list) {
     if (dismissedMirrors.has(host + '|' + x.id)) continue;
     const t = tabs.find(y => y.mirror && y.host === host && y.hostTab === x.id);
     if (!t) {
-      tabs.push(makeTab({ host, hostTab: x.id, mirror: true, projectId: mirrorProjects[host + '|' + x.id] || null, title: x.title, profileId: x.profileId, cwd: x.cwd, sessionId: x.sessionId,
+      tabs.push(makeTab({ host, hostTab: x.id, mirror: true, projectId: mirrorProjects[host + '|' + x.id] || null, hostProjectId: hostPid(x), title: x.title, profileId: x.profileId, cwd: x.cwd, sessionId: x.sessionId,
         model: x.model, effort: x.effort, permissionMode: x.permissionMode, updated: x.updated, preview: x.preview, running: x.running, loaded: !x.sessionId }));
     } else {
       Object.assign(t, { title: x.title || t.title, preview: x.preview || t.preview, updated: Math.max(t.updated || 0, x.updated || 0), sessionId: t.sessionId || x.sessionId,
-        model: x.model, effort: x.effort, permissionMode: x.permissionMode });
+        hostProjectId: hostPid(x), model: x.model, effort: x.effort, permissionMode: x.permissionMode });
       if (!t.attached) t.running = x.running;
     }
   }
@@ -955,7 +957,7 @@ let publishTimer = null, lastPublished = '';
 function publishTabs() {
   clearTimeout(publishTimer);
   publishTimer = setTimeout(() => {
-    const list = tabs.filter(t => !t.host).map(t => ({ id: t.id, title: t.title, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, running: !!(t.running || bgRunning(t)), updated: t.updated, preview: t.preview }));
+    const list = tabs.filter(t => !t.host).map(t => ({ id: t.id, title: t.title, profileId: t.profileId, cwd: t.cwd, sessionId: t.sessionId, model: t.model, effort: t.effort, permissionMode: t.permissionMode, running: !!(t.running || bgRunning(t)), updated: t.updated, preview: t.preview, projectId: t.projectId || null }));
     const json = JSON.stringify(list);
     if (json === lastPublished) return;
     lastPublished = json;
