@@ -3,6 +3,12 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC, der Android-App und
 Swapline Relay. Tags: `server-v<Version>`.
 
+## [0.3.2] – 2026-11-13
+
+- Behoben: `swapline-server pair` stürzte beim Bestätigen ab („readline was closed“), die Kopplung galt dann als abgelehnt.
+  Antworten werden jetzt zuverlässig gelesen – im Terminal und mit umgeleiteter Eingabe; endet die Eingabe vor einer
+  Antwort, wird die Kopplung sauber abgelehnt.
+
 ## [0.3.1] – 2026-11-13
 
 - Neu: **`swapline-server update`** – sucht die neueste Version unter den GitHub-Releases, lädt das Paket (nur von GitHub),

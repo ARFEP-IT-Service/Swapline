@@ -154,6 +154,24 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     check('Server: Gerät entfernt → getrennt, Status ohne Gerät', await until(() => client.state !== 'connected', 5000) && (await op({ op: 'status' })).devices.length === 0);
     client.use(null);
 
+    // „swapline-server pair“ als Befehl (0.3.1 stürzte beim Bestätigen ab: „readline was closed“)
+    const { spawn } = require('node:child_process');
+    const cliPair = async (input, name) => {
+      const cli = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'swapline-server.js'), 'pair'], { env: process.env });
+      let out = '';
+      cli.stdout.on('data', x => { out += x; }); cli.stderr.on('data', x => { out += x; });
+      await until(() => /Code: [0-9A-Z-]+/.test(out), 10000);
+      cli.stdin.end(input);
+      let ok = true; try { await remote.pair({ address: '127.0.0.1', port, code: /Code: ([0-9A-Z-]+)/.exec(out)[1], name }); } catch { ok = false; }
+      const exit = await new Promise(r => cli.on('exit', r));
+      return { ok, exit, crashed: /ERR_USE_AFTER_CLOSE|readline was closed/.test(out) };
+    };
+    const pa = await cliPair('j\nn\nj\n', 'CLI-Handy');
+    const da = (await op({ op: 'status' })).devices.find(x => x.name === 'CLI-Handy');
+    check('Server: „swapline-server pair“ – Antworten j/n/j → gekoppelt mit genau diesen Rechten', pa.ok && pa.exit === 0 && !pa.crashed && da?.allowBypass === false && da?.allowBang === true, JSON.stringify({ pa, da }));
+    const pb = await cliPair('', 'CLI-Leer');
+    check('Server: „swapline-server pair“ – Eingabe endet vor der Antwort → abgelehnt, kein Absturz', !pb.ok && pb.exit === 1 && !pb.crashed && !(await op({ op: 'status' })).devices.some(x => x.name === 'CLI-Leer'), JSON.stringify(pb));
+
     // „swapline-server update“: Auswahl des Releases und Prüfsummen (ohne Netz)
     const U = require(path.join(__dirname, '..', 'server', 'lib', 'update.js'));
     const dl = (tag, name) => ({ name, browser_download_url: `https://github.com/ARFEP-IT-Service/Swapline/releases/download/${tag}/${name}` });

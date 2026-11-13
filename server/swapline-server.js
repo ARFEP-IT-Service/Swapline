@@ -97,7 +97,14 @@ async function main() {
     case 'pair': {
       let resolveEnd;
       const ended = new Promise(r => { resolveEnd = r; });
+      // Eingabe: Zeilen kommen in eine Warteschlange – so geht es im Terminal und mit umgeleiteter Eingabe (echo j | …).
+      // Endet die Eingabe vor einer Antwort, gilt die Kopplung als abgelehnt (0.3.1 stürzte hier ab: „readline was closed“).
+      let closed = false;
+      const lines = [], waiting = [];
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      rl.on('line', l => (waiting.length ? waiting.shift()(l) : lines.push(l)));
+      rl.on('close', () => { closed = true; while (waiting.length) waiting.shift()(null); });
+      rl.on('SIGINT', () => { console.log(tr('\nAbgebrochen.', '\nCancelled.')); resolveEnd(130); });
       const s = await connect((m, sock) => {
         if (m.error) { console.error(m.error); resolveEnd(1); }
         else if (m.code) {
@@ -109,20 +116,28 @@ async function main() {
         } else if (m.event === 'confirm') {
           // Rechte einzeln abfragen – Standard jeweils Nein
           const yes = a => /^(j|ja|y|yes)$/i.test(String(a).trim());
-          const ask = q => new Promise(r => rl.question(q, r));
+          const ask = q => new Promise(r => {
+            process.stdout.write(q);
+            if (lines.length) { const l = lines.shift(); if (!process.stdin.isTTY) process.stdout.write(l + '\n'); return r(l); }
+            if (closed) { process.stdout.write('\n'); return r(null); }
+            waiting.push(r);
+          });
+          let aborted = false;
+          const answer = async q => { const a = await ask(q); if (a === null) aborted = true; return yes(a); };
           (async () => {
-            const ok = yes(await ask(tr(`Gerät „${m.name}“ (${m.address}) koppeln? Nur eigene Geräte! [j/N] `, `Pair device “${m.name}” (${m.address})? Own devices only! [y/N] `)));
+            const ok = await answer(tr(`Gerät „${m.name}“ (${m.address}) koppeln? Nur eigene Geräte! [j/N] `, `Pair device “${m.name}” (${m.address})? Own devices only! [y/N] `));
             let rights = {};
             if (ok) {
               console.log(tr('Rechte des Geräts (änderbar mit „swapline-server devices bypass|bang <Name> on|off“):', 'Rights of the device (change with “swapline-server devices bypass|bang <name> on|off”):'));
               const red = t => (process.stdout.isTTY ? '\x1b[31m' + t + '\x1b[0m' : t);
               rights = {
-                allowBypass: yes(await ask(red(tr('  „Alles erlauben“ – Claude führt Befehle ohne Rückfrage aus. Erlauben? [j/N] ', '  “Allow everything” – Claude runs commands without asking. Allow? [y/N] ')))),
-                allowBang: yes(await ask(red(tr('  „!“-Befehle – das Gerät führt Befehle direkt auf diesem Server aus, ohne Claude und ohne Rückfrage. Erlauben? [j/N] ', '  “!” commands – the device runs commands directly on this server, without Claude and without asking. Allow? [y/N] ')))),
+                allowBypass: await answer(red(tr('  „Alles erlauben“ – Claude führt Befehle ohne Rückfrage aus. Erlauben? [j/N] ', '  “Allow everything” – Claude runs commands without asking. Allow? [y/N] '))),
+                allowBang: await answer(red(tr('  „!“-Befehle – das Gerät führt Befehle direkt auf diesem Server aus, ohne Claude und ohne Rückfrage. Erlauben? [j/N] ', '  “!” commands – the device runs commands directly on this server, without Claude and without asking. Allow? [y/N] '))),
               };
             }
+            if (aborted) { console.log(tr('Eingabe beendet – Kopplung abgelehnt.', 'Input closed – pairing declined.')); return resolveEnd(1); }
             sock.write(JSON.stringify({ op: 'confirm', id: m.id, ok, rights }) + '\n');
-          })();
+          })().catch(e => { console.error(e.message); resolveEnd(1); });
         } else if (m.event === 'paired') { console.log(tr(`✓ „${m.name}“ ist gekoppelt.`, `✓ “${m.name}” is paired.`)); resolveEnd(0); }
       });
       s.write(JSON.stringify({ op: 'pair' }) + '\n');
