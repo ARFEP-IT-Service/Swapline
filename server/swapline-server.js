@@ -25,6 +25,7 @@ const HELP = tr(`Swapline Server ${VERSION}
   swapline-server folders remove <Ordner>
   swapline-server relay <Einrichtungscode> Über den Vermittler erreichbar (Code aus „Swapline Relay“)
   swapline-server relay off
+  swapline-server update [--check] [-y]    auf die neueste Version aktualisieren (von GitHub, Prüfsumme geprüft)
 
 Bei Claude anmelden: einmal „claude auth login“ als dieser Benutzer.`,
 `Swapline Server ${VERSION}
@@ -40,6 +41,7 @@ Bei Claude anmelden: einmal „claude auth login“ als dieser Benutzer.`,
   swapline-server folders remove <folder>
   swapline-server relay <setup code>       reachable via the relay (code from “Swapline Relay”)
   swapline-server relay off
+  swapline-server update [--check] [-y]    update to the newest version (from GitHub, checksum verified)
 
 Sign in to Claude: run “claude auth login” once as this user.`);
 
@@ -150,6 +152,23 @@ async function main() {
     case 'relay': {
       await request({ op: 'relay', code: rest[0] === 'off' ? null : rest[0] });
       console.log('OK');
+      return;
+    }
+    case 'update': {
+      const U = require('./lib/update.js');
+      const info = await U.check(VERSION);
+      if (!info) { console.log(tr(`Swapline Server ${VERSION} ist aktuell.`, `Swapline Server ${VERSION} is up to date.`)); return; }
+      console.log(tr(`Neue Version: ${info.version} (installiert: ${VERSION})`, `New version: ${info.version} (installed: ${VERSION})`));
+      console.log(`https://github.com/ARFEP-IT-Service/Swapline/releases/tag/server-v${info.version}`);
+      if (rest.includes('--check')) return;
+      if (!rest.includes('-y') && !rest.includes('--yes')) {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const a = await new Promise(r => rl.question(tr('Jetzt aktualisieren? Geräte und Einstellungen bleiben. [J/n] ', 'Update now? Devices and settings are kept. [Y/n] '), r));
+        rl.close();
+        if (/^(n|nein|no)$/i.test(a.trim())) return;
+      }
+      const code = await U.install(info, m => console.log(m));
+      if (code !== 0) { console.error(tr('install.sh ist fehlgeschlagen.', 'install.sh failed.')); process.exit(code); }
       return;
     }
     case 'version': case '--version': console.log(VERSION); return;

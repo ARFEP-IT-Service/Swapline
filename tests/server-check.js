@@ -153,6 +153,20 @@ async function op(o) { let r; const p = new Promise(x => { r = x; }); const s = 
     await op({ op: 'device-remove', device: 'Testhandy' });
     check('Server: Gerät entfernt → getrennt, Status ohne Gerät', await until(() => client.state !== 'connected', 5000) && (await op({ op: 'status' })).devices.length === 0);
     client.use(null);
+
+    // „swapline-server update“: Auswahl des Releases und Prüfsummen (ohne Netz)
+    const U = require(path.join(__dirname, '..', 'server', 'lib', 'update.js'));
+    const dl = (tag, name) => ({ name, browser_download_url: `https://github.com/ARFEP-IT-Service/Swapline/releases/download/${tag}/${name}` });
+    const rel = (tag, v, extra = {}) => ({ tag_name: tag, draft: false, prerelease: false, assets: [dl(tag, `swapline-server-${v}.tar.gz`), dl(tag, 'SHA256SUMS.txt')], ...extra });
+    const list = [rel('server-v0.10.0', '0.10.0'), rel('server-v0.9.0', '0.9.0'), rel('v0.99.0', '0.99.0'), rel('relay-v9.0.0', '9.0.0'), rel('server-v1.0.0', '1.0.0', { draft: true })];
+    const pick = U.pickUpdate(list, '0.3.0');
+    check('Server-Update: neueste server-v… (10 > 9), keine PC-/Relay-Tags, keine Entwürfe', pick?.version === '0.10.0' && pick.pkg?.name === 'swapline-server-0.10.0.tar.gz', JSON.stringify(pick));
+    check('Server-Update: aktuelle oder ältere Version → nichts', U.pickUpdate(list, '0.10.0') === null && U.pickUpdate(list, '0.11.0') === null);
+    const foreign = [{ ...rel('server-v0.4.0', '0.4.0'), assets: [{ name: 'swapline-server-0.4.0.tar.gz', browser_download_url: 'https://evil.example/x.tar.gz' }, dl('server-v0.4.0', 'SHA256SUMS.txt')] }];
+    check('Server-Update: Paket nur aus dem eigenen GitHub-Release', U.pickUpdate(foreign, '0.3.0')?.pkg === null);
+    const h = 'ab'.repeat(32);
+    check('Server-Update: Prüfsumme aus SHA256SUMS.txt', U.hashFor(`${h}  swapline-server-0.4.0.tar.gz\n${'cd'.repeat(32)}  andere.tar.gz\n`, 'swapline-server-0.4.0.tar.gz') === h && U.hashFor('kaputt', 'x') === null);
+    check('Server-Update: Downloads nur von GitHub', U.allowedHost('github.com') && U.allowedHost('objects.githubusercontent.com') && !U.allowedHost('github.com.evil.example') && !U.allowedHost('example.com'));
   } catch (e) {
     check('Server-Test', false, e.stack || e.message);
   } finally {

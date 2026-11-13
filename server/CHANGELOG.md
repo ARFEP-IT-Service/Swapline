@@ -3,6 +3,12 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC, der Android-App und
 Swapline Relay. Tags: `server-v<Version>`.
 
+## [0.3.1] – 2026-11-13
+
+- Neu: **`swapline-server update`** – sucht die neueste Version unter den GitHub-Releases, lädt das Paket (nur von GitHub),
+  prüft es mit `SHA256SUMS.txt` und installiert es; Geräte und Einstellungen bleiben. `update --check` zeigt nur, ob es eine
+  neue Version gibt, `-y` fragt nicht nach.
+
 ## [0.3.0] – 2026-11-11
 
 - Sicherheit: Beim Koppeln fragt das Terminal **„Alles erlauben“** und **„!“-Befehle** einzeln ab (Standard: Nein).

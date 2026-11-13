@@ -1,6 +1,6 @@
 {
   "name": "swapline-server",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Swapline als Haupt-PC ohne Fenster für einen eigenen Linux-Server (Claude Code läuft dort, das Handy ist die Fernbedienung)",
   "license": "MIT",

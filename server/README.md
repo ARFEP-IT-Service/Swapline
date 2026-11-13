@@ -21,7 +21,8 @@ swapline-server folders add ~/projekt
 swapline-server pair                 # QR-Code mit der Swapline-App scannen, Kopplung hier bestätigen
 ```
 
-Update: neues Paket entpacken und `./install.sh` erneut ausführen – Geräte und Einstellungen bleiben.
+Update: `swapline-server update` (ab 0.3.1; lädt die neueste Version von GitHub, prüft die Prüfsumme und installiert sie)
+– oder neues Paket entpacken und `./install.sh` erneut ausführen. Geräte und Einstellungen bleiben.
 
 **Erreichbarkeit:** entweder Port 47820/TCP in der Firewall des Servers öffnen, oder ohne offenen Port über den
 Vermittler: in *Swapline Relay* unter „Haupt-PCs“ einen Code für diesen Server erzeugen, `swapline-server relay <Code>`
@@ -38,6 +39,7 @@ ausführen und in der Relay-App „Erlauben“ klicken.
 | `swapline-server devices bang <Name> on\|off` | „!“-Befehle für das Gerät – Befehle direkt auf dem Server, ohne Claude und ohne Rückfrage (Standard: aus) |
 | `swapline-server folders add\|remove <Ordner>` | Ordner für neue Chats (samt Unterordnern) |
 | `swapline-server relay <Code>` / `relay off` | Vermittler einrichten bzw. abschalten |
+| `swapline-server update` / `update --check` | auf die neueste Version aktualisieren bzw. nur nachsehen |
 | `journalctl --user -u swapline-server` | Protokoll |
 
 ## Sicherheit
