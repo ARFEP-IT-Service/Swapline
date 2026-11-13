@@ -43,16 +43,26 @@ function createRelay({ getHosts, onPending = () => {}, maxPipesPerHost = 10, max
   const pending = new Map();  // id -> { device, hostId, timer, ip }
   const waiting = new Map();  // Eintrag -> { hostId, ip, since } – wartet auf „Erlauben“
   const fails = new Map(), rate = new Map();
+  const reasons = new Map(); // Adresse -> letzter Grund eines Fehlversuchs (für die Liste der Sperren)
   const recent = (m, ip, win) => (m.get(ip) || []).filter(t => Date.now() - t < win);
   const note = (m, ip, win) => m.set(ip, [...recent(m, ip, win), Date.now()]);
   const addr = s => String(s.remoteAddress || '').replace(/^::ffff:/, '');
   const send = (s, o) => { if (!s.destroyed) s.write(JSON.stringify(o) + '\n'); };
-  const fail = (s, ip, why) => { note(fails, ip, FAIL_WINDOW); log(`abgelehnt ${ip}: ${why}`); s.destroy(); };
+  const fail = (s, ip, why) => { note(fails, ip, FAIL_WINDOW); reasons.set(ip, why); log(`abgelehnt ${ip}: ${why}`); s.destroy(); };
   const entryOf = id => (ENTRY.test(id || '') ? getHosts().find(e => e.id === id) : null);
   const entryForHost = hostId => getHosts().find(e => e.approved && e.hostId === hostId) || null;
   const openPipes = () => [...hosts.values()].reduce((n, h) => n + h.pipes.size, 0) + pending.size;
   // Sperrlisten aufräumen (sonst wachsen sie mit jeder neuen Adresse)
-  const sweep = setInterval(() => { for (const m of [fails, rate]) for (const [ip] of m) if (!recent(m, ip, FAIL_WINDOW).length) m.delete(ip); }, 60_000);
+  const sweep = setInterval(() => {
+    for (const m of [fails, rate]) for (const [ip] of m) if (!recent(m, ip, FAIL_WINDOW).length) m.delete(ip);
+    for (const [ip] of reasons) if (!fails.has(ip)) reasons.delete(ip);
+  }, 60_000);
+  // Gesperrte Adressen: Anzahl der Fehlversuche im Zeitfenster, letzter Grund, frei ab (wenn der zehntletzte Versuch
+  // aus dem Fenster fällt)
+  const blockedList = () => [...fails.keys()].map(ip => {
+    const t = recent(fails, ip, FAIL_WINDOW).sort((a, b) => a - b);
+    return t.length >= FAIL_LIMIT ? { ip, count: t.length, last: t[t.length - 1], until: t[t.length - FAIL_LIMIT] + FAIL_WINDOW, reason: reasons.get(ip) || '' } : null;
+  }).filter(Boolean);
   sweep.unref?.();
 
   // Erste Zeile lesen; Rest (falls schon mitgekommen) bleibt im Socket
@@ -183,8 +193,11 @@ function createRelay({ getHosts, onPending = () => {}, maxPipesPerHost = 10, max
     details: () => ({
       hosts: [...hosts.entries()].map(([id, h]) => ({ id: id.slice(0, 6), entry: h.entry, ip: h.ip, since: h.since, pipes: h.pipes.size })),
       waiting: [...waiting.entries()].map(([entry, w]) => ({ entry, hostId: w.hostId, ip: w.ip, since: w.since })),
-      blocked: [...fails.keys()].filter(ip => recent(fails, ip, FAIL_WINDOW).length >= FAIL_LIMIT).length,
+      blocked: blockedList().length,
+      blockedList: blockedList().slice(0, 50),
     }),
+    // Sperre einer Adresse aufheben (aus der Oberfläche) – Fehlversuche und Verbindungszähler dieser Adresse zurücksetzen
+    unblock: ip => { const had = fails.has(ip) || rate.has(ip); fails.delete(ip); rate.delete(ip); reasons.delete(ip); if (had) log(`Sperre für ${ip} aufgehoben`); return had; },
   };
 }
 

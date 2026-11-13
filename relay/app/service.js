@@ -21,8 +21,8 @@ const started = Date.now();
 let listening = false, lastError = '';
 function writeStatus(relay) {
   const st = relay ? relay.stats() : { hosts: 0, pipes: 0, pending: 0 };
-  const det = relay ? relay.details() : { hosts: [], waiting: [], blocked: 0 };
-  const status = { pid: process.pid, started, updated: Date.now(), port: cfg?.port, listening, lastError, ...st, hostList: det.hosts, waiting: det.waiting, blocked: det.blocked };
+  const det = relay ? relay.details() : { hosts: [], waiting: [], blocked: 0, blockedList: [] };
+  const status = { pid: process.pid, started, updated: Date.now(), port: cfg?.port, listening, lastError, ...st, hostList: det.hosts, waiting: det.waiting, blocked: det.blocked, blockedList: det.blockedList };
   try { const tmp = P.file('status.json.tmp'); fs.writeFileSync(tmp, JSON.stringify(status)); fs.renameSync(tmp, P.file('status.json')); } catch {}
 }
 
@@ -54,7 +54,8 @@ relay.listen(cfg.port, '0.0.0.0').then(port => {
   writeStatus(relay);
   process.exit(1);
 });
-setInterval(() => { reloadHosts(relay); writeStatus(relay); }, 2000).unref?.();
+// Sperren aufheben, die die Oberfläche angefordert hat (unblock.json)
+setInterval(() => { reloadHosts(relay); for (const ip of P.takeUnblocks()) relay.unblock(ip); writeStatus(relay); }, 2000).unref?.();
 
 // Beendet sich mit dem Elternprozess (Aufgabe gestoppt), damit kein verwaister Dienst weiterläuft
 const parent = process.ppid;

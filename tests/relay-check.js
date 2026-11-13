@@ -181,6 +181,19 @@ function lines(t) {
   const removed = await hostLogin(relayPort, n => ({ t: 'host', key: entry.id, hostId, mac: hmac(entry.key, `host|${n}|${hostId}`) }));
   check('Angriff: entfernter PC getrennt und abgelehnt', link.state !== 'connected' && relay.stats().hosts === 0 && removed.t === 'closed', link.state + ' ' + JSON.stringify(removed));
 
+  // Sperre nach 10 Fehlversuchen: in der Liste mit Grund und Ablauf, „Sperre aufheben“ lässt die Adresse wieder zu
+  const r3 = createRelay({ getHosts: () => [entry] });
+  const r3Port = await r3.listen(0, '127.0.0.1');
+  for (let i = 0; i < 10; i++) await hostLogin(r3Port, n => ({ t: 'host', key: entry.id, hostId: hex(8), mac: hmac(hex(32), `host|${n}|x`) }));
+  const bl = r3.details().blockedList;
+  const helloBlocked = await hostLogin(r3Port, n => ({ t: 'host', key: entry.id, hostId, mac: 'x' })).catch(e => ({ t: 'closed', error: e.message }));
+  check('Sperre: gesperrte Adresse mit Anzahl, Grund und Ablauf in der Liste; neue Verbindungen abgewiesen',
+    bl.length === 1 && bl[0].ip === '127.0.0.1' && bl[0].count === 10 && /falsche Anmeldung/.test(bl[0].reason) && bl[0].until > Date.now() && r3.details().blocked === 1 && helloBlocked.t !== 'error', JSON.stringify(bl));
+  check('Sperre aufheben: Adresse wieder zugelassen', r3.unblock('127.0.0.1') === true && r3.details().blockedList.length === 0
+    && (await new Promise(res => { const s = net.connect(r3Port, '127.0.0.1'); readLine(s).then(m => { s.destroy(); res(m?.t === 'hello'); }, () => res(false)); })), JSON.stringify(r3.details()));
+  check('Sperre aufheben: unbekannte Adresse → nichts', r3.unblock('192.0.2.1') === false);
+  r3.close();
+
   // Adresse des Vermittlers versehentlich als Haupt-PC eingetragen: klare Meldung im Protokoll, Fehler beim Koppeln erkennbar
   const rlog = [];
   const r2 = createRelay({ getHosts: () => [], log: m => rlog.push(m) });

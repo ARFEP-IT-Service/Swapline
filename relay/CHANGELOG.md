@@ -3,6 +3,13 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von Swapline am PC und der Android-App.
 Tags: `relay-v<Version>`.
 
+## [0.3.2] – 2026-11-13
+
+- Neu: **Gesperrte Adressen** unter „Haupt-PCs“ – welche Adresse gesperrt ist, wie viele Fehlversuche, der letzte Grund,
+  wann die Sperre von selbst endet und ob einer der eigenen PCs dieselbe Adresse nutzt (gleicher Internetanschluss).
+  **„Sperre aufheben“** lässt die Adresse sofort wieder zu (nur als Administrator). Ohne App: `relay.js list` zeigt die
+  Sperren, `relay.js unblock <IP>` hebt eine auf.
+
 ## [0.3.1] – 2026-11-13
 
 - Behoben: Nach dem Update auf 0.3.0 zeigte die App „Gestoppt“ und ein leeres Protokoll, obwohl der Vermittler lief. Beim

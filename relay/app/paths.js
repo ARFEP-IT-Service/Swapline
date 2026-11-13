@@ -75,9 +75,26 @@ function removeHost(id) {
   writeHosts(list.filter(x => x.id !== id));
   return true;
 }
+// Sperre aufheben: Oberfläche (bzw. „relay.js unblock“) schreibt die Adresse in unblock.json, der Dienst übernimmt sie
+// innerhalb von 2 s und löscht die Datei. Nur gültige IP-Adressen.
+function requestUnblock(ip) {
+  if (!require('node:net').isIP(String(ip || ''))) return false;
+  const cur = readJson('unblock.json');
+  const ips = [...new Set([...(Array.isArray(cur?.ips) ? cur.ips : []), ip])].filter(x => require('node:net').isIP(String(x))).slice(0, 50);
+  writeJson('unblock.json', { ips });
+  return true;
+}
+// Vom Dienst: angeforderte Adressen holen und die Datei löschen
+function takeUnblocks() {
+  const cur = readJson('unblock.json');
+  if (!cur) return [];
+  try { fs.rmSync(file('unblock.json'), { force: true }); } catch {}
+  return (Array.isArray(cur.ips) ? cur.ips : []).filter(x => require('node:net').isIP(String(x)));
+}
+
 // Einrichtungscode für Swapline (am PC bzw. swapline-server): Adresse, Port, Eintrag und dessen Schlüssel
 function setupCode(address, port, e) {
   return 'srelay2.' + Buffer.from(JSON.stringify({ a: address, p: port, i: e.id, k: e.key })).toString('base64url');
 }
 
-module.exports = { DEFAULT_PORT, dataDir, file, readConfig, writeConfig, ensureConfig, readHosts, writeHosts, addHost, approveHost, removeHost, setupCode, logName };
+module.exports = { DEFAULT_PORT, dataDir, file, readConfig, writeConfig, ensureConfig, readHosts, writeHosts, addHost, approveHost, removeHost, setupCode, logName, requestUnblock, takeUnblocks };

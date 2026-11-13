@@ -64,6 +64,20 @@ const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } c
     check('Relay-App: entfernter PC wird getrennt', dropped && link.state !== 'connected', link.state);
     link.use(null);
 
+    // Gesperrte Adressen: 10 Fehlversuche → in status.json (für die Liste in der App); „Sperre aufheben“ über unblock.json
+    for (let i = 0; i < 10; i++) {
+      await new Promise(res => {
+        const s = net.connect(port, '127.0.0.1');
+        s.on('error', res); s.on('close', res);
+        s.once('data', () => s.write(JSON.stringify({ t: 'host', key: '00000000', hostId: '0'.repeat(16), mac: 'x' }) + '\n'));
+      });
+    }
+    const listed = await until(() => readJson(path.join(dir, 'status.json'))?.blockedList?.some(b => b.ip === '127.0.0.1' && b.count >= 10));
+    check('Relay-App: gesperrte Adresse erscheint mit Anzahl und Grund', listed && /falsche Anmeldung/.test(readJson(path.join(dir, 'status.json')).blockedList[0].reason), JSON.stringify(readJson(path.join(dir, 'status.json'))?.blockedList));
+    check('Relay-App: „Sperre aufheben“ nur für gültige Adressen', !P.requestUnblock('kein-ip') && !P.requestUnblock('1.2.3.4; rm') && P.requestUnblock('127.0.0.1'));
+    const freed = await until(() => readJson(path.join(dir, 'status.json'))?.blockedList?.length === 0 && !fs.existsSync(path.join(dir, 'unblock.json')));
+    check('Relay-App: Dienst hebt die Sperre auf und löscht den Auftrag', freed, JSON.stringify(readJson(path.join(dir, 'status.json'))?.blockedList));
+
     const log = fs.readFileSync(path.join(dir, 'relay.log'), 'utf8');
     check('Relay-App: Protokoll ohne Schlüssel', /gestartet/.test(log) && /Haupt-PC .*verbunden/.test(log) && /wartet auf Freigabe/.test(log) && !log.includes(e1.key), log.split('\n').slice(-3).join(' | '));
 

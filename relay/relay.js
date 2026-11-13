@@ -6,6 +6,7 @@
 //   node relay.js list                        Haupt-PCs (wartend, erlaubt)
 //   node relay.js approve <Eintrag>           wartenden PC zulassen
 //   node relay.js remove <Eintrag>            PC entfernen (Schlüssel ungültig)
+//   node relay.js unblock <IP>                gesperrte Adresse wieder zulassen (list zeigt die Sperren)
 // Unter Windows besser die App „Swapline Relay“ (Dienst + Oberfläche). Der Vermittler selbst steht in app/core.js.
 'use strict';
 const fs = require('node:fs');
@@ -26,11 +27,15 @@ if (require.main === module) {
     console.log(P.setupCode(b, cfg.port, P.addHost(a)));
   } else if (cmd === 'list') {
     const w = new Map((status().waiting || []).map(x => [x.entry, x]));
+    for (const b of status().blockedList || []) console.log(`GESPERRT  ${b.ip}  ${b.count} Fehlversuche, frei in ${Math.max(1, Math.ceil((b.until - Date.now()) / 60000))} min – ${b.reason}`);
     for (const e of P.readHosts()) console.log(`${e.id}  ${e.approved ? 'erlaubt  ' : w.has(e.id) ? 'WARTET   ' : 'unbenutzt'}  ${e.name}${w.has(e.id) ? `  (Kennung ${w.get(e.id).hostId.slice(0, 6)}…, ${w.get(e.id).ip})` : ''}`);
   } else if (cmd === 'approve') {
     const w = (status().waiting || []).find(x => x.entry === a);
     if (!w || !P.approveHost(a, w.hostId)) { console.error('Dieser Eintrag wartet nicht auf Freigabe (läuft der Vermittler?)'); process.exit(1); }
     console.log('Erlaubt.');
+  } else if (cmd === 'unblock') {
+    if (!P.requestUnblock(a)) { console.error('node relay.js unblock <IP-Adresse>'); process.exit(1); }
+    console.log('Wird innerhalb von 2 s aufgehoben (läuft der Vermittler?).');
   } else if (cmd === 'remove') {
     if (!P.removeHost(a)) { console.error('Eintrag nicht gefunden'); process.exit(1); }
     console.log('Entfernt.');
@@ -46,7 +51,9 @@ if (require.main === module) {
     setInterval(() => {
       let m = 0; try { m = fs.statSync(P.file('hosts.json')).mtimeMs; } catch {}
       if (m !== mtime) { mtime = m; hosts = P.readHosts(); relay.refresh(); }
-      try { fs.writeFileSync(P.file('status.json'), JSON.stringify({ updated: Date.now(), ...relay.stats(), waiting: relay.details().waiting })); } catch {}
+      for (const ip of P.takeUnblocks()) relay.unblock(ip);
+      const det = relay.details();
+      try { fs.writeFileSync(P.file('status.json'), JSON.stringify({ updated: Date.now(), ...relay.stats(), waiting: det.waiting, blockedList: det.blockedList })); } catch {}
     }, 2000).unref();
     relay.listen(cfg.port, process.env.SWAPLINE_RELAY_BIND || '0.0.0.0').then(port => log(`Swapline-Vermittler hört auf Port ${port}`), e => { log('Start fehlgeschlagen: ' + e.message); process.exit(1); });
   } else { console.error('Unbekannter Befehl – siehe Kopf von relay.js'); process.exit(1); }

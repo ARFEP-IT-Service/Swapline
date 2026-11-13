@@ -145,6 +145,12 @@ handle('hosts:remove', async id => {
   if (r.response !== 1) return false;
   return P.removeHost(id);
 });
+// Gesperrte Adresse wieder zulassen (nur Administratoren; der Dienst übernimmt es innerhalb von 2 s)
+handle('blocked:unblock', async ip => {
+  await needAdmin();
+  if (!(readStatus()?.blockedList || []).some(b => b.ip === ip)) return false;
+  return P.requestUnblock(ip);
+});
 handle('limits:set', async ({ perHost, total } = {}) => {
   await needAdmin();
   if (!Number.isInteger(perHost) || perHost < 1 || perHost > 100 || !Number.isInteger(total) || total < 1 || total > 1000) return { error: tr('Ungültige Werte', 'Invalid values') };

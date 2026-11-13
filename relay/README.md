@@ -49,6 +49,9 @@ Nach dem Update für jeden eigenen PC einen Code erzeugen, in Swapline (ab 0.19.
   Minute, 10 s bis zur Anmeldung, höchstens 300 gleichzeitige Verbindungen, Verbindungen je PC (Standard 10) und
   insgesamt (Standard 50) in der App einstellbar. Fehlversuche über den Vermittler sperren am Haupt-PC nur das
   betreffende Gerät.
+- **Gesperrte Adressen** zeigt die App unter „Haupt-PCs“ (Anzahl, Grund, Ablauf, ggf. eigener PC mit derselben Adresse);
+  „Sperre aufheben“ lässt eine Adresse sofort wieder zu – z. B. wenn ein eigenes Gerät mit einer alten Version sich und
+  damit den ganzen Internetanschluss gesperrt hat.
 - **Wenig Rechte:** Der Dienst läuft als *Lokaler Dienst*; der Datenordner ist nur für Administratoren, SYSTEM und das
   Dienstkonto lesbar (über SIDs, funktioniert auch auf deutschsprachigem Windows); die Rechte werden gesetzt, bevor eine
   Datei mit Schlüsseln entsteht. Die Schlüssel stehen nur in `hosts.json`, nie in Status oder Protokoll; das Fenster zeigt
@@ -77,6 +80,7 @@ node relay.js add Büro-PC relay.example.com   # Eintrag anlegen, gibt den Einri
 node relay.js list                            # Einträge, wartende PCs (Kennung, Adresse)
 node relay.js approve <Eintrag>               # „Erlauben“
 node relay.js remove <Eintrag>                # entfernen – der PC wird getrennt
+node relay.js unblock <IP>                    # gesperrte Adresse wieder zulassen
 ```
 
 ## Entwicklung

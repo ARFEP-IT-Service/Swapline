@@ -75,7 +75,29 @@ function hostsCard() {
       el('button', { class: 'primary', disabled: busy || !S.admin, onclick: () => act(async () => { const r = await window.relay.addHost(newName, chosenAddr); if (r?.ok) newName = ''; return r; }, tr('Einrichtungscode kopiert – in Swapline auf diesem PC einfügen', 'Setup code copied – paste it into Swapline on that PC')) }, tr('Einrichtungscode erzeugen', 'Create setup code'))),
     (S.hosts || []).length ? el('table', {}, el('tr', {}, el('th', {}, tr('Name', 'Name')), el('th', {}, tr('Kennung', 'ID')), el('th', {}, tr('Zustand', 'State')), el('th', {}, '')), ...S.hosts.map(row))
       : el('p', { class: 'muted' }, tr('Noch kein PC eingerichtet.', 'No PC set up yet.')),
-    S.status?.blocked ? el('p', { class: 'muted' }, tr(`${S.status.blocked} Adresse(n) wegen Fehlversuchen vorübergehend gesperrt.`, `${S.status.blocked} address(es) temporarily blocked after failed attempts.`)) : null);
+    blockedTable());
+}
+
+// Gesperrte Adressen (10 Fehlversuche in 10 Minuten): wer, warum, wie lange – mit „Sperre aufheben“. Gehört die Adresse
+// zu einem eigenen, verbundenen PC (gleicher Internetanschluss), steht dessen Name dabei.
+function blockedTable() {
+  const list = S.status?.alive ? S.status.blockedList || [] : [];
+  if (!list.length) return S.status?.blocked ? el('p', { class: 'muted' }, tr(`${S.status.blocked} Adresse(n) wegen Fehlversuchen vorübergehend gesperrt.`, `${S.status.blocked} address(es) temporarily blocked after failed attempts.`)) : null;
+  const names = new Map();
+  for (const h of S.status.hostList || []) { const e = (S.hosts || []).find(x => x.id === h.entry); if (e) names.set(h.ip, [...(names.get(h.ip) || []), e.name]); }
+  for (const w of S.status.waiting || []) { const e = (S.hosts || []).find(x => x.id === w.entry); if (e) names.set(w.ip, [...(names.get(w.ip) || []), e.name]); }
+  const mins = t => Math.max(1, Math.ceil((t - Date.now()) / 60000));
+  return el('div', {},
+    el('h3', {}, tr('Gesperrte Adressen', 'Blocked addresses')),
+    el('p', { class: 'muted' }, tr('Nach 10 Fehlversuchen in 10 Minuten wird eine Adresse vorübergehend abgewiesen. Eigene Geräte trifft das z. B., wenn eine alte Version mit altem Code weiter anklopft.',
+      'After 10 failed attempts within 10 minutes an address is turned away for a while. This can hit your own devices, e.g. when an old version keeps knocking with an old code.')),
+    el('table', {}, el('tr', {}, el('th', {}, tr('Adresse', 'Address')), el('th', {}, tr('Fehlversuche', 'Failed attempts')), el('th', {}, tr('Letzter Grund', 'Last reason')), el('th', {}, tr('Frei in', 'Free in')), el('th', {}, '')),
+      ...list.map(b => el('tr', {},
+        el('td', { class: 'mono' }, b.ip, names.has(b.ip) ? el('div', { class: 'muted' }, tr('gleiche Adresse wie ', 'same address as ') + names.get(b.ip).join(', ')) : null),
+        el('td', {}, String(b.count)),
+        el('td', {}, el('span', { class: 'muted' }, b.reason || '–'), el('div', { class: 'muted' }, tr(`zuletzt vor ${ago(b.last)}`, `last ${ago(b.last)} ago`))),
+        el('td', {}, tr(`${mins(b.until)} min`, `${mins(b.until)} min`)),
+        el('td', {}, el('button', { disabled: busy || !S.admin, onclick: () => act(() => window.relay.unblock(b.ip), tr('Sperre wird aufgehoben …', 'Unblocking …')) }, tr('Sperre aufheben', 'Unblock')))))));
 }
 
 function settingsCard() {

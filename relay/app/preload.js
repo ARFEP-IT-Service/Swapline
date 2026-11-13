@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('relay', {
   copyHostCode: (id, address) => call('hosts:code', id, address),
   approveHost: id => call('hosts:approve', id),
   removeHost: id => call('hosts:remove', id),
+  unblock: ip => call('blocked:unblock', ip),
   setLimits: (perHost, total) => call('limits:set', { perHost, total }),
   setPort: port => call('port:set', port),
   install: () => call('svc:install'),
