@@ -3,6 +3,11 @@
 Versionen folgen [Semantic Versioning](https://semver.org/lang/de/), unabhängig von der Version der PC-App.
 Tags: `android-v<Version>`.
 
+## [0.13.0] – 2026-11-15
+
+- Neu: Dateien, die Claude anlegt, erscheinen direkt im Chat – Markdown gerendert, andere Dateien als Code, mit
+  Zeilenzahl und Kopieren; lange Dateien gekürzt mit „Alles anzeigen“.
+
 ## [0.12.1] – 2026-11-13
 
 - Behoben: Offene Chats des Haupt-PCs standen nur unter „Alle“, nicht unter ihrem Projekt, wenn sie am PC per Ziehen

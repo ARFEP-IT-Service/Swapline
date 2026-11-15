@@ -89,6 +89,8 @@ internal val TR_TEXTS: Map<String, String> = hashMapOf(
     "Senden" to "Gönder",
     "1 Bild" to "1 görsel",
     "Kopieren" to "Kopyala",
+    "1 Zeile" to "1 satır",
+    "Inhalt kopieren" to "İçeriği kopyala",
     "Erlauben" to "İzin ver",
     "Immer erlauben" to "Her zaman izin ver",
     "Ablehnen" to "Reddet",

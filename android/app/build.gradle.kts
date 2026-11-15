@@ -20,8 +20,8 @@ android {
         applicationId = "de.arfep.swapline"
         minSdk = 26
         targetSdk = 37
-        versionCode = 16
-        versionName = "0.12.1"
+        versionCode = 17
+        versionName = "0.13.0"
     }
 
     signingConfigs {

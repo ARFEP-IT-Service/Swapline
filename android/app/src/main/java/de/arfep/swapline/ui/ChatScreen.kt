@@ -500,6 +500,8 @@ private fun ToolRow(it: Item.Tool) {
         if (it.images.isNotEmpty()) Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (b in it.images) Base64Thumb(b, Modifier.size(72.dp))
         }
+        // Von Claude geschriebene Datei: Inhalt direkt sichtbar (Markdown gerendert, sonst als Code)
+        if (it.name == "Write") FilePreview(it)
         AnimatedVisibility(open) {
             Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(tr("Eingabe", "Input"), fontSize = 11.sp, color = cs.onSurfaceVariant)
@@ -509,6 +511,34 @@ private fun ToolRow(it: Item.Tool) {
                     CodeBlock(it.result.take(20000), maxLines = 60)
                 }
             }
+        }
+    }
+}
+
+// Vorschau einer geschriebenen Datei: Name, Zeilen, Kopieren; lange Dateien erst gekürzt, „Alles anzeigen“ zeigt den Rest
+@Composable
+private fun FilePreview(it: Item.Tool) {
+    val obj = it.input as? kotlinx.serialization.json.JsonObject ?: return
+    val path = (obj["file_path"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return
+    val content = (obj["content"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return
+    val cs = MaterialTheme.colorScheme
+    val clip = LocalClipboardManager.current
+    var full by remember(it) { mutableStateOf(false) }
+    val name = path.substringAfterLast('/').substringAfterLast('\\')
+    val lines = if (content.isEmpty()) 0 else content.count { c -> c == '\n' } + 1
+    val limit = 6000
+    val shown = if (full || content.length <= limit) content else content.take(limit)
+    Column(Modifier.padding(top = 6.dp).fillMaxWidth().background(cs.surface, RoundedCornerShape(8.dp)).padding(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("📄 $name", Modifier.weight(1f), fontWeight = FontWeight.Medium, fontSize = 12.sp, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (lines == 1) tr("1 Zeile", "1 line") else tr("$lines Zeilen", "$lines lines", "$lines satır"), fontSize = 11.sp, color = cs.onSurfaceVariant)
+            IconButton(onClick = { clip.setText(AnnotatedString(content)) }, Modifier.size(28.dp)) {
+                Icon(Icons.Outlined.ContentCopy, tr("Inhalt kopieren", "Copy content"), Modifier.size(16.dp))
+            }
+        }
+        if (Regex("\\.(md|markdown)$", RegexOption.IGNORE_CASE).containsMatchIn(name)) Markdown(shown) else CodeBlock(shown)
+        if (!full && content.length > limit) androidx.compose.material3.TextButton(onClick = { full = true }) {
+            Text(tr("Alles anzeigen (${content.length} Zeichen)", "Show everything (${content.length} characters)", "Tümünü göster (${content.length} karakter)"))
         }
     }
 }
