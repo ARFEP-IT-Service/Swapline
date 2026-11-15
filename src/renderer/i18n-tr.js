@@ -658,6 +658,14 @@ const TR = {
   'Ändern: Einstellungen → Fernzugriff → Geräteliste.': 'Değiştirmek için: Ayarlar → Uzaktan erişim → cihaz listesi.',
   'Alter Einrichtungscode – in Swapline Relay (ab 0.3.0) unter „Haupt-PCs“ einen Code für diesen PC erzeugen.': 'Eski kurulum kodu – Swapline Relay\'de (0.3.0 ve üzeri) “Ana bilgisayarlar” altında bu bilgisayar için bir kod oluşturun.',
   'Einrichtungscode aus Swapline Relay einfügen': 'Swapline Relay\'den kurulum kodunu yapıştırın',
+  'Alles anzeigen ({n} Zeichen)': 'Tümünü göster ({n} karakter)',
+  '1 Zeile': '1 satır',
+  '{n} Zeilen': '{n} satır',
+  'Inhalt kopieren': 'İçeriği kopyala',
+  'Öffnen': 'Aç',
+  'Im Ordner zeigen': 'Klasörde göster',
+  'Datei nicht gefunden oder nicht freigegeben': 'Dosya bulunamadı veya paylaşılmadı',
+  'Dieser Dateityp wird nur im Explorer gezeigt': 'Bu dosya türü yalnızca Gezgin\'de gösterilir',
 };
 
 if (typeof module !== 'undefined') module.exports = TR;

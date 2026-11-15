@@ -709,6 +709,29 @@ handle('files:image', (_e, { cwd, path: file } = {}) => {
   return readImage(file, dir, [...allowedFolders(), ...(dir ? [dir] : [])]);
 });
 handle('web:image', (_e, url) => fetchWebImage(url));
+// Von Claude angelegte Datei öffnen bzw. im Explorer zeigen: nur Dateien in freigegebenen Ordnern (bzw. dem Ordner des
+// Chats), keine Netzwerkpfade. Öffnen mit dem Standardprogramm nur für Dokumente, Bilder und Daten – Programme und
+// Skripte (.exe, .bat, .ps1, .js, .py …) würden dabei ausgeführt, die gibt es nur im Explorer.
+const OPEN_EXT = new Set(['.txt', '.md', '.markdown', '.json', '.csv', '.tsv', '.log', '.xml', '.yml', '.yaml', '.ini', '.toml', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
+  '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.rtf', '.html', '.htm']);
+function chatFile(file, cwd) {
+  if (typeof file !== 'string' || !file.trim() || file.length > 1000 || file.includes('\0') || isUnc(file.trim())) return null;
+  const dir = typeof cwd === 'string' && cwd && isAllowedCwd(cwd) ? cwd : '';
+  if (!path.isAbsolute(file.trim()) && !dir) return null;
+  let real;
+  try { real = fs.realpathSync(path.resolve(dir || '', file.trim())); if (!fs.statSync(real).isFile()) return null; } catch { return null; }
+  const inside = r => { try { const rel = path.relative(fs.realpathSync(r), real); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); } catch { return false; } };
+  return [...allowedFolders(), ...(dir ? [dir] : [])].some(inside) ? real : null;
+}
+const canOpenFile = f => OPEN_EXT.has(path.extname(f).toLowerCase());
+handle('files:info', (_e, { cwd, path: file } = {}) => { const f = chatFile(file, cwd); return f ? { ok: true, canOpen: canOpenFile(f) } : { ok: false }; });
+handle('files:open', (_e, { cwd, path: file, reveal } = {}) => {
+  const f = chatFile(file, cwd);
+  if (!f) return { error: tr('Datei nicht gefunden oder nicht freigegeben', 'File not found or not shared') };
+  if (!reveal && !canOpenFile(f)) return { error: tr('Dieser Dateityp wird nur im Explorer gezeigt', 'This file type is only shown in Explorer') };
+  if (!(DEV && process.env.SWAPLINE_TEST_JS)) reveal ? shell.showItemInFolder(f) : shell.openPath(f); // Testlauf: nur prüfen
+  return { ok: true };
+});
 // /export: Chat als Markdown speichern – Ziel wählt der Nutzer im Speichern-Dialog (keine Netzwerkpfade)
 handle('chat:export', async (_e, { name, content } = {}) => {
   if (typeof content !== 'string' || content.length > 50e6) return { error: tr('Ungültig', 'Invalid') };

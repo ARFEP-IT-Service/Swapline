@@ -567,3 +567,12 @@ button.link:hover { color: var(--accent); }
 .modal.image-view { max-width: 92vw; width: auto; }
 .modal.image-view img { display: block; max-width: 88vw; max-height: 78vh; margin: 0 auto; border-radius: 8px; }
 .dev-row label.risk-right { color: var(--danger); }
+/* Von Claude geschriebene Datei als Vorschau im Chat */
+.file-preview { max-width: 88%; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); margin: 4px 0 8px; overflow: hidden; }
+.file-preview.pending { opacity: .7; }
+.file-preview .fp-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.file-preview .fp-name { font-weight: 600; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.file-preview .fp-head .grow { flex: 1; }
+.file-preview button.small { padding: 2px 10px; font-size: 12px; flex: none; }
+.file-preview .fp-body { max-height: 420px; overflow: auto; padding: 8px 12px; }
+.file-preview .fp-body pre { margin: 0 0 6px; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; background: var(--code-bg); padding: 8px 10px; border-radius: 8px; }

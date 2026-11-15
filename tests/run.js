@@ -191,6 +191,7 @@ for (const file of files) {
       relay: { enabled: true, address: 'relay.example', port: 47821, secretEnc: 'x', hostId: '00112233aabbccdd', dialKeyEnc: 'x' } } } : {}),
   }));
   // kleines Bild außerhalb des App-Ordners: die Oberfläche darf es nicht laden
+  fs.writeFileSync(path.join(work, 'skript.bat'), '@echo off\r\n'); // Dateivorschau: darf nur im Explorer gezeigt, nie geöffnet werden
   fs.writeFileSync(path.join(work, 'probe.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
   const script = path.join(work, 'test.js');
   // In eine Funktion gekapselt, damit Hilfsnamen nicht mit globalen Namen der Oberfläche kollidieren

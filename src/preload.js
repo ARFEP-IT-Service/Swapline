@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('api', {
   readTaskOutput: file => invoke('task:readOutput', file),
   exportChat: data => invoke('chat:export', data),
   images: { file: (cwd, path) => invoke('files:image', { cwd, path }), web: url => invoke('web:image', url) },
+  files: { info: (cwd, path) => invoke('files:info', { cwd, path }), open: (cwd, path, reveal = false) => invoke('files:open', { cwd, path, reveal: !!reveal }) },
   copyText: text => invoke('clipboard:write', text),
   pickAttachments: () => invoke('attach:pick'),
   // Pfad einer per Drag & Drop abgelegten Datei (nur für vom Nutzer abgelegte File-Objekte)

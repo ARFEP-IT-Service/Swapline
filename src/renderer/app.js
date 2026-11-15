@@ -1360,7 +1360,7 @@ function renderItem(t, it) {
           it.time ? el('span', { class: 'msg-time left' }, msgTime(it.time)) : null,
           el('button', { class: 'copy-answer', title: _('Antwort kopieren (Markdown)'), onclick: e => copyText(it.text, e.currentTarget) }, _('Kopieren'))));
     }
-    case 'tool': return renderTool(it);
+    case 'tool': return it.name === 'Write' && typeof it.input?.content === 'string' && it.input.file_path ? el('div', {}, renderTool(it), renderFilePreview(t, it)) : renderTool(it);
     case 'bash': return renderBash(t, it);
     case 'perm': return renderPerm(t, it);
     case 'question': return renderQuestion(t, it);
@@ -1429,6 +1429,44 @@ function renderTool(it) {
   });
   return d;
 }
+// Von Claude geschriebene Datei direkt im Chat: Markdown gerendert, sonst als Text (HTML/SVG nie ausgeführt). Der Inhalt
+// kommt aus dem Werkzeug-Aufruf selbst – auch bei Chats auf einem Haupt-PC oder Server. Öffnen/Explorer nur bei Chats auf
+// diesem PC; der Hauptprozess prüft Ordner und Dateityp.
+const PREVIEW_MAX = 20000;
+function renderFilePreview(t, it) {
+  const file = String(it.input.file_path), name = file.split(/[\\/]/).pop() || file;
+  const text = it.input.content, lines = text ? text.split('\n').length : 0;
+  const isMd = /\.(md|markdown)$/i.test(name);
+  const body = el('div', { class: 'fp-body' });
+  let full = false;
+  const fill = () => {
+    const shown = full || text.length <= PREVIEW_MAX ? text : text.slice(0, PREVIEW_MAX);
+    if (isMd) { body.className = 'fp-body md'; body.innerHTML = md(shown); enhanceCode(body); hydrateImages(t, body); }
+    else body.replaceChildren(el('pre', {}, shown));
+    if (!full && text.length > PREVIEW_MAX) body.append(el('button', { class: 'ghost small', onclick: () => { full = true; fill(); } }, _('Alles anzeigen ({n} Zeichen)', { n: text.length })));
+  };
+  const done = it.result != null && !it.isError;
+  const card = el('div', { class: 'file-preview' + (done ? '' : ' pending') },
+    el('div', { class: 'fp-head' },
+      el('span', { class: 'fp-name', title: file }, '📄 ' + name),
+      el('span', { class: 'muted' }, lines === 1 ? _('1 Zeile') : _('{n} Zeilen', { n: lines })),
+      el('span', { class: 'grow' }),
+      el('button', { class: 'ghost small', title: _('Inhalt kopieren'), onclick: e => copyText(text, e.currentTarget) }, _('Kopieren'))),
+    body);
+  fill();
+  // Öffnen / im Explorer zeigen: nur lokal und erst, wenn die Datei geschrieben ist
+  if (done && !t?.host) {
+    const head = card.querySelector('.fp-head');
+    const open = async reveal => { const r = await api.files.open(t.cwd || '', file, reveal); if (r?.error) toast(r.error); };
+    api.files.info(t.cwd || '', file).then(info => {
+      if (!info?.ok) return;
+      if (info.canOpen) head.append(el('button', { class: 'ghost small', onclick: () => open(false) }, _('Öffnen')));
+      head.append(el('button', { class: 'ghost small', onclick: () => open(true) }, _('Im Ordner zeigen')));
+    }).catch(() => {});
+  }
+  return card;
+}
+
 // „!“-Befehl: Karte mit Befehl, Status und Ausgabe (offen, solange er läuft)
 function renderBash(t, it) {
   const state = it.state !== 'done' ? 'run' : Number(it.code) ? 'err' : 'ok';

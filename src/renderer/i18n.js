@@ -655,4 +655,10 @@ const EN = {
   'Adresse ändern (z. B. anderer DNS-Name):': 'Change address (e.g. another DNS name):',
   'Darf „!“-Befehle direkt auf diesem PC ausführen (ohne Claude, ohne Rückfrage)': 'May run “!” commands directly on this PC (without Claude, without asking)',
   '„!“-Befehle': '“!” commands',
+  'Alles anzeigen ({n} Zeichen)': 'Show everything ({n} characters)',
+  '1 Zeile': '1 line',
+  '{n} Zeilen': '{n} lines',
+  'Inhalt kopieren': 'Copy content',
+  'Öffnen': 'Open',
+  'Im Ordner zeigen': 'Show in folder',
 };

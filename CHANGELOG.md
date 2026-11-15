@@ -7,6 +7,15 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.20.0] – 2026-11-15
+
+- Neu: **Dateien, die Claude anlegt, erscheinen direkt im Chat** – Markdown gerendert, andere Dateien als Code (HTML und
+  SVG nur als Text, nie ausgeführt), mit Zeilenzahl und „Kopieren“; lange Dateien gekürzt mit „Alles anzeigen“. Auch bei
+  Chats auf einem Haupt-PC oder Server.
+- Neu: **„Öffnen“ und „Im Ordner zeigen“** für solche Dateien bei Chats auf diesem PC – nur Dateien in freigegebenen
+  Ordnern; mit dem Standardprogramm geöffnet werden nur Dokumente, Bilder und Daten (Programme und Skripte wie .exe, .bat,
+  .ps1, .js nur im Explorer).
+
 ## [0.19.2] – 2026-11-13
 
 - Behoben: Offene Chats eines Haupt-PCs erschienen auf anderen Geräten nur unter „Alle“, nicht unter ihrem Projekt, wenn

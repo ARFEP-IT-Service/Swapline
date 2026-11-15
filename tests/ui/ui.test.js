@@ -314,5 +314,21 @@
   const th = makeTab({ title: 'Verlauf' });
   ingest(th, { type: 'user', message: { role: 'user', content: '<bash-input>ls</bash-input>\n<bash-stdout>a.txt</bash-stdout>\n\nWas siehst du?' } }, true);
   check('„!“ im Verlauf: Befehls-Karte und eigene Nachricht', th.items[0]?.kind === 'bash' && th.items[0].command === 'ls' && th.items[0].output === 'a.txt' && th.items[1]?.kind === 'me' && th.items[1].text === 'Was siehst du?', JSON.stringify(th.items));
+  // Von Claude geschriebene Datei: Vorschau im Chat (Markdown gerendert, nichts ausgeführt), Öffnen nur sicher
+  const tw = makeTab({ title: 'Datei', cwd: WORK });
+  const wItem = { kind: 'tool', name: 'Write', input: { file_path: WORK + '/notiz.md', content: '# Überschrift\n\nText <script>window.__xss=1</script><img src=x onerror="window.__xss=2">' }, result: 'ok' };
+  const prev = renderItem(tw, wItem);
+  const fp = prev.querySelector('.file-preview');
+  check('Datei von Claude: Vorschau im Chat mit Name und Markdown', !!fp && fp.querySelector('.fp-name').textContent.includes('notiz.md') && !!fp.querySelector('.fp-body h1') && fp.querySelector('.fp-body h1').textContent === 'Überschrift');
+  document.body.append(prev); await sleep(50); prev.remove();
+  check('Datei von Claude: Skripte in der Vorschau werden nicht ausgeführt', !window.__xss && !fp.querySelector('script') && !fp.querySelector('[onerror]'));
+  const codePrev = renderItem(tw, { kind: 'tool', name: 'Write', input: { file_path: WORK + '/a.html', content: '<b>fett</b>' }, result: 'ok' }).querySelector('.fp-body');
+  check('Datei von Claude: HTML wird als Text gezeigt, nicht dargestellt', codePrev.querySelector('pre')?.textContent === '<b>fett</b>' && !codePrev.querySelector('b'));
+  const BS = String.fromCharCode(92);
+  const okInfo = await api.files.info(WORK, 'probe.png'), batInfo = await api.files.info(WORK, 'skript.bat');
+  check('Datei öffnen: Bild im Projektordner ja, Skript nur im Explorer', okInfo.ok && okInfo.canOpen && batInfo.ok && !batInfo.canOpen
+    && (await api.files.open(WORK, 'probe.png')).ok && !!(await api.files.open(WORK, 'skript.bat')).error && (await api.files.open(WORK, 'skript.bat', true)).ok, JSON.stringify({ okInfo, batInfo }));
+  check('Datei öffnen: außerhalb der Ordner, Netzwerkpfade und Unsinn abgelehnt', !(await api.files.info(WORK, ['C:', 'Windows', 'win.ini'].join(BS))).ok
+    && !(await api.files.info(WORK, BS + BS + 'server' + BS + 'x.txt')).ok && !(await api.files.info(WORK, '..' + BS + '..' + BS + 'x')).ok && !!(await api.files.open('', 'probe.png')).error);
   return T;
 })()
