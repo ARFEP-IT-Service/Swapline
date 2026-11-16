@@ -124,6 +124,17 @@ if (!filter || 'risk'.includes(filter)) { // Einstufung von Rückfragen (dieselb
   console.log(`  ${ok ? '✓' : '✕'} Rückfragen: ${cases.length} Fälle richtig eingestuft (kritisch, Vorsicht, normal)${ok ? '' : '\n      ' + bad.map(c => JSON.stringify(c.input)).join('\n      ')}`);
 }
 
+if (!filter || 'helpers'.includes(filter)) { // Hilfsagenten (Haiku/Sonnet) nur mit Einstellung, gültiges JSON für --agents
+  console.log('\nhelpers');
+  const { claudeArgs } = require(path.join(root, 'src', 'chat-core.js'));
+  const off = claudeArgs({ model: 'opus' }), on = claudeArgs({ model: 'opus' }, { helpers: true });
+  let agents = null; try { agents = JSON.parse(on[on.indexOf('--agents') + 1]); } catch {}
+  const ok = !off.includes('--agents') && !!agents && agents['swapline-light']?.model === 'haiku' && agents['swapline-medium']?.model === 'sonnet'
+    && Object.values(agents).every(a => a.description && a.prompt) && on[on.indexOf('--model') + 1] === 'opus';
+  if (ok) passed++; else failed++;
+  console.log(`  ${ok ? '✓' : '✕'} Hilfsagenten: nur mit Einstellung, Haiku für Leichtes, Sonnet für Mittleres, Hauptmodell bleibt${ok ? '' : '\n      ' + JSON.stringify(on)}`);
+}
+
 if (!filter || 'licenses'.includes(filter)) { // Lizenzhinweise (ohne Build): PC-App und Swapline Relay
   console.log('\nlicenses');
   const notices = fs.readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8').toLowerCase();

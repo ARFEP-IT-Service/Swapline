@@ -314,6 +314,12 @@
   const th = makeTab({ title: 'Verlauf' });
   ingest(th, { type: 'user', message: { role: 'user', content: '<bash-input>ls</bash-input>\n<bash-stdout>a.txt</bash-stdout>\n\nWas siehst du?' } }, true);
   check('„!“ im Verlauf: Befehls-Karte und eigene Nachricht', th.items[0]?.kind === 'bash' && th.items[0].command === 'ls' && th.items[0].output === 'a.txt' && th.items[1]?.kind === 'me' && th.items[1].text === 'Was siehst du?', JSON.stringify(th.items));
+  // Einstellung „Kleine Aufgaben an günstigere Modelle abgeben“: nur true/false, Standard aus
+  const hs0 = (await api.getStore()).settings.helpers;
+  const hsBad = await api.setSettings({ helpers: 'ja' });
+  const hsOn = await api.setSettings({ helpers: true });
+  check('Hilfsmodelle: Standard aus, nur Ja/Nein, einschaltbar', hs0 !== true && hsBad.settings.helpers !== 'ja' && hsOn.settings.helpers === true);
+  await api.setSettings({ helpers: false });
   // Von Claude geschriebene Datei: Vorschau im Chat (Markdown gerendert, nichts ausgeführt), Öffnen nur sicher
   const tw = makeTab({ title: 'Datei', cwd: WORK });
   const wItem = { kind: 'tool', name: 'Write', input: { file_path: WORK + '/notiz.md', content: '# Überschrift\n\nText <script>window.__xss=1</script><img src=x onerror="window.__xss=2">' }, result: 'ok' };

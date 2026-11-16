@@ -2464,6 +2464,9 @@ function openSettings() {
     el('label', { class: 'field' }, el('span', {}, _('Modell für neue Chats')), sel('model', [['', _('Standard') + (defName ? ' · ' + defName : ' ' + _('(laut Konto)'))], ...modelOpts])),
     el('label', { class: 'field' }, el('span', {}, _('Aufwand für neue Chats')), sel('effort', [['', _('Standard') + (defEff ? ' · ' + effortName(defEff) : ' ' + _('(laut Konto)'))], ...Object.keys(EFFORT_LABEL).map(k => [k, effortName(k)])])),
     el('p', { class: 'hint' }, _('„Standard“ richtet sich nach dem Konto: Modell laut Claude-Empfehlung, Aufwand laut effortLevel in den Claude-Einstellungen des Kontos.')),
+    (() => { const cb = el('input', { type: 'checkbox', checked: store.settings.helpers === true }); cb.onchange = async () => { store = await api.setSettings({ helpers: cb.checked }); toast(_('Gilt für neu gestartete Chats')); };
+      return el('div', {}, el('label', { class: 'row', style: 'margin:6px 0 2px' }, cb, _('Kleine Aufgaben an günstigere Modelle abgeben')),
+        el('p', { class: 'hint' }, _('Claude gibt leichte Aufgaben (Tests laufen lassen, suchen, Logs zusammenfassen) an Haiku und mittlere (kleine Änderungen, einfache Tests) an Sonnet ab – das spart Nutzung des großen Modells. Gleiches Konto und gleiche Rückfragen wie im Chat.'))); })(),
     el('label', { class: 'field' }, el('span', {}, _('Berechtigungen für neue Chats')), sel('permissionMode', [['default', _('Nachfragen')], ['acceptEdits', _('Änderungen erlauben')], ['plan', _('Nur planen')], ['bypassPermissions', _('Alles erlauben (--dangerously-skip-permissions)')]])),
     store.bypassAcknowledged ? el('div', { class: 'row' },
       el('span', { class: 'hint', style: 'flex:1' }, _('Die Warnung zu „Alles erlauben“ wurde bestätigt und erscheint nicht mehr.')),

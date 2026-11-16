@@ -7,6 +7,13 @@ exe, Installer, ZIP, „Apps & Features“ und die Anzeige in der App.
 
 Vor jedem Push wird entschieden, ob eine neue Versionsnummer vergeben wird.
 
+## [0.21.0] – 2026-11-16
+
+- Neu: **Kleine Aufgaben an günstigere Modelle abgeben** (Einstellungen, Standard aus) – Claude gibt leichte Aufgaben
+  (Tests laufen lassen, suchen, Logs zusammenfassen) an **Haiku** und mittlere (kleine Änderungen, einfache Tests) an
+  **Sonnet** ab. Spart Nutzung des großen Modells; gleiches Konto, gleiche Rückfragen und Berechtigungen wie im Chat.
+  Gilt für neu gestartete Chats, auch für Chats, die Geräte auf diesem Haupt-PC führen.
+
 ## [0.20.0] – 2026-11-15
 
 - Neu: **Dateien, die Claude anlegt, erscheinen direkt im Chat** – Markdown gerendert, andere Dateien als Code (HTML und

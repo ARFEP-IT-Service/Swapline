@@ -319,7 +319,7 @@ function trackBgTask(s, m) {
 }
 function startSession(tab) {
   const profile = profileById(tab.profileId);
-  const args = claudeArgs(tab);
+  const args = claudeArgs(tab, { helpers: getStore().settings.helpers === true });
 
   const proc = tab.ssh ? spawnSsh(tab.ssh, claudeOnServer(args, tab.cwd)) : spawnClaude(args, profile, { chat: true, cwd: tab.cwd && fs.existsSync(tab.cwd) ? tab.cwd : HOME });
   // lastCost: letzter Kostenstand der Sitzung. Beim Fortsetzen (--resume) startet Claude Code mit den bisherigen Kosten
@@ -550,6 +550,7 @@ handle('settings:set', (_e, patch) => {
     else if (k === 'updateMode' && UPDATE_MODES.includes(v)) ok.updateMode = v;
     else if (k === 'language' && LANGS.includes(v)) ok.language = v;
     else if (k === 'emoji' && typeof v === 'boolean') ok.emoji = v;
+    else if (k === 'helpers' && typeof v === 'boolean') ok.helpers = v;
     else if (k === 'permissionMode' && MODES.includes(v)) {
       if (v === 'bypassPermissions' && !confirmBypass()) return reject('Bypass nicht bestätigt');
       ok.permissionMode = v;

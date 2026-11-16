@@ -661,4 +661,7 @@ const EN = {
   'Inhalt kopieren': 'Copy content',
   'Öffnen': 'Open',
   'Im Ordner zeigen': 'Show in folder',
+  'Gilt für neu gestartete Chats': 'Applies to newly started chats',
+  'Kleine Aufgaben an günstigere Modelle abgeben': 'Hand small tasks to cheaper models',
+  'Claude gibt leichte Aufgaben (Tests laufen lassen, suchen, Logs zusammenfassen) an Haiku und mittlere (kleine Änderungen, einfache Tests) an Sonnet ab – das spart Nutzung des großen Modells. Gleiches Konto und gleiche Rückfragen wie im Chat.': 'Claude hands light tasks (running tests, searching, summarizing logs) to Haiku and medium ones (small changes, simple tests) to Sonnet – this saves usage of the large model. Same account and same permission prompts as in the chat.',
 };

@@ -666,6 +666,9 @@ const TR = {
   'Im Ordner zeigen': 'Klasörde göster',
   'Datei nicht gefunden oder nicht freigegeben': 'Dosya bulunamadı veya paylaşılmadı',
   'Dieser Dateityp wird nur im Explorer gezeigt': 'Bu dosya türü yalnızca Gezgin\'de gösterilir',
+  'Gilt für neu gestartete Chats': 'Yeni başlatılan sohbetler için geçerli',
+  'Kleine Aufgaben an günstigere Modelle abgeben': 'Küçük görevleri daha ucuz modellere devret',
+  'Claude gibt leichte Aufgaben (Tests laufen lassen, suchen, Logs zusammenfassen) an Haiku und mittlere (kleine Änderungen, einfache Tests) an Sonnet ab – das spart Nutzung des großen Modells. Gleiches Konto und gleiche Rückfragen wie im Chat.': 'Claude hafif görevleri (test çalıştırma, arama, günlükleri özetleme) Haiku\'ya, orta görevleri (küçük değişiklikler, basit testler) Sonnet\'e devreder – bu, büyük modelin kullanımından tasarruf sağlar. Sohbetteki ile aynı hesap ve aynı onay soruları.',
 };
 
 if (typeof module !== 'undefined') module.exports = TR;

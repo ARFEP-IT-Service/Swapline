@@ -8,7 +8,25 @@ const path = require('node:path');
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // Startparameter für einen Chat (stream-json, Rückfragen über stdio)
-function claudeArgs(tab) {
+// Hilfsagenten (Einstellung „Kleine Aufgaben an günstigere Modelle“): Claude gibt leichte Aufgaben an Haiku und mittlere
+// an Sonnet ab – spart Nutzung des großen Modells. Sie laufen im selben Claude Code mit demselben Konto (Anthropic:
+// zählt zu denselben Limits, kleinere Modelle verbrauchen weniger). Rückfragen und Berechtigungen gelten wie im Chat.
+// Beschreibungen auf Englisch: Claude entscheidet danach, wann es abgibt.
+const HELPER_AGENTS = {
+  'swapline-light': {
+    description: 'Use proactively for small, mechanical tasks that need no deep reasoning: running tests, linters or builds and reporting the result, searching files or code, reading and summarizing logs or command output, checking whether something exists or how it is configured, listing files. Returns a short factual summary.',
+    prompt: 'You are a fast helper for small, mechanical tasks. Do exactly what was asked, nothing more. Do not change files unless the task explicitly says so. Report the result briefly and factually (what you ran or read, what came out, any errors with the relevant lines).',
+    tools: ['Read', 'Grep', 'Glob', 'Bash', 'PowerShell'],
+    model: 'haiku',
+  },
+  'swapline-medium': {
+    description: 'Use for moderately complex but well-defined tasks that do not need the main model: small focused code changes in one or two files, writing straightforward tests, routine refactors, reviewing a diff for obvious bugs. Not for architecture decisions, security-sensitive changes or unclear requirements.',
+    prompt: 'You are a careful helper for well-defined, moderately complex tasks. Stay within the scope you were given, follow the existing code style, and report briefly what you changed (files and why) and anything you were unsure about.',
+    model: 'sonnet',
+  },
+};
+
+function claudeArgs(tab, { helpers = false } = {}) {
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--permission-prompt-tool', 'stdio', '--include-partial-messages'];
   if (tab.sessionId) args.push('--resume', tab.sessionId);
@@ -17,6 +35,7 @@ function claudeArgs(tab) {
   if (tab.permissionMode === 'bypassPermissions') args.push('--dangerously-skip-permissions');
   else if (tab.permissionMode && tab.permissionMode !== 'default') args.push('--permission-mode', tab.permissionMode);
   if (tab.effort) args.push('--effort', tab.effort);
+  if (helpers) args.push('--agents', JSON.stringify(HELPER_AGENTS));
   return args;
 }
 
@@ -282,5 +301,5 @@ function fetchWebImage(url, redirects = 3) {
   });
 }
 
-module.exports = { same, claudeArgs, checkResponse, encodeCwd, readHead, readTail, listSessions, parseSessionHead, loadTranscript, transcriptFromText,
+module.exports = { HELPER_AGENTS, same, claudeArgs, checkResponse, encodeCwd, readHead, readTail, listSessions, parseSessionHead, loadTranscript, transcriptFromText,
   isPrompt, slimMessage, pageTranscript, IMAGE_MEDIA, validContent, readImage, sniffImage, publicIp, fetchWebImage, IMAGE_EXT, IMAGE_MAX, serverImageScript, serverImageResult };
